@@ -1,0 +1,161 @@
+package engine.utils;
+
+/**
+ * 3D math utilities - vectors, matrices, etc.
+ */
+public class Math3D {
+    
+    /**
+     * 4x4 Matrix for transformations
+     */
+    public static class Mat4 {
+        public final float[] m = new float[16];
+
+        public float[] toArray() {
+            return m; // o come si chiama il tuo array interno
+        }
+        
+        public Mat4() {}
+        
+        public static Mat4 identity() {
+            Mat4 r = new Mat4();
+            r.m[0] = r.m[5] = r.m[10] = r.m[15] = 1;
+            return r;
+        }
+        
+        public static Mat4 perspective(float fov, float aspect, float near, float far) {
+            Mat4 r = new Mat4();
+            float f = (float) (1.0 / Math.tan(Math.toRadians(fov) / 2));
+            r.m[0] = f / aspect;
+            r.m[5] = f;
+            r.m[10] = (far + near) / (near - far);
+            r.m[11] = -1;
+            r.m[14] = (2 * far * near) / (near - far);
+            return r;
+        }
+        
+        public static Mat4 lookAt(float px, float py, float pz, 
+                                   float cx, float cy, float cz, 
+                                   float ux, float uy, float uz) {
+            // Calculate forward (z) vector
+            float zx = px - cx, zy = py - cy, zz = pz - cz;
+            float zl = (float) Math.sqrt(zx * zx + zy * zy + zz * zz);
+            zx /= zl; zy /= zl; zz /= zl;
+            
+            // Calculate right (x) vector
+            float xx = uy * zz - uz * zy;
+            float xy = uz * zx - ux * zz;
+            float xz = ux * zy - uy * zx;
+            float xl = (float) Math.sqrt(xx * xx + xy * xy + xz * xz);
+            xx /= xl; xy /= xl; xz /= xl;
+            
+            // Calculate up (y) vector
+            float yx = zy * xz - zz * xy;
+            float yy = zz * xx - zx * xz;
+            float yz = zx * xy - zy * xx;
+            
+            Mat4 r = new Mat4();
+            r.m[0] = xx;  r.m[4] = xy;  r.m[8] = xz;
+            r.m[1] = yx;  r.m[5] = yy;  r.m[9] = yz;
+            r.m[2] = zx;  r.m[6] = zy;  r.m[10] = zz;
+            r.m[12] = -(xx * px + xy * py + xz * pz);
+            r.m[13] = -(yx * px + yy * py + yz * pz);
+            r.m[14] = -(zx * px + zy * py + zz * pz);
+            r.m[15] = 1;
+            return r;
+        }
+        
+        public static Mat4 translate(float x, float y, float z) {
+            Mat4 r = identity();
+            r.m[12] = x;
+            r.m[13] = y;
+            r.m[14] = z;
+            return r;
+        }
+        
+        public static Mat4 scale(float x, float y, float z) {
+            Mat4 r = identity();
+            r.m[0] = x;
+            r.m[5] = y;
+            r.m[10] = z;
+            return r;
+        }
+    }
+    
+    /**
+     * 3D Vector
+     */
+    public static class Vec3 {
+        public float x, y, z;
+        
+        public Vec3() {}
+        
+        public Vec3(float x, float y, float z) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+        }
+        
+        public Vec3 add(Vec3 other) {
+            return new Vec3(x + other.x, y + other.y, z + other.z);
+        }
+        
+        public Vec3 sub(Vec3 other) {
+            return new Vec3(x - other.x, y - other.y, z - other.z);
+        }
+        
+        public Vec3 mul(float scalar) {
+            return new Vec3(x * scalar, y * scalar, z * scalar);
+        }
+        
+        public float length() {
+            return (float) Math.sqrt(x * x + y * y + z * z);
+        }
+        
+        public Vec3 normalize() {
+            float len = length();
+            if (len > 0) {
+                return new Vec3(x / len, y / len, z / len);
+            }
+            return new Vec3(0, 0, 0);
+        }
+        
+        public float dot(Vec3 other) {
+            return x * other.x + y * other.y + z * other.z;
+        }
+        
+        public Vec3 cross(Vec3 other) {
+            return new Vec3(
+                y * other.z - z * other.y,
+                z * other.x - x * other.z,
+                x * other.y - y * other.x
+            );
+        }
+        
+        public Vec3 copy() {
+            return new Vec3(x, y, z);
+        }
+    }
+    
+    /**
+     * Clamp value between min and max
+     */
+    public static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+    
+    /**
+     * Linear interpolation
+     */
+    public static float lerp(float a, float b, float t) {
+        return a + t * (b - a);
+    }
+    
+    /**
+     * Smooth step interpolation
+     */
+    public static float smoothstep(float edge0, float edge1, float x) {
+        float t = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    }
+}

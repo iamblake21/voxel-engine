@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+def lwjglVersion = "3.3.3"
+
+// --- OS & architecture detection ---
+String os = System.getProperty("os.name").toLowerCase()
+String arch = System.getProperty("os.arch").toLowerCase()
+String lwjglNatives = ""
+
+if (os.contains("win")) {
+    lwjglNatives = "natives-windows"
+} else if (os.contains("linux")) {
+    lwjglNatives = "natives-linux"
+} else if (os.contains("mac")) {
+    if (arch.contains("aarch64") || arch.contains("arm64")) {
+        lwjglNatives = "natives-macos-arm64"
+    } else {
+        lwjglNatives = "natives-macos"
+    }
+} else {
+    throw new GradleException("Unsupported OS: " + os)
+}
+
+dependencies {
+
+    // --- LWJGL core modules ---
+    implementation "org.lwjgl:lwjgl:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-glfw:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-opengl:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-stb:${lwjglVersion}"
+
+    // --- Natives ---
+    runtimeOnly "org.lwjgl:lwjgl:${lwjglVersion}:${lwjglNatives}"
+    runtimeOnly "org.lwjgl:lwjgl-glfw:${lwjglVersion}:${lwjglNatives}"
+    runtimeOnly "org.lwjgl:lwjgl-opengl:${lwjglVersion}:${lwjglNatives}"
+    runtimeOnly "org.lwjgl:lwjgl-stb:${lwjglVersion}:${lwjglNatives}"
+}
+
+application {
+
+    // 🔥 CAMBIA QUESTO con la tua classe Main!
+    mainClass = "game.ExampleGame"
+
+    // macOS fix (richiesto per GLFW)
+    applicationDefaultJvmArgs = os.contains("mac")
+            ? ["-XstartOnFirstThread"]
+            : []
+}
+
+// Java version
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
