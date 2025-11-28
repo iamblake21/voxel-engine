@@ -44,7 +44,7 @@ public class Renderer {
     
     // Fog settings
     private boolean fogEnabled = true;
-    private float fogStart = 0.6f;       // Start fog at 60% of view distance
+    private float fogStart = 0.85f;       // Start fog at 60% of view distance
     private float fogEnd = 0.95f;        // Full fog at 95% of view distance
     
     // Stats
