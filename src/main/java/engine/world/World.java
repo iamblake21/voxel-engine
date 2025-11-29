@@ -52,6 +52,12 @@ public class World implements MeshBuilder.WorldAccess {
     private int preGenRadius = 12;
     
     private float gameTime = 0f;
+
+    // ==================== DAY/NIGHT CYCLE ====================
+        private static final float DAY_LENGTH_SECONDS = 600f; // 10 min per un giorno intero
+        private float timeOfDay = 0f;  // 0.0 → 1.0 (mod 1)
+        private float dayTicks = 0f;   // accumulatore logico del giorno
+
     
     public World(Config config) {
         this.config = config;
@@ -319,10 +325,46 @@ public class World implements MeshBuilder.WorldAccess {
     
     // ==================== UPDATE ====================
     
-    public void update(float deltaTime) {
-        gameTime += deltaTime;
-        pollCompletedChunks();
-    }
+        public void update(float deltaTime) {
+            // Tempo globale (per animazioni e acqua)
+            gameTime += deltaTime;
+            dayTicks += deltaTime;
+
+            // Normalizza timeOfDay tra 0 e 1
+            timeOfDay = (dayTicks / DAY_LENGTH_SECONDS);
+            timeOfDay = timeOfDay - (float)Math.floor(timeOfDay); // mod 1.0
+
+            pollCompletedChunks();
+        }
+
+        // ==================== DAY/NIGHT GETTERS ====================
+
+        /** Ritorna un valore tra 0.0 e 1.0 (0=alba, 0.5=tramonto, 0.75=notte). */
+        public float getTimeOfDay() {
+            return timeOfDay;
+        }
+
+        /** True se il sole è sopra l'orizzonte */
+        public boolean isDay() {
+            return timeOfDay < 0.25f || timeOfDay > 0.75f;
+        }
+
+        /** True se è notte */
+        public boolean isNight() {
+            return !isDay();
+        }
+
+        /** Direzione del sole (utile per shader / ombre) */
+        public Vec3 getSunDirection() {
+            // Angolo solare: 0 → alba su est, 0.5 → tramonto su ovest
+            float angle = (timeOfDay * 2f * (float)Math.PI) - (float)Math.PI / 2f;
+
+            float x = (float)Math.cos(angle);
+            float y = (float)Math.sin(angle) * 0.6f; // massimo 0.6f per sole alto ma non verticale
+            float z = 0f;
+
+            return new Vec3(x, y, z);
+        }
     
     private void pollCompletedChunks() {
         // Process more chunks per frame

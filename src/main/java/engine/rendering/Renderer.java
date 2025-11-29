@@ -15,6 +15,9 @@ import java.util.Comparator;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.*;
+import static org.lwjgl.opengl.GL15.*;  // VBO, glBufferData, GL_ARRAY_BUFFER, GL_STATIC_DRAW
+import static org.lwjgl.opengl.GL20.*;  // glEnableVertexAttribArray, glVertexAttribPointer
+import static org.lwjgl.opengl.GL30.*;  // VAO: glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays
 
 /**
  * Main renderer - coordinates all rendering with LOD and Fog support.
@@ -61,6 +64,16 @@ public class Renderer {
     private int uGrassTint, uFoliageTint;
     private int uTileGrassTopIndex, uTileLeavesIndex; // <--- nuovi
 
+    private int uTimeOfDay;
+    private int uSunDir;
+    private int uSunColor;
+    private int uAmbientColor;
+
+    private Shader skyShader;
+    private int skyVAO;
+    private int skyVBO;
+
+
     
     // Fog uniforms
     private int uFogEnabled, uFogColor, uFogStart, uFogEnd;
@@ -71,6 +84,43 @@ public class Renderer {
     public Renderer(Config config) {
         this.config = config;
     }
+
+
+    private void initSkyboxMesh() {
+    float[] vertices = {
+        //   pos (cube -1..1)
+        -1,  1, -1,  -1, -1, -1,   1, -1, -1,
+         1, -1, -1,   1,  1, -1,  -1,  1, -1,
+
+        -1, -1,  1,  -1, -1, -1,  -1,  1, -1,
+        -1,  1, -1,  -1,  1,  1,  -1, -1,  1,
+
+         1, -1, -1,   1, -1,  1,   1,  1,  1,
+         1,  1,  1,   1,  1, -1,   1, -1, -1,
+
+        -1, -1,  1,  -1,  1,  1,   1,  1,  1,
+         1,  1,  1,   1, -1,  1,  -1, -1,  1,
+
+        -1,  1, -1,   1,  1, -1,   1,  1,  1,
+         1,  1,  1,  -1,  1,  1,  -1,  1, -1,
+
+        -1, -1, -1,  -1, -1,  1,   1, -1, -1,
+         1, -1, -1,  -1, -1,  1,   1, -1,  1
+    };
+
+    skyVAO = glGenVertexArrays();
+    skyVBO = glGenBuffers();
+
+    glBindVertexArray(skyVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * Float.BYTES, 0L);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
     
     public void init() {
         glEnable(GL_DEPTH_TEST);
@@ -82,6 +132,9 @@ public class Renderer {
         voxelShader = new Shader(getVertexShader(), getFragmentShader());
         cacheUniformLocations();
         wireframeRenderer = new WireframeRenderer();
+
+        skyShader = new Shader(getSkyVertexShader(), getSkyFragmentShader());
+        initSkyboxMesh();
 
         System.out.println("Renderer initialized with LOD and Fog support");
     }
@@ -112,6 +165,13 @@ public class Renderer {
         uFogColor = voxelShader.getUniformLocation("uFogColor");
         uFogStart = voxelShader.getUniformLocation("uFogStart");
         uFogEnd = voxelShader.getUniformLocation("uFogEnd");
+        
+
+        uTimeOfDay = voxelShader.getUniformLocation("uTimeOfDay");
+        uSunDir = voxelShader.getUniformLocation("uSunDir");
+        uSunColor = voxelShader.getUniformLocation("uSunColor");
+        uAmbientColor = voxelShader.getUniformLocation("uAmbientColor");
+
 
     }
     
@@ -167,6 +227,113 @@ public class Renderer {
         return MeshBuilder.calculateLOD(distSq);
         */
     }
+
+
+    private String getSkyVertexShader() {
+    return "#version 330 core\n" +
+           "layout(location=0) in vec3 aPos;\n" +
+           "out vec3 vDir;\n" +
+           "uniform mat4 uProj;\n" +
+           "uniform mat4 uView;\n" +
+           "void main(){\n" +
+           "  vDir = aPos;\n" +
+           "  vec4 pos = uProj * uView * vec4(aPos, 1.0);\n" +
+           "  gl_Position = pos.xyww; // z = w per stare sempre in fondo\n" +
+           "}\n";
+}
+
+
+
+    private String getSkyFragmentShader() {
+    return "#version 330 core\n" +
+           "in vec3 vDir;\n" +
+           "out vec4 FragColor;\n" +
+           "uniform float uTime;\n" +
+           "\n" +
+           "void computeLighting(out vec3 sunDir, out float sunStrength,\n" +
+           "                     out vec3 sunColor, out vec3 ambientColor) {\n" +
+           "  float DAY_LENGTH = 600.0;\n" +
+           "  float phase = fract(uTime / DAY_LENGTH);\n" +
+           "  float ang = phase * 6.2831853;\n" +
+           "  sunDir = normalize(vec3(0.3, sin(ang), cos(ang)));\n" +
+           "  float h = clamp(sunDir.y, 0.0, 1.0);\n" +
+           "  sunStrength = h;\n" +
+           "  vec3 daySun    = vec3(1.05, 1.00, 0.95);\n" +
+           "  vec3 sunsetSun = vec3(1.20, 0.70, 0.40);\n" +
+           "  float sunset = smoothstep(-0.10, 0.05, sunDir.y) * (1.0 - smoothstep(0.25, 0.40, sunDir.y));\n" +
+           "  sunColor = mix(daySun, sunsetSun, sunset);\n" +
+           "  float amb = mix(0.10, 0.40, h);\n" +
+           "  ambientColor = amb * vec3(0.6, 0.7, 0.9);\n" +
+           "}\n" +
+           "\n" +
+           "void main(){\n" +
+           "  vec3 sunDir; float sunStrength; vec3 sunColor, ambientColor;\n" +
+           "  computeLighting(sunDir, sunStrength, sunColor, ambientColor);\n" +
+           "\n" +
+           "  vec3 dir = normalize(vDir);\n" +
+           "  float t = dir.y * 0.5 + 0.5; // 0 (orizzonte) -> 1 (zenit)\n" +
+           "\n" +
+           "  // colori base cielo\n" +
+           "  vec3 horizonDay = vec3(0.55, 0.75, 0.95);\n" +
+           "  vec3 zenithDay  = vec3(0.10, 0.45, 0.90);\n" +
+           "  vec3 horizonNight = vec3(0.02, 0.05, 0.10);\n" +
+           "  vec3 zenithNight  = vec3(0.00, 0.02, 0.05);\n" +
+           "\n" +
+           "  float dayFactor = clamp(sunStrength * 1.5, 0.0, 1.0);\n" +
+           "  vec3 daySky   = mix(horizonDay,   zenithDay,   t);\n" +
+           "  vec3 nightSky = mix(horizonNight, zenithNight, t);\n" +
+           "  vec3 sky = mix(nightSky, daySky, dayFactor);\n" +
+           "\n" +
+           "  // leggera addizione del colore del sole verso il lato dove sta\n" +
+           "  float sunDot = max(dot(dir, -sunDir), 0.0);\n" +
+           "  float glow = pow(sunDot, 256.0);\n" +
+           "  sky += sunColor * glow * 1.5;\n" +
+           "\n" +
+           "  FragColor = vec4(sky, 1.0);\n" +
+           "}\n";
+}
+
+
+
+    private void renderSkybox(World world) {
+    if (camera == null || world == null) return;
+
+    // Se sei sott'acqua, magari non disegni la skybox
+    if (isHeadUnderwater(world)) {
+        return;
+    }
+
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(false);
+
+    skyShader.bind();
+    skyShader.setUniform("uProj", camera.getProjectionMatrix());
+
+    // View matrix senza traslazione (camera sempre al centro)
+    Mat4 view = camera.getViewMatrix();
+    Mat4 viewNoTrans = new Mat4();                 // costruttore vuoto
+    System.arraycopy(view.m, 0, viewNoTrans.m, 0, 16);
+    // azzera solo la traslazione (colonna 3 in col-major)
+    viewNoTrans.m[12] = 0f;
+    viewNoTrans.m[13] = 0f;
+    viewNoTrans.m[14] = 0f;
+
+
+    skyShader.setUniform("uView", viewNoTrans);
+    skyShader.setUniform("uTime", world.getGameTime());
+
+    glBindVertexArray(skyVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+
+    skyShader.unbind();
+
+    glDepthMask(true);
+    glDepthFunc(GL_LESS);
+}
+
+
+
     
     /**
      * Render world - uses Frustum culling, LOD, and Fog!
@@ -184,6 +351,11 @@ public void renderWorld(World world) {
     if (frustumCullingEnabled) {
         updateFrustum();
     }
+
+    // --- SKYBOX ---
+    renderSkybox(world);
+    // --- FINE SKYBOX ---
+
     
     voxelShader.bind();
     atlasTexture.bind(0); // TextureArray o Texture classica, il bind non cambia
@@ -262,6 +434,36 @@ public void renderWorld(World world) {
     glDepthMask(true);
     voxelShader.setUniform(uWaterPass, 0);
     voxelShader.setUniform(uTint, 1f, 1f, 1f, 1f);
+
+
+    float timeOfDay = world.getTimeOfDay(); // 0..1
+    voxelShader.setUniform(uTimeOfDay, timeOfDay);
+
+    // Direzione del sole dal mondo
+    Vec3 sunDir = world.getSunDirection();
+    voxelShader.setUniform(uSunDir, sunDir);
+
+    // Intensità del sole: forte di giorno, zero di notte
+    float sunStrength = Math.max(0f, (float)Math.cos(timeOfDay * Math.PI * 2f));
+    sunStrength = (float)Math.pow(sunStrength, 1.5f); // curva morbida
+
+    // Colore sole (giallo caldo)
+    Vec3 sunColor = new Vec3(
+        1.0f * sunStrength,
+        0.95f * sunStrength,
+        0.85f * sunStrength
+    );
+    voxelShader.setUniform(uSunColor, sunColor);
+
+    // Ambient light (più blu di notte)
+    float ambient = 0.2f + 0.3f * sunStrength;
+    Vec3 ambientColor = new Vec3(
+        0.3f * ambient,
+        0.35f * ambient,
+        0.45f * ambient
+    );
+    voxelShader.setUniform(uAmbientColor, ambientColor);
+
     
     for (Chunk chunk : visibleChunks) {
         int lod = calculateChunkLOD(chunk);
@@ -391,7 +593,12 @@ public void renderWorld(World world) {
         if (voxelShader != null) voxelShader.cleanup();
         if (atlasTexture != null) atlasTexture.cleanup();
         if (wireframeRenderer != null) wireframeRenderer.cleanup();
+
+        if (skyShader != null) skyShader.cleanup();
+        if (skyVAO != 0) glDeleteVertexArrays(skyVAO);
+        if (skyVBO != 0) glDeleteBuffers(skyVBO);
     }
+
     
     private void renderBlockSelection(World world) {
         if (camera == null || world == null) return;
@@ -474,7 +681,7 @@ private String getVertexShader() {
         "layout(location=1) in vec2 aUV;\n" +
         "layout(location=2) in float aAO;\n" +
         "layout(location=3) in float aFaceIdx;\n" +
-        "layout(location=4) in float aTileIndex;\n" + // <<< nuovo
+        "layout(location=4) in float aTileIndex;\n" + // layer del TextureArray\n" +
         "uniform mat4 uProj,uView,uModel;\n" +
         "uniform float uTime;\n" +
         "uniform int uWaterPass;\n" +
@@ -485,32 +692,55 @@ private String getVertexShader() {
         "out vec2 vWorldXZ;\n" +
         "out vec3 vWP;\n" +
         "out float vDistFromCamera;\n" +
-        "out float vTileIndex;\n" + // <<< nuovo
+        "out float vTileIndex;\n" +
+        "out vec3 vNormal;\n" +
+        "\n" +
         "float noise2D(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n" +
         "float smoothNoise2D(vec2 p){ vec2 i=floor(p), f=fract(p); float a=noise2D(i); float b=noise2D(i+vec2(1,0)); float c=noise2D(i+vec2(0,1)); float d=noise2D(i+vec2(1,1)); vec2 u=f*f*(3.0-2.0*f); return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y; }\n" +
         "float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*smoothNoise2D(p); p*=2.0; a*=0.5; } return v; }\n" +
         "float heightWater(vec2 xz, float t){ vec2 p = xz*0.18 + vec2(t*0.30, -t*0.26); float h = fbm(p)*2.0-1.0; return 0.06*h; }\n" +
+        "\n" +
+        "vec3 faceNormal(float idx){\n" +
+        "  if (idx < 0.5) return vec3( 1.0, 0.0, 0.0);\n" +
+        "  else if (idx < 1.5) return vec3(-1.0, 0.0, 0.0);\n" +
+        "  else if (idx < 2.5) return vec3(0.0, 1.0, 0.0);\n" +
+        "  else if (idx < 3.5) return vec3(0.0,-1.0, 0.0);\n" +
+        "  else if (idx < 4.5) return vec3(0.0, 0.0, 1.0);\n" +
+        "  else               return vec3(0.0, 0.0,-1.0);\n" +
+        "}\n" +
+        "\n" +
         "void main(){\n" +
-        "  vUV=aUV; vAO=aAO;\n" +
+        "  vUV = aUV;\n" +
+        "  vAO = aAO;\n" +
         "  vTileIndex = aTileIndex;\n" +
-        "  vec4 wp4 = uModel*vec4(aPos,1.0);\n" +
-        "  vec3 wp = wp4.xyz;\n" +
-        "  vec3 wpO=wp;\n" +
+        "\n" +
+        "  vec4 wp4 = uModel * vec4(aPos, 1.0);\n" +
+        "  vec3 wp  = wp4.xyz;\n" +
+        "  vec3 wpO = wp;\n" +
+        "\n" +
+        "  // Normale in spazio mondo (uModel da noi è solo traslazione)\n" +
+        "  vec3 localN = faceNormal(aFaceIdx);\n" +
+        "  vNormal = mat3(uModel) * localN;\n" +
+        "\n" +
         "  if(uWaterPass==1){\n" +
-        "    float surfY=uWaterLevel+1.0;\n" +
-        "    float d=abs(wpO.y-surfY);\n" +
-        "    float w=1.0 - min(d,1.0);\n" +
-        "    w=w*w*(3.0-2.0*w);\n" +
-        "    float dh=heightWater(wpO.xz,uTime);\n" +
+        "    float surfY = uWaterLevel + 1.0;\n" +
+        "    float d = abs(wpO.y - surfY);\n" +
+        "    float w = 1.0 - min(d, 1.0);\n" +
+        "    w = w*w*(3.0 - 2.0*w);\n" +
+        "    float dh = heightWater(wpO.xz, uTime);\n" +
         "    wp.y += dh*w;\n" +
         "    wp4.xyz = wp;\n" +
+        "    // superficie acqua: normale sempre verso l'alto\n" +
+        "    vNormal = vec3(0.0,1.0,0.0);\n" +
         "  }\n" +
-        "  vWorldXZ=(uWaterPass==1)?wpO.xz:wp.xz;\n" +
-        "  vWP=wp;\n" +
-        "  vDistFromCamera=length(wp - uCameraPos);\n" +
-        "  gl_Position=uProj*uView*wp4;\n" +
-        "}";
+        "\n" +
+        "  vWorldXZ = (uWaterPass==1) ? wpO.xz : wp.xz;\n" +
+        "  vWP = wp;\n" +
+        "  vDistFromCamera = length(wp - uCameraPos);\n" +
+        "  gl_Position = uProj * uView * wp4;\n" +
+        "}\n";
 }
+
 
     
 private String getFragmentShader() {
@@ -521,6 +751,8 @@ private String getFragmentShader() {
         "in vec3 vWP;\n" +
         "in float vDistFromCamera;\n" +
         "in float vTileIndex;\n" +
+        "in vec3  vNormal;\n" +
+        "\n" +
         "uniform sampler2DArray uTex;\n" +
         "uniform vec4 uTint;\n" +
         "uniform int uTilesX,uTilesY;\n" +
@@ -534,37 +766,106 @@ private String getFragmentShader() {
         "uniform float uWaterLevel;\n" +
         "uniform int uWaterPass;\n" +
         "uniform int uFogEnabled;\n" +
-        "uniform vec3 uFogColor;\n" +
+        "uniform vec3 uFogColor;       // ancora usato come 'base', ma non dominante\n" +
         "uniform float uFogStart;\n" +
         "uniform float uFogEnd;\n" +
+        "\n" +
         "out vec4 FragColor;\n" +
-
+        "\n" +
         "float calculateFog(float dist) {\n" +
         "  if (uFogEnabled == 0) return 0.0;\n" +
         "  float fogFactor = (dist - uFogStart) / (uFogEnd - uFogStart);\n" +
         "  fogFactor = clamp(fogFactor, 0.0, 1.0);\n" +
         "  return fogFactor * fogFactor * (3.0 - 2.0 * fogFactor);\n" +
         "}\n" +
-
+        "\n" +
         "float noise2D(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\n" +
         "float smoothNoise2D(vec2 p){ vec2 i=floor(p), f=fract(p); float a=noise2D(i); float b=noise2D(i+vec2(1,0)); float c=noise2D(i+vec2(0,1)); float d=noise2D(i+vec2(1,1)); vec2 u=f*f*(3.0-2.0*f); return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y; }\n" +
         "float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*smoothNoise2D(p); p*=2.0; a*=0.5; } return v; }\n" +
         "float heightWater(vec2 xz, float t){ vec2 p=xz*0.18 + vec2(t*0.30, -t*0.24); return (fbm(p)*2.0-1.0)*0.3; }\n" +
         "vec2 gradHeight(vec2 xz, float t){ float e=0.15; float hC=heightWater(xz,t); float hX=heightWater(xz+vec2(e,0),t)-hC; float hZ=heightWater(xz+vec2(0,e),t)-hC; return vec2(hX/e, hZ/e); }\n" +
-
+        "\n" +
+        "// === Giorno / notte e luce direzionale ===\n" +
+        "void computeLighting(out vec3 sunDir, out float sunStrength,\n" +
+        "                     out vec3 sunColor, out vec3 ambientColor) {\n" +
+        "  float DAY_LENGTH = 600.0;\n" +
+        "  float phase = fract(uTime / DAY_LENGTH); // 0..1\n" +
+        "  float ang = phase * 6.2831853;          // 2*pi\n" +
+        "\n" +
+        "  sunDir = normalize(vec3(0.3, sin(ang), cos(ang)));\n" +
+        "  float h = clamp(sunDir.y, 0.0, 1.0);\n" +
+        "  sunStrength = h;\n" +
+        "\n" +
+        "  vec3 daySun    = vec3(1.05, 1.00, 0.95);\n" +
+        "  vec3 sunsetSun = vec3(1.20, 0.70, 0.40);\n" +
+        "  float sunset = smoothstep(-0.10, 0.05, sunDir.y) * (1.0 - smoothstep(0.25, 0.40, sunDir.y));\n" +
+        "  sunColor = mix(daySun, sunsetSun, sunset);\n" +
+        "\n" +
+        "  float amb = mix(0.10, 0.40, h);\n" +
+        "  ambientColor = amb * vec3(0.6, 0.7, 0.9);\n" +
+        "}\n" +
+        "\n" +
+        "// Colore cielo coerente con la skybox (in base alla direzione del raggio e al sole)\n" +
+        "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
+        "  dir = normalize(dir);\n" +
+        "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0); // -1..1 -> 0..1\n" +
+        "\n" +
+        "  vec3 dayHorizon  = vec3(0.55, 0.75, 0.95);\n" +
+        "  vec3 dayZenith   = vec3(0.10, 0.35, 0.75);\n" +
+        "  vec3 nightHorizon= vec3(0.02, 0.02, 0.08);\n" +
+        "  vec3 nightZenith = vec3(0.00, 0.00, 0.02);\n" +
+        "\n" +
+        "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0); // 0 giorno, 1 notte\n" +
+        "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
+        "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
+        "  vec3 col = mix(dayCol, nightCol, night);\n" +
+        "\n" +
+        "  // alone del sole\n" +
+        "  float sunAmt = pow(max(dot(dir, sunDir), 0.0), 600.0);\n" +
+        "  col += vec3(1.0, 0.9, 0.7) * sunAmt * 1.5;\n" +
+        "\n" +
+        "  return col;\n" +
+        "}\n" +
+        "\n" +
         "void main(){\n" +
         "  float fogAmount = calculateFog(vDistFromCamera);\n" +
         "  int tileIndex = int(vTileIndex + 0.5);\n" +
-
+        "\n" +
+        "  vec3 sunDir;\n" +
+        "  float sunStrength;\n" +
+        "  vec3 sunColor, ambientColor;\n" +
+        "  computeLighting(sunDir, sunStrength, sunColor, ambientColor);\n" +
+        "\n" +
+        "  vec3 N = normalize(vNormal);\n" +
+        "  vec3 V = normalize(uCameraPos - vWP);      // da frammento alla camera\n" +
+        "  vec3 rayDir = -V;                          // direzione del raggio dalla camera verso il frammento\n" +
+        "\n" +
+        "  // Colore cielo dinamico usato dalla nebbia\n" +
+        "  vec3 skyCol = computeSkyColor(rayDir, sunDir, sunStrength);\n" +
+        "  // Mischia leggermente il vecchio uFogColor per non perdere il controllo da CPU\n" +
+        "  vec3 fogCol = mix(skyCol, vec3(0.0), 0.15);\n" +
+        "\n" +
         "  if(uWaterPass==0){\n" +
+        "    // --- BLOCCHI SOLIDI / TRASPARENTI ---\n" +
         "    vec4 texel = texture(uTex, vec3(vUV, vTileIndex));\n" +
         "    if(texel.a < 0.05) discard;\n" +
+        "\n" +
         "    bool isGrass  = (tileIndex == uTileGrassTopIndex);\n" +
         "    bool isLeaves = (tileIndex == uTileLeavesIndex);\n" +
-        "    vec3 base = texel.rgb * vAO * uTint.rgb;\n" +
+        "\n" +
+        "    vec3 base = texel.rgb * uTint.rgb;\n" +
         "    if(isGrass)  base *= uGrassTint;\n" +
         "    else if(isLeaves) base *= uFoliageTint;\n" +
+        "\n" +
+        "    // Lambert + ambient\n" +
+        "    float NdotL = max(dot(N, sunDir), 0.0);\n" +
+        "    float direct = NdotL * sunStrength;\n" +
+        "    vec3 lighting = ambientColor * (0.5 + 0.5*vAO) + sunColor * direct;\n" +
+        "    lighting = max(lighting, vec3(0.05));\n" +
+        "    base *= lighting;\n" +
+        "\n" +
         "    float alpha = texel.a * uTint.a;\n" +
+        "\n" +
         "    if(uUnderwater==1){\n" +
         "      vec3 uwFog=vec3(0.12,0.38,0.85);\n" +
         "      float dist=length(vWP-uCameraPos);\n" +
@@ -573,22 +874,26 @@ private String getFragmentShader() {
         "      fog *= (0.55 + 0.45*clamp(depth,0.0,1.0));\n" +
         "      base = mix(base,uwFog,clamp(fog,0.0,1.0));\n" +
         "    }\n" +
-        "    base = mix(base, uFogColor, fogAmount);\n" +
+        "\n" +
+        "    // Fog distanza -> verso il colore cielo\n" +
+        "    base = mix(base, fogCol, fogAmount);\n" +
         "    FragColor = vec4(base, alpha);\n" +
         "    return;\n" +
         "  }\n" +
-
+        "\n" +
+        "  // --- ACQUA ---\n" +
         "  vec2 g = gradHeight(vWorldXZ, uTime);\n" +
-        "  vec3 N = normalize(vec3(-g.x,1.0,-g.y));\n" +
-        "  vec3 V = normalize(uCameraPos - vWP);\n" +
+        "  vec3 waterN = normalize(vec3(-g.x,1.0,-g.y));\n" +
         "  float viewTop = pow(max(dot(vec3(0,1,0),V),0.0),1.4);\n" +
+        "\n" +
         "  vec3 deepBlue=vec3(0.06,0.35,0.68);\n" +
         "  vec3 lightBlue=vec3(0.35,0.65,0.90);\n" +
         "  vec3 base=mix(deepBlue,lightBlue,viewTop);\n" +
         "  float steep = min(length(g)*0.9,1.0);\n" +
         "  base += vec3(smoothstep(0.25,0.8,steep)*0.04);\n" +
         "  base *= uTint.rgb;\n" +
-        "  float alpha = mix(0.90*uTint.a, 0.45*uTint.a, viewTop);\n" +
+        "\n" +
+        "  // Striature della superficie\n" +
         "  vec2 uvTiles=vec2(vUV.x*float(uTilesX), vUV.y*float(uTilesY));\n" +
         "  vec2 tileUV=fract(uvTiles);\n" +
         "  vec2 p=floor(tileUV*10.0)/10.0;\n" +
@@ -597,6 +902,24 @@ private String getFragmentShader() {
         "  float stripes=smoothstep(0.70,1.0,tri) * mix(0.7,1.0,smoothNoise2D(p*6.0));\n" +
         "  float vis=mix(0.30,1.00,viewTop);\n" +
         "  base += vec3(1.0)*stripes*vis*0.22;\n" +
+        "\n" +
+        "  // === REAZIONE DELL'ACQUA AL CIELO ===\n" +
+        "  // Direzione riflessa verso il cielo\n" +
+        "  vec3 reflDir = reflect(-V, waterN);\n" +
+        "  vec3 reflSky = computeSkyColor(reflDir, sunDir, sunStrength);\n" +
+        "  float fresnel = pow(1.0 - max(dot(waterN, V), 0.0), 3.0);\n" +
+        "  float reflAmount = 0.35 + 0.35 * fresnel; // 0.35..0.7\n" +
+        "  base = mix(base, reflSky, reflAmount);\n" +
+        "\n" +
+        "  // Illuminazione acqua (come i blocchi)\n" +
+        "  float NdotLw = max(dot(waterN, sunDir), 0.0);\n" +
+        "  float directW = NdotLw * sunStrength;\n" +
+        "  vec3 lightingW = ambientColor + sunColor * directW;\n" +
+        "  lightingW = max(lightingW, vec3(0.05));\n" +
+        "  base *= lightingW;\n" +
+        "\n" +
+        "  float alpha = mix(0.90*uTint.a, 0.45*uTint.a, viewTop);\n" +
+        "\n" +
         "  if(uUnderwater==1){\n" +
         "    vec3 uwFog=vec3(0.12,0.38,0.85);\n" +
         "    float dist=length(vWP-uCameraPos);\n" +
@@ -605,8 +928,11 @@ private String getFragmentShader() {
         "    fog*= (0.55+0.45*clamp(depth,0.0,1.0));\n" +
         "    base=mix(base,uwFog,clamp(fog,0.0,1.0));\n" +
         "  }\n" +
-        "  base = mix(base, uFogColor, fogAmount);\n" +
+        "\n" +
+        "  // Fog anche per l'acqua verso il cielo\n" +
+        "  base = mix(base, fogCol, fogAmount);\n" +
         "  FragColor=vec4(base,alpha);\n" +
-        "}";
+        "}\n";
 }
+
 }

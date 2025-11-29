@@ -240,31 +240,31 @@ public class MeshBuilder {
             ao = computeFaceAO(chunk, world, bx, by, bz, nx, ny, nz);
         }
         
-        int tileX = block.getTextureTileX(nx, ny, nz);
-        int tileY = block.getTextureTileY(nx, ny, nz);
+    int tileX = block.getTextureTileX(nx, ny, nz);
+    int tileY = block.getTextureTileY(nx, ny, nz);
 
-        // Indice del layer nella TextureArray (atlas 8x8 -> 64 layer)
-        int tileIndex = tileY * ATLAS_TILES_X + tileX;
+    // Indice del layer nella TextureArray (atlas 8x8 -> 64 layer)
+    int tileIndex = tileY * ATLAS_TILES_X + tileX;
 
-        // Grass side flip - from original
-        boolean flipV = isGrassSide(block, ny);
+    // Grass side flip - from original
+    boolean flipV = isGrassSide(block, ny);
 
-        // vLoc = uv locale [0..1] (non più offset sull’atlas!)
-        float v0loc = flipV ? 1f - uv[0][1] : uv[0][1];
-        float v1loc = flipV ? 1f - uv[1][1] : uv[1][1];
-        float v2loc = flipV ? 1f - uv[2][1] : uv[2][1];
-        float v3loc = flipV ? 1f - uv[3][1] : uv[3][1];
+    // vLoc = uv locale [0..1] (non più offset sull’atlas!)
+    float v0loc = flipV ? 1f - uv[0][1] : uv[0][1];
+    float v1loc = flipV ? 1f - uv[1][1] : uv[1][1];
+    float v2loc = flipV ? 1f - uv[2][1] : uv[2][1];
+    float v3loc = flipV ? 1f - uv[3][1] : uv[3][1];
 
-        int faceIdx = (nx == 1) ? 0 : (nx == -1) ? 1 : (ny == 1) ? 2 : (ny == -1) ? 3 : (nz == 1) ? 4 : 5;
+    int faceIdx = (nx == 1) ? 0 : (nx == -1) ? 1 : (ny == 1) ? 2 : (ny == -1) ? 3 : (nz == 1) ? 4 : 5;
 
-        // Two triangles – adesso usiamo uv locali (0..1) e tileIndex
-        push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
-        push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex);
-        push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
+    // Two triangles – adesso usiamo uv locali (0..1) e tileIndex
+    push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
+    push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex);
+    push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
 
-        push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
-        push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
-        push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex);
+    push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
+    push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
+    push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex);
     }
     
     /**
