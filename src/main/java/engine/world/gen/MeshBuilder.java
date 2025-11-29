@@ -240,30 +240,31 @@ public class MeshBuilder {
             ao = computeFaceAO(chunk, world, bx, by, bz, nx, ny, nz);
         }
         
-        // Get tile from block
         int tileX = block.getTextureTileX(nx, ny, nz);
         int tileY = block.getTextureTileY(nx, ny, nz);
-        float u0 = tileX * TILE_U;
-        float v0 = tileY * TILE_V;
-        
+
+        // Indice del layer nella TextureArray (atlas 8x8 -> 64 layer)
+        int tileIndex = tileY * ATLAS_TILES_X + tileX;
+
         // Grass side flip - from original
         boolean flipV = isGrassSide(block, ny);
-        
+
+        // vLoc = uv locale [0..1] (non più offset sull’atlas!)
         float v0loc = flipV ? 1f - uv[0][1] : uv[0][1];
         float v1loc = flipV ? 1f - uv[1][1] : uv[1][1];
         float v2loc = flipV ? 1f - uv[2][1] : uv[2][1];
         float v3loc = flipV ? 1f - uv[3][1] : uv[3][1];
-        
+
         int faceIdx = (nx == 1) ? 0 : (nx == -1) ? 1 : (ny == 1) ? 2 : (ny == -1) ? 3 : (nz == 1) ? 4 : 5;
-        
-        // Two triangles
-        push(dst, v[0], u0 + uv[0][0] * TILE_U, v0 + v0loc * TILE_V, ao[0], faceIdx);
-        push(dst, v[1], u0 + uv[1][0] * TILE_U, v0 + v1loc * TILE_V, ao[1], faceIdx);
-        push(dst, v[2], u0 + uv[2][0] * TILE_U, v0 + v2loc * TILE_V, ao[2], faceIdx);
-        
-        push(dst, v[0], u0 + uv[0][0] * TILE_U, v0 + v0loc * TILE_V, ao[0], faceIdx);
-        push(dst, v[2], u0 + uv[2][0] * TILE_U, v0 + v2loc * TILE_V, ao[2], faceIdx);
-        push(dst, v[3], u0 + uv[3][0] * TILE_U, v0 + v3loc * TILE_V, ao[3], faceIdx);
+
+        // Two triangles – adesso usiamo uv locali (0..1) e tileIndex
+        push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
+        push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex);
+        push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
+
+        push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
+        push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
+        push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex);
     }
     
     /**
@@ -341,14 +342,15 @@ public class MeshBuilder {
         return occ == 0 ? 1.00f : occ == 1 ? 0.90f : occ == 2 ? 0.75f : 0.60f;
     }
     
-    private void push(ArrayList<Float> a, float[] pos, float u, float v, float ao, int faceIdx) {
-        a.add(pos[0]);
-        a.add(pos[1]);
-        a.add(pos[2]);
-        a.add(u);
-        a.add(v);
-        a.add(ao);
-        a.add((float) faceIdx);
+    private void push(ArrayList<Float> a, float[] pos, float u, float v, float ao, int faceIdx, int tileIndex) {
+        a.add(pos[0]);           // x
+        a.add(pos[1]);           // y
+        a.add(pos[2]);           // z
+        a.add(u);                // u
+        a.add(v);                // v
+        a.add(ao);               // ao
+        a.add((float) faceIdx);  // face index
+        a.add((float) tileIndex);// layer index (aTileIndex)
     }
     
     private float[] toFloatArray(ArrayList<Float> list) {

@@ -19,37 +19,62 @@ public class Mesh {
     
     public void upload(float[] data, boolean transparent) {
         this.transparent = transparent;
+        
         if (vao == 0) {
             vao = glGenVertexArrays();
             vbo = glGenBuffers();
         }
+        
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        
         FloatBuffer buffer = memAllocFloat(data.length);
         buffer.put(data).flip();
         glBufferData(GL_ARRAY_BUFFER, buffer, GL_STATIC_DRAW);
         memFree(buffer);
-        int stride = 7 * Float.BYTES;
+
+        // 🔴 PRIMA: 7 * Float.BYTES
+        // pos(3) + uv(2) + ao(1) + faceIdx(1)
+        // 🟢 ORA: 8 float per vertice
+        // pos(3) + uv(2) + ao(1) + faceIdx(1) + tileIndex(1)
+        int floatsPerVertex = 8;
+        int stride = floatsPerVertex * Float.BYTES;
+        
+        // layout(location=0) in vec3 aPos;
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, 0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, 0L);
+        
+        // layout(location=1) in vec2 aUV;
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, 3 * Float.BYTES);
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, 3L * Float.BYTES);
+        
+        // layout(location=2) in float aAO;
         glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 1, GL_FLOAT, false, stride, 5 * Float.BYTES);
+        glVertexAttribPointer(2, 1, GL_FLOAT, false, stride, 5L * Float.BYTES);
+        
+        // layout(location=3) in float aFaceIdx;
         glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 1, GL_FLOAT, false, stride, 6 * Float.BYTES);
-        vertexCount = data.length / 7;
+        glVertexAttribPointer(3, 1, GL_FLOAT, false, stride, 6L * Float.BYTES);
+
+        // ✅ NUOVO: layout(location=4) in float aTileIndex;
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 1, GL_FLOAT, false, stride, 7L * Float.BYTES);
+        
+        vertexCount = data.length / floatsPerVertex;
+        
         glBindVertexArray(0);
     }
     
     public void draw() {
         if (vertexCount == 0) return;
+        
         if (transparent) {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         } else {
             glDisable(GL_BLEND);
         }
+        
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         glBindVertexArray(0);

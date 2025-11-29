@@ -28,7 +28,7 @@ public class Config {
     public float gravity = 22f;
     public float playerSpeed = 16f;
     public float playerSprintMultiplier = 1.8f;
-    public float playerFlySpeed = 40f;
+    public float playerFlySpeed = 16f;
     public float playerHeight = 1.80f;
     public float playerEyeHeight = 1.62f;
     public float playerWidth = 0.6f; // diameter
