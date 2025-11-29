@@ -8,9 +8,15 @@ import java.nio.IntBuffer;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
+import static org.lwjgl.opengl.GL12.glTexImage3D;
+import static org.lwjgl.opengl.GL12.glTexSubImage3D;
 import static org.lwjgl.opengl.GL13.*;
 import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.system.MemoryUtil.*;
+
+import org.lwjgl.opengl.GL;
+import static org.lwjgl.opengl.EXTTextureFilterAnisotropic.*;
+
 
 /**
  * Texture2DArray costruita a partire da un atlas 2D.
@@ -79,6 +85,17 @@ public class TextureArray {
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        if (GL.getCapabilities().GL_EXT_texture_filter_anisotropic) {
+            float maxAniso = glGetFloat(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+            // usa un valore "ragionevole", non per forza il massimo
+            float aniso = Math.min(4.0f, maxAniso); // puoi provare 8.0f, 16.0f, ecc.
+            glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_ANISOTROPY_EXT, aniso);
+                System.out.println("Anisotropic filtering enabled: " + aniso + "x");
+            } else {
+                System.out.println("Anisotropic filtering NOT supported on this GPU");
+            }
+
 
         // Alloco lo storage 3D: tileWidth x tileHeight x layers
         glTexImage3D(
