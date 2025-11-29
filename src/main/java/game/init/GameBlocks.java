@@ -68,6 +68,7 @@ public final class GameBlocks {
         WOOD = Blocks.register("game:wood",
             new Block(BlockProperties.create()
                 .standardSolid()
+                .lightLevel(12)
                 .tile(4, 0)));
         
         // Leaves - tree foliage
@@ -76,6 +77,7 @@ public final class GameBlocks {
                 .transparentSolid()
                 .tintFoliage()
                 .tile(5, 0)));
+                
         
         // Water - the liquid
         WATER = Blocks.register("game:water",

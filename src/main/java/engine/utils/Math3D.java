@@ -14,6 +14,39 @@ public class Math3D {
         public float[] toArray() {
             return m; // o come si chiama il tuo array interno
         }
+
+                public static Mat4 ortho(float left, float right,
+                                float bottom, float top,
+                                float near, float far) {
+            Mat4 r = new Mat4();
+
+            r.m[0]  =  2.0f / (right - left);
+            r.m[5]  =  2.0f / (top   - bottom);
+            r.m[10] = -2.0f / (far   - near);
+            r.m[15] =  1.0f;
+
+            r.m[12] = -(right + left)   / (right - left);
+            r.m[13] = -(top   + bottom) / (top   - bottom);
+            r.m[14] = -(far   + near)   / (far   - near);
+
+            return r;
+        }
+
+        public static Mat4 mul(Mat4 a, Mat4 b) {
+            Mat4 r = new Mat4();
+            // colonne 0..3, righe 0..3 (column-major come il resto del tuo codice)
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    r.m[col * 4 + row] =
+                        a.m[0 * 4 + row] * b.m[col * 4 + 0] +
+                        a.m[1 * 4 + row] * b.m[col * 4 + 1] +
+                        a.m[2 * 4 + row] * b.m[col * 4 + 2] +
+                        a.m[3 * 4 + row] * b.m[col * 4 + 3];
+                }
+            }
+            return r;
+        }
+
         
         public Mat4() {}
         

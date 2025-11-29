@@ -244,61 +244,55 @@ public class Renderer {
 
 
 
-    private String getSkyFragmentShader() {
+private String getSkyFragmentShader() {
     return "#version 330 core\n" +
            "in vec3 vDir;\n" +
            "out vec4 FragColor;\n" +
-           "uniform float uTime;\n" +
            "\n" +
-           "void computeLighting(out vec3 sunDir, out float sunStrength,\n" +
-           "                     out vec3 sunColor, out vec3 ambientColor) {\n" +
-           "  float DAY_LENGTH = 600.0;\n" +
-           "  float phase = fract(uTime / DAY_LENGTH);\n" +
-           "  float ang = phase * 6.2831853;\n" +
-           "  sunDir = normalize(vec3(0.3, sin(ang), cos(ang)));\n" +
-           "  float h = clamp(sunDir.y, 0.0, 1.0);\n" +
-           "  sunStrength = h;\n" +
-           "  vec3 daySun    = vec3(1.05, 1.00, 0.95);\n" +
-           "  vec3 sunsetSun = vec3(1.20, 0.70, 0.40);\n" +
-           "  float sunset = smoothstep(-0.10, 0.05, sunDir.y) * (1.0 - smoothstep(0.25, 0.40, sunDir.y));\n" +
-           "  sunColor = mix(daySun, sunsetSun, sunset);\n" +
-           "  float amb = mix(0.10, 0.40, h);\n" +
-           "  ambientColor = amb * vec3(0.6, 0.7, 0.9);\n" +
+           "uniform float uTime;       // se vuoi usalo per stelline ecc.\n" +
+           "uniform float uTimeOfDay;  // 0..1 dal World\n" +
+           "uniform vec3  uSunDir;     // direzione del sole dal World\n" +
+           "uniform vec3  uSunColor;   // colore sole dal World\n" +
+           "uniform vec3  uAmbientColor; // ambient dal World\n" +
+           "\n" +
+           "// Colore cielo in base a direzione e altezza del sole\n" +
+           "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
+           "  dir = normalize(dir);\n" +
+           "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0); // -1..1 -> 0..1\n" +
+           "\n" +
+           "  vec3 dayHorizon   = vec3(0.55, 0.75, 0.95);\n" +
+           "  vec3 dayZenith    = vec3(0.10, 0.45, 0.90);\n" +
+           "  vec3 nightHorizon = vec3(0.02, 0.05, 0.10);\n" +
+           "  vec3 nightZenith  = vec3(0.00, 0.02, 0.05);\n" +
+           "\n" +
+           "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0);\n" +
+           "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
+           "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
+           "  vec3 col = mix(nightCol, dayCol, 1.0 - night);\n" +
+           "\n" +
+           "  // alone del sole\n" +
+           "  float sunAmt = pow(max(dot(dir, -sunDir), 0.0), 512.0);\n" +
+           "  col += uSunColor * sunAmt * 1.5;\n" +
+           "\n" +
+           "  return col;\n" +
            "}\n" +
            "\n" +
            "void main(){\n" +
-           "  vec3 sunDir; float sunStrength; vec3 sunColor, ambientColor;\n" +
-           "  computeLighting(sunDir, sunStrength, sunColor, ambientColor);\n" +
+           "  vec3 sunDir = normalize(uSunDir);\n" +
+           "  float sunStrength = clamp(sunDir.y, 0.0, 1.0);\n" +
            "\n" +
-           "  vec3 dir = normalize(vDir);\n" +
-           "  float t = dir.y * 0.5 + 0.5; // 0 (orizzonte) -> 1 (zenit)\n" +
-           "\n" +
-           "  // colori base cielo\n" +
-           "  vec3 horizonDay = vec3(0.55, 0.75, 0.95);\n" +
-           "  vec3 zenithDay  = vec3(0.10, 0.45, 0.90);\n" +
-           "  vec3 horizonNight = vec3(0.02, 0.05, 0.10);\n" +
-           "  vec3 zenithNight  = vec3(0.00, 0.02, 0.05);\n" +
-           "\n" +
-           "  float dayFactor = clamp(sunStrength * 1.5, 0.0, 1.0);\n" +
-           "  vec3 daySky   = mix(horizonDay,   zenithDay,   t);\n" +
-           "  vec3 nightSky = mix(horizonNight, zenithNight, t);\n" +
-           "  vec3 sky = mix(nightSky, daySky, dayFactor);\n" +
-           "\n" +
-           "  // leggera addizione del colore del sole verso il lato dove sta\n" +
-           "  float sunDot = max(dot(dir, -sunDir), 0.0);\n" +
-           "  float glow = pow(sunDot, 256.0);\n" +
-           "  sky += sunColor * glow * 1.5;\n" +
-           "\n" +
+           "  vec3 sky = computeSkyColor(vDir, sunDir, sunStrength);\n" +
            "  FragColor = vec4(sky, 1.0);\n" +
            "}\n";
 }
 
 
 
-    private void renderSkybox(World world) {
+
+private void renderSkybox(World world) {
     if (camera == null || world == null) return;
 
-    // Se sei sott'acqua, magari non disegni la skybox
+    // Se sei sott'acqua, niente skybox
     if (isHeadUnderwater(world)) {
         return;
     }
@@ -309,17 +303,43 @@ public class Renderer {
     skyShader.bind();
     skyShader.setUniform("uProj", camera.getProjectionMatrix());
 
-    // View matrix senza traslazione (camera sempre al centro)
+    // View senza traslazione
     Mat4 view = camera.getViewMatrix();
-    Mat4 viewNoTrans = new Mat4();                 // costruttore vuoto
+    Mat4 viewNoTrans = new Mat4();
     System.arraycopy(view.m, 0, viewNoTrans.m, 0, 16);
-    // azzera solo la traslazione (colonna 3 in col-major)
     viewNoTrans.m[12] = 0f;
     viewNoTrans.m[13] = 0f;
     viewNoTrans.m[14] = 0f;
-
-
     skyShader.setUniform("uView", viewNoTrans);
+
+    // --- QUI sincronizziamo col World / Renderer --- 
+    float timeOfDay = world.getTimeOfDay(); // 0..1
+    skyShader.setUniform("uTimeOfDay", timeOfDay);
+
+    // Direzione del sole dal World
+    Vec3 sunDir = world.getSunDirection();
+    skyShader.setUniform("uSunDir", sunDir);
+
+    // Stessa logica che ti ho proposto per il Renderer dei blocchi
+    float sunHeight = Math.max(0f, sunDir.y);
+    float sunStrength = (float)Math.pow(sunHeight, 1.2f);
+
+    Vec3 sunColor = new Vec3(
+        1.0f * sunStrength,
+        0.95f * sunStrength,
+        0.85f * sunStrength
+    );
+    skyShader.setUniform("uSunColor", sunColor);
+
+    float ambientStrength = 0.35f + 0.35f * sunHeight;
+    Vec3 ambientColor = new Vec3(
+        0.6f * ambientStrength,
+        0.7f * ambientStrength,
+        0.9f * ambientStrength
+    );
+    skyShader.setUniform("uAmbientColor", ambientColor);
+
+    // Se vuoi ancora usare uTime per effetti extra
     skyShader.setUniform("uTime", world.getGameTime());
 
     glBindVertexArray(skyVAO);
@@ -331,6 +351,7 @@ public class Renderer {
     glDepthMask(true);
     glDepthFunc(GL_LESS);
 }
+
 
 
 
@@ -436,33 +457,36 @@ public void renderWorld(World world) {
     voxelShader.setUniform(uTint, 1f, 1f, 1f, 1f);
 
 
-    float timeOfDay = world.getTimeOfDay(); // 0..1
-    voxelShader.setUniform(uTimeOfDay, timeOfDay);
+// Time of day 0..1, se ti serve in altri effetti
+float timeOfDay = world.getTimeOfDay();
+voxelShader.setUniform(uTimeOfDay, timeOfDay);
 
-    // Direzione del sole dal mondo
-    Vec3 sunDir = world.getSunDirection();
-    voxelShader.setUniform(uSunDir, sunDir);
+// Direzione del sole calcolata dal World
+Vec3 sunDir = world.getSunDirection();
+voxelShader.setUniform(uSunDir, sunDir);
 
-    // Intensità del sole: forte di giorno, zero di notte
-    float sunStrength = Math.max(0f, (float)Math.cos(timeOfDay * Math.PI * 2f));
-    sunStrength = (float)Math.pow(sunStrength, 1.5f); // curva morbida
+// Altezza del sole sopra l'orizzonte (0 = sotto, 1 = molto alto)
+float sunHeight = Math.max(0f, sunDir.y);
 
-    // Colore sole (giallo caldo)
-    Vec3 sunColor = new Vec3(
-        1.0f * sunStrength,
-        0.95f * sunStrength,
-        0.85f * sunStrength
-    );
-    voxelShader.setUniform(uSunColor, sunColor);
+// Curva un po' morbida: vicino a mezzogiorno più forte, ma non istantaneo
+float sunStrength = (float) Math.pow(sunHeight, 1.2f);
 
-    // Ambient light (più blu di notte)
-    float ambient = 0.2f + 0.3f * sunStrength;
-    Vec3 ambientColor = new Vec3(
-        0.3f * ambient,
-        0.35f * ambient,
-        0.45f * ambient
-    );
-    voxelShader.setUniform(uAmbientColor, ambientColor);
+// Colore base del sole (giallo caldo), poi scalato per intensità
+float sunR = 1.0f * sunStrength;
+float sunG = 0.95f * sunStrength;
+float sunB = 0.85f * sunStrength;
+Vec3 sunColor = new Vec3(sunR, sunG, sunB);
+voxelShader.setUniform(uSunColor, sunColor);
+
+// Ambient: non deve andare a zero totale, altrimenti è pitch black
+float ambientStrength = 0.35f + 0.35f * sunHeight; // 0.35 notte, ~0.7 giorno
+Vec3 ambientColor = new Vec3(
+    0.6f * ambientStrength,
+    0.7f * ambientStrength,
+    0.9f * ambientStrength
+);
+voxelShader.setUniform(uAmbientColor, ambientColor);
+
 
     
     for (Chunk chunk : visibleChunks) {
@@ -760,15 +784,20 @@ private String getFragmentShader() {
         "uniform int uTileLeavesIndex;\n" +
         "uniform vec3 uGrassTint;\n" +
         "uniform vec3 uFoliageTint;\n" +
-        "uniform float uTime;\n" +
+        "uniform float uTime;\n" +          // per onde dell'acqua / animazioni\n" +
         "uniform vec3 uCameraPos;\n" +
         "uniform int uUnderwater;\n" +
         "uniform float uWaterLevel;\n" +
         "uniform int uWaterPass;\n" +
         "uniform int uFogEnabled;\n" +
-        "uniform vec3 uFogColor;       // ancora usato come 'base', ma non dominante\n" +
+        "uniform vec3 uFogColor;\n" +
         "uniform float uFogStart;\n" +
         "uniform float uFogEnd;\n" +
+        "// === Dati del sole dal World ===\n" +
+        "uniform float uTimeOfDay;   // 0..1, se ti serve per altri effetti\n" +
+        "uniform vec3  uSunDir;      // direzione del sole in spazio mondo\n" +
+        "uniform vec3  uSunColor;    // colore del sole già calcolato in CPU\n" +
+        "uniform vec3  uAmbientColor;// colore dell'illuminazione ambientale\n" +
         "\n" +
         "out vec4 FragColor;\n" +
         "\n" +
@@ -784,26 +813,6 @@ private String getFragmentShader() {
         "float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*smoothNoise2D(p); p*=2.0; a*=0.5; } return v; }\n" +
         "float heightWater(vec2 xz, float t){ vec2 p=xz*0.18 + vec2(t*0.30, -t*0.24); return (fbm(p)*2.0-1.0)*0.3; }\n" +
         "vec2 gradHeight(vec2 xz, float t){ float e=0.15; float hC=heightWater(xz,t); float hX=heightWater(xz+vec2(e,0),t)-hC; float hZ=heightWater(xz+vec2(0,e),t)-hC; return vec2(hX/e, hZ/e); }\n" +
-        "\n" +
-        "// === Giorno / notte e luce direzionale ===\n" +
-        "void computeLighting(out vec3 sunDir, out float sunStrength,\n" +
-        "                     out vec3 sunColor, out vec3 ambientColor) {\n" +
-        "  float DAY_LENGTH = 600.0;\n" +
-        "  float phase = fract(uTime / DAY_LENGTH); // 0..1\n" +
-        "  float ang = phase * 6.2831853;          // 2*pi\n" +
-        "\n" +
-        "  sunDir = normalize(vec3(0.3, sin(ang), cos(ang)));\n" +
-        "  float h = clamp(sunDir.y, 0.0, 1.0);\n" +
-        "  sunStrength = h;\n" +
-        "\n" +
-        "  vec3 daySun    = vec3(1.05, 1.00, 0.95);\n" +
-        "  vec3 sunsetSun = vec3(1.20, 0.70, 0.40);\n" +
-        "  float sunset = smoothstep(-0.10, 0.05, sunDir.y) * (1.0 - smoothstep(0.25, 0.40, sunDir.y));\n" +
-        "  sunColor = mix(daySun, sunsetSun, sunset);\n" +
-        "\n" +
-        "  float amb = mix(0.10, 0.40, h);\n" +
-        "  ambientColor = amb * vec3(0.6, 0.7, 0.9);\n" +
-        "}\n" +
         "\n" +
         "// Colore cielo coerente con la skybox (in base alla direzione del raggio e al sole)\n" +
         "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
@@ -831,10 +840,13 @@ private String getFragmentShader() {
         "  float fogAmount = calculateFog(vDistFromCamera);\n" +
         "  int tileIndex = int(vTileIndex + 0.5);\n" +
         "\n" +
-        "  vec3 sunDir;\n" +
-        "  float sunStrength;\n" +
-        "  vec3 sunColor, ambientColor;\n" +
-        "  computeLighting(sunDir, sunStrength, sunColor, ambientColor);\n" +
+        "  // === Usa la direzione del sole dal World ===\n" +
+        "  vec3 sunDir = normalize(uSunDir);\n" +
+        "  // quanto è alto il sole sopra l'orizzonte (0 notte, 1 mezzogiorno)\n" +
+        "  float sunStrength = clamp(sunDir.y, 0.0, 1.0);\n" +
+        "\n" +
+        "  vec3 sunColor    = uSunColor;\n" +
+        "  vec3 ambientColor = uAmbientColor;\n" +
         "\n" +
         "  vec3 N = normalize(vNormal);\n" +
         "  vec3 V = normalize(uCameraPos - vWP);      // da frammento alla camera\n" +
@@ -842,8 +854,8 @@ private String getFragmentShader() {
         "\n" +
         "  // Colore cielo dinamico usato dalla nebbia\n" +
         "  vec3 skyCol = computeSkyColor(rayDir, sunDir, sunStrength);\n" +
-        "  // Mischia leggermente il vecchio uFogColor per non perdere il controllo da CPU\n" +
-        "  vec3 fogCol = mix(skyCol, vec3(0.0), 0.15);\n" +
+        "  // Mischia leggermente uFogColor se vuoi comunque influenzarlo da CPU\n" +
+        "  vec3 fogCol = mix(skyCol, uFogColor, 0.15);\n" +
         "\n" +
         "  if(uWaterPass==0){\n" +
         "    // --- BLOCCHI SOLIDI / TRASPARENTI ---\n" +
@@ -857,11 +869,18 @@ private String getFragmentShader() {
         "    if(isGrass)  base *= uGrassTint;\n" +
         "    else if(isLeaves) base *= uFoliageTint;\n" +
         "\n" +
-        "    // Lambert + ambient\n" +
+        "    // vAO ora contiene AO * (blockLight/skyLight)\n" +
+        "    float bakedLight = clamp(vAO, 0.0, 1.0);\n" +
+        "\n" +
+        "    // Luce diretta del sole limitata dalla lightmap\n" +
         "    float NdotL = max(dot(N, sunDir), 0.0);\n" +
-        "    float direct = NdotL * sunStrength;\n" +
-        "    vec3 lighting = ambientColor * (0.5 + 0.5*vAO) + sunColor * direct;\n" +
-        "    lighting = max(lighting, vec3(0.05));\n" +
+        "    float direct = NdotL * sunStrength * bakedLight;\n" +
+        "\n" +
+        "    // Ambient più forte dove c'è luce, molto basso al buio\n" +
+        "    vec3 ambTerm = ambientColor * mix(0.2, 1.0, bakedLight);\n" +
+        "\n" +
+        "    vec3 lighting = ambTerm + sunColor * direct;\n" +
+        "    lighting = max(lighting, vec3(0.01));\n" +
         "    base *= lighting;\n" +
         "\n" +
         "    float alpha = texel.a * uTint.a;\n" +
@@ -934,5 +953,6 @@ private String getFragmentShader() {
         "  FragColor=vec4(base,alpha);\n" +
         "}\n";
 }
+
 
 }

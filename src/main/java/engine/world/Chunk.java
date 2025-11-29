@@ -36,6 +36,10 @@ public class Chunk {
     private final Mesh[] solidLOD       = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] transparentLOD = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] waterLOD       = new Mesh[MAX_LOD_LEVELS];
+    private final byte[] blockLight; // 0..15
+    private final byte[] skyLight;
+
+
 
     public enum Phase {
         EMPTY,
@@ -54,11 +58,18 @@ public class Chunk {
 
         this.blocks = new int[SIZE * HEIGHT * SIZE];
         this.heightMap = new int[SIZE * SIZE];
+        this.blockLight = new byte[SIZE * HEIGHT * SIZE];
+        this.skyLight   = new byte[SIZE * HEIGHT * SIZE];
+
+
 
         // Initialize with air
         int airId = Blocks.AIR().getNumericId();
         Arrays.fill(blocks, airId);
         Arrays.fill(heightMap, -1);
+        Arrays.fill(blockLight, (byte)0);
+        Arrays.fill(skyLight,   (byte)0);
+
 
         // Initialize empty meshes for all LODs
         for (int i = 0; i < MAX_LOD_LEVELS; i++) {
@@ -94,6 +105,42 @@ public class Chunk {
     public Block getBlockType(int x, int y, int z) {
         return Blocks.get(getBlock(x, y, z));
     }
+    // ==================== BLOCK LIGHT ====================
+    public int getBlockLight(int x, int y, int z) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
+            return 0;
+        }
+        return blockLight[index(x, y, z)] & 0xFF;
+    }
+
+    public void setBlockLight(int x, int y, int z, int level) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
+            return;
+        }
+        blockLight[index(x, y, z)] = (byte)Math.max(0, Math.min(15, level));
+    }
+
+
+    public int getSkyLight(int x, int y, int z) {
+    if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return 0;
+    return skyLight[index(x, y, z)] & 0xFF;
+}
+
+    public void setSkyLight(int x, int y, int z, int level) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return;
+        int clamped = Math.max(0, Math.min(15, level));
+        skyLight[index(x, y, z)] = (byte) clamped;
+    }
+
+    public byte[] getSkyLightData() {
+        return skyLight;
+    }
+
+
+    public byte[] getBlockLightData() {
+        return blockLight;
+    }
+
 
     // ==================== HEIGHT MAP ====================
 

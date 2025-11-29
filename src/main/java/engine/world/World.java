@@ -6,6 +6,8 @@ import engine.world.block.Blocks;
 import engine.world.gen.*;
 import engine.rendering.Frustum;
 import engine.utils.Math3D.Vec3;
+import engine.world.light.LightPropagator;
+
 
 import java.util.*;
 
@@ -54,7 +56,7 @@ public class World implements MeshBuilder.WorldAccess {
     private float gameTime = 0f;
 
     // ==================== DAY/NIGHT CYCLE ====================
-        private static final float DAY_LENGTH_SECONDS = 600f; // 10 min per un giorno intero
+        private static final float DAY_LENGTH_SECONDS = 10f; // 10 min per un giorno intero
         private float timeOfDay = 0f;  // 0.0 → 1.0 (mod 1)
         private float dayTicks = 0f;   // accumulatore logico del giorno
 
@@ -183,6 +185,23 @@ public class World implements MeshBuilder.WorldAccess {
         if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) return;
         
         chunk.setBlock(lx, y, lz, blockId);
+
+        LightPropagator.recomputeChunkBlockLight(this, chunk);
+        
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                Chunk n = getChunkIfLoaded(cx + dx, cz + dz);
+                if (n != null)  {
+                    
+                    LightPropagator.recomputeChunkBlockLight(this, n);
+                    LightPropagator.recomputeChunkSkyLightVertical(this, n);
+
+                    
+                }
+                    
+                }
+            }
+
         
         if (lx == 0) markChunkDirty(cx - 1, cz);
         if (lx == config.chunkSize - 1) markChunkDirty(cx + 1, cz);
@@ -214,6 +233,36 @@ public class World implements MeshBuilder.WorldAccess {
         return chunk.getBlock(lx, y, lz);
     }
     
+
+    public int peekSkyLight(int worldX, int worldY, int worldZ) {
+        Chunk c = getChunkAtWorld(worldX, worldZ);
+        if (c == null) return 0;
+        int lx = floorMod(worldX, Chunk.SIZE);
+        int lz = floorMod(worldZ, Chunk.SIZE);
+        return c.getSkyLight(lx, worldY, lz);
+    }
+
+    public int peekBlockLight(int worldX, int worldY, int worldZ) {
+        Chunk c = getChunkAtWorld(worldX, worldZ);
+        if (c == null) return 0;
+        int lx = floorMod(worldX, Chunk.SIZE);
+        int lz = floorMod(worldZ, Chunk.SIZE);
+        return c.getBlockLight(lx, worldY, lz);
+    }
+
+    public Chunk getChunkAtWorld(int worldX, int worldZ) {
+    int cx = Math.floorDiv(worldX, Chunk.SIZE);
+    int cz = Math.floorDiv(worldZ, Chunk.SIZE);
+    return getChunkIfLoaded(cx, cz);   // Hai già getChunk(x,z)
+}
+
+private int floorMod(int x, int mod) {
+    int r = x % mod;
+    return (r < 0) ? (r + mod) : r;
+}
+
+
+
     // ==================== BLOCK PROPERTIES ====================
     
     public boolean isSolid(int blockId) { return Blocks.isSolid(blockId); }
@@ -346,26 +395,29 @@ public class World implements MeshBuilder.WorldAccess {
 
         /** True se il sole è sopra l'orizzonte */
         public boolean isDay() {
-            return timeOfDay < 0.25f || timeOfDay > 0.75f;
+            // giorno quando il sole è sopra l’orizzonte
+            return getSunDirection().y > 0f;
         }
 
-        /** True se è notte */
         public boolean isNight() {
             return !isDay();
         }
 
+
         /** Direzione del sole (utile per shader / ombre) */
-        public Vec3 getSunDirection() {
-            // Angolo solare: 0 → alba su est, 0.5 → tramonto su ovest
-            float angle = (timeOfDay * 2f * (float)Math.PI) - (float)Math.PI / 2f;
+    public Vec3 getSunDirection() {
+        // timeOfDay: 0..1
+        // 0.25 ≈ alba, 0.5 ≈ mezzogiorno, 0.75 ≈ tramonto, 1.0 ≈ di nuovo notte
+        float angle = (timeOfDay * 2f * (float)Math.PI) - (float)Math.PI / 2f;
 
-            float x = (float)Math.cos(angle);
-            float y = (float)Math.sin(angle) * 0.6f; // massimo 0.6f per sole alto ma non verticale
-            float z = 0f;
+        // X = est/ovest, Y = altezza
+        float x = (float)Math.cos(angle) * 0.3f; // leggera inclinazione verso est/ovest
+        float y = (float)Math.sin(angle);        // completamente sopra la testa a mezzogiorno
+        float z = 0f;
 
-            return new Vec3(x, y, z);
-        }
-    
+        return new Vec3(x, y, z);
+    }
+
     private void pollCompletedChunks() {
         // Process more chunks per frame
         int maxPerFrame = 16;
@@ -395,6 +447,11 @@ public class World implements MeshBuilder.WorldAccess {
         
         chunk.setPhase(Chunk.Phase.TERRAIN);
         chunk.setDirty(true);
+
+        LightPropagator.recomputeChunkBlockLight(this, chunk);
+        LightPropagator.recomputeChunkSkyLightVertical(this, chunk); 
+
+
     }
     
     /**
@@ -669,21 +726,43 @@ public class World implements MeshBuilder.WorldAccess {
         return new Vec3(0.5f, config.waterLevel + 10, 0.5f);
     }
     
-    private void generateChunkSync(int cx, int cz) {
-        long key = chunkKey(cx, cz);
-        Chunk chunk = chunks.get(key);
-        
-        if (chunk == null) {
-            chunk = new Chunk(cx, cz);
-            chunks.put(key, chunk);
-        }
-        
-        if (chunk.getPhase() == Chunk.Phase.EMPTY) {
-            worldGenerator.generateTerrain(cx, cz, chunk.getBlockData(), chunk.getHeightMapData());
-            chunk.setPhase(Chunk.Phase.TERRAIN);
-            chunk.setDirty(true);
+private void generateChunkSync(int cx, int cz) {
+    long key = chunkKey(cx, cz);
+    Chunk chunk = chunks.get(key);
+
+    if (chunk == null) {
+        chunk = new Chunk(cx, cz);
+        chunks.put(key, chunk);
+    }
+
+    if (chunk.getPhase() == Chunk.Phase.EMPTY) {
+        // 1) Genera il terreno
+        worldGenerator.generateTerrain(cx, cz,
+                chunk.getBlockData(),
+                chunk.getHeightMapData());
+
+        chunk.setPhase(Chunk.Phase.TERRAIN);
+        chunk.setDirty(true);
+
+        // 2) Calcola la luce per questo chunk
+        LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
+        LightPropagator.recomputeChunkBlockLight(this, chunk);
+
+        // 3) (opzionale ma consigliato) aggiorna anche i vicini già caricati
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0) continue;
+                Chunk n = getChunkIfLoaded(cx + dx, cz + dz);
+                if (n != null && n.getPhase().ordinal() >= Chunk.Phase.TERRAIN.ordinal()) {
+                    LightPropagator.recomputeChunkSkyLightVertical(this, n);
+                    LightPropagator.recomputeChunkBlockLight(this, n);
+                    n.setDirty(true);
+                }
+            }
         }
     }
+}
+
     
     public int getSurfaceHeight(int x, int z) {
         for (int y = config.worldHeight - 1; y >= 0; y--) {
@@ -725,6 +804,20 @@ public class World implements MeshBuilder.WorldAccess {
         if (m < 0) m += b;
         return m;
     }
+
+    public int getBlockLight(int x, int y, int z) {
+    int cx = floorDiv(x, config.chunkSize);
+    int cz = floorDiv(z, config.chunkSize);
+    int lx = mod(x, config.chunkSize);
+    int lz = mod(z, config.chunkSize);
+    Chunk chunk = getChunkIfLoaded(cx, cz);
+    if (chunk == null) return 0;
+    return chunk.getBlockLight(lx, y, lz);
+}
+
+public boolean isDark(int x, int y, int z, int threshold) {
+    return getBlockLight(x, y, z) < threshold;
+}
     
     // ==================== CLEANUP ====================
     
@@ -737,15 +830,36 @@ public class World implements MeshBuilder.WorldAccess {
         pendingChunks.clear();
     }
     
-    // ==================== ADAPTER ====================
+private static class ChunkDataAdapter implements MeshBuilder.ChunkData {
+    private final Chunk chunk;
     
-    private static class ChunkDataAdapter implements MeshBuilder.ChunkData {
-        private final Chunk chunk;
-        
-        ChunkDataAdapter(Chunk chunk) { this.chunk = chunk; }
-        
-        @Override public int getBlock(int x, int y, int z) { return chunk.getBlock(x, y, z); }
-        @Override public int getWorldX() { return chunk.getWorldX(); }
-        @Override public int getWorldZ() { return chunk.getWorldZ(); }
+    ChunkDataAdapter(Chunk chunk) { this.chunk = chunk; }
+    
+    @Override
+    public int getBlock(int x, int y, int z) {
+        return chunk.getBlock(x, y, z);
     }
+
+    @Override
+    public int getWorldX() {
+        return chunk.getWorldX();
+    }
+
+    @Override
+    public int getWorldZ() {
+        return chunk.getWorldZ();
+    }
+
+    @Override
+    public int getBlockLight(int x, int y, int z) {
+        // coord locali nel chunk (uguali a quelle che usi nel MeshBuilder)
+        return chunk.getBlockLight(x, y, z);
+    }
+
+    @Override
+    public int getSkyLight(int x, int y, int z) {
+        return chunk.getSkyLight(x, y, z);
+    }
+}
+
 }

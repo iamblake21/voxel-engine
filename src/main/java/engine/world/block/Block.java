@@ -61,6 +61,15 @@ public class Block {
     public BlockProperties getProperties() {
         return properties;
     }
+
+    public boolean isLightSource() {
+        return properties.getLightLevel() > 0;
+    }
+
+        public int getLightLevel() {
+        return properties.getLightLevel();
+    }
+
     
     // ==================== TEXTURES ====================
     

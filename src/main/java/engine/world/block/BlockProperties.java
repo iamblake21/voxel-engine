@@ -24,6 +24,8 @@ public class BlockProperties {
     // Physics
     float friction = 0.6f;     // Surface friction
     float slipperiness = 0.6f; // Ice-like sliding
+    int lightLevel = 0;
+
     
     private BlockProperties() {}
     
@@ -35,6 +37,11 @@ public class BlockProperties {
     }
     
     // ==================== BUILDER METHODS ====================
+
+    public BlockProperties lightLevel(int level) {
+        this.lightLevel = Math.max(0, Math.min(15, level));
+        return this;
+    }
     
     public BlockProperties solid(boolean solid) {
         this.solid = solid;
@@ -161,6 +168,10 @@ public class BlockProperties {
     public boolean hasTintFoliage() { return tintFoliage; }
     public float getFriction() { return friction; }
     public float getSlipperiness() { return slipperiness; }
+    public int getLightLevel() { return lightLevel; }
+    public boolean isLightSource() { return lightLevel > 0; }
+
+
     
     /**
      * Copy properties from another BlockProperties
@@ -179,6 +190,7 @@ public class BlockProperties {
         this.tintFoliage = other.tintFoliage;
         this.friction = other.friction;
         this.slipperiness = other.slipperiness;
+        this.lightLevel = other.lightLevel;
         return this;
     }
 }

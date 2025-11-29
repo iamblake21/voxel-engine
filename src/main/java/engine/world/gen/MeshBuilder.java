@@ -239,6 +239,29 @@ public class MeshBuilder {
         } else {
             ao = computeFaceAO(chunk, world, bx, by, bz, nx, ny, nz);
         }
+
+        float[] light = new float[4];
+        for (int i = 0; i < 4; i++) {
+            int vx = Math.round(v[i][0]);
+            int vy = Math.round(v[i][1]);
+            int vz = Math.round(v[i][2]);
+
+            int blockL = getBlockLightAt(chunk, world, vx, vy, vz); // 0..15
+            int skyL   = getSkyLightAt(chunk, world, vx, vy, vz);   // 0..15
+
+            float blockF = blockL / 15.0f;
+            float skyF   = skyL   / 15.0f;
+
+            float combined = 0.20f + 0.50f * skyF + 0.30f * blockF;
+            if (combined > 1.0f) combined = 1.0f;
+
+            light[i] = combined;
+        }
+
+        for (int i = 0; i < 4; i++) {
+            ao[i] *= light[i];
+        }
+
         
     int tileX = block.getTextureTileX(nx, ny, nz);
     int tileY = block.getTextureTileY(nx, ny, nz);
@@ -341,6 +364,32 @@ public class MeshBuilder {
         int occ = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0);
         return occ == 0 ? 1.00f : occ == 1 ? 0.90f : occ == 2 ? 0.75f : 0.60f;
     }
+
+
+    private int getSkyLightAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
+        if (y < 0 || y >= chunkHeight) return 0;
+
+        if (x >= 0 && x < chunkSize && z >= 0 && z < chunkSize) {
+            return chunk.getSkyLight(x, y, z);
+        }
+
+        int worldX = chunk.getWorldX() + x;
+        int worldZ = chunk.getWorldZ() + z;
+        return world.peekSkyLight(worldX, y, worldZ);
+    }
+
+    private int getBlockLightAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
+        if (y < 0 || y >= chunkHeight) return 0;
+
+        if (x >= 0 && x < chunkSize && z >= 0 && z < chunkSize) {
+            return chunk.getBlockLight(x, y, z);
+        }
+
+        int worldX = chunk.getWorldX() + x;
+        int worldZ = chunk.getWorldZ() + z;
+        return world.peekBlockLight(worldX, y, worldZ);
+    }
+
     
     private void push(ArrayList<Float> a, float[] pos, float u, float v, float ao, int faceIdx, int tileIndex) {
         a.add(pos[0]);           // x
@@ -370,6 +419,10 @@ public class MeshBuilder {
         int getBlock(int x, int y, int z);
         int getWorldX();
         int getWorldZ();
+        default int getBlockLight(int x, int y, int z) { return 0; }
+        default int getSkyLight(int x, int y, int z)   { return 0; } 
+
+
     }
     
     /**
@@ -377,6 +430,9 @@ public class MeshBuilder {
      */
     public interface WorldAccess {
         int peekBlock(int worldX, int worldY, int worldZ);
+        int peekSkyLight(int worldX, int worldY, int worldZ);
+        int peekBlockLight(int worldX, int worldY, int worldZ);
+
     }
     
     /**
