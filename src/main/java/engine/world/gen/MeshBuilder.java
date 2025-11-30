@@ -252,7 +252,8 @@ public class MeshBuilder {
             float blockF = blockL / 15.0f;
             float skyF   = skyL   / 15.0f;
 
-            float combined = 0.20f + 0.50f * skyF + 0.30f * blockF;
+            float combined = 0.18f + 0.50f * skyF + 0.50f * blockF;
+
             if (combined > 1.0f) combined = 1.0f;
 
             light[i] = combined;

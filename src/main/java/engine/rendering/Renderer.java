@@ -765,8 +765,6 @@ private String getVertexShader() {
         "}\n";
 }
 
-
-    
 private String getFragmentShader() {
     return "#version 330 core\n" +
         "in vec2 vUV;\n" +
@@ -784,7 +782,7 @@ private String getFragmentShader() {
         "uniform int uTileLeavesIndex;\n" +
         "uniform vec3 uGrassTint;\n" +
         "uniform vec3 uFoliageTint;\n" +
-        "uniform float uTime;\n" +          // per onde dell'acqua / animazioni\n" +
+        "uniform float uTime;\n" +
         "uniform vec3 uCameraPos;\n" +
         "uniform int uUnderwater;\n" +
         "uniform float uWaterLevel;\n" +
@@ -793,11 +791,10 @@ private String getFragmentShader() {
         "uniform vec3 uFogColor;\n" +
         "uniform float uFogStart;\n" +
         "uniform float uFogEnd;\n" +
-        "// === Dati del sole dal World ===\n" +
-        "uniform float uTimeOfDay;   // 0..1, se ti serve per altri effetti\n" +
-        "uniform vec3  uSunDir;      // direzione del sole in spazio mondo\n" +
-        "uniform vec3  uSunColor;    // colore del sole già calcolato in CPU\n" +
-        "uniform vec3  uAmbientColor;// colore dell'illuminazione ambientale\n" +
+        "uniform float uTimeOfDay;\n" +
+        "uniform vec3  uSunDir;\n" +
+        "uniform vec3  uSunColor;\n" +
+        "uniform vec3  uAmbientColor;\n" +
         "\n" +
         "out vec4 FragColor;\n" +
         "\n" +
@@ -814,22 +811,20 @@ private String getFragmentShader() {
         "float heightWater(vec2 xz, float t){ vec2 p=xz*0.18 + vec2(t*0.30, -t*0.24); return (fbm(p)*2.0-1.0)*0.3; }\n" +
         "vec2 gradHeight(vec2 xz, float t){ float e=0.15; float hC=heightWater(xz,t); float hX=heightWater(xz+vec2(e,0),t)-hC; float hZ=heightWater(xz+vec2(0,e),t)-hC; return vec2(hX/e, hZ/e); }\n" +
         "\n" +
-        "// Colore cielo coerente con la skybox (in base alla direzione del raggio e al sole)\n" +
         "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
         "  dir = normalize(dir);\n" +
-        "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0); // -1..1 -> 0..1\n" +
+        "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);\n" +
         "\n" +
         "  vec3 dayHorizon  = vec3(0.55, 0.75, 0.95);\n" +
         "  vec3 dayZenith   = vec3(0.10, 0.35, 0.75);\n" +
         "  vec3 nightHorizon= vec3(0.02, 0.02, 0.08);\n" +
         "  vec3 nightZenith = vec3(0.00, 0.00, 0.02);\n" +
         "\n" +
-        "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0); // 0 giorno, 1 notte\n" +
+        "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0);\n" +
         "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
         "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
         "  vec3 col = mix(dayCol, nightCol, night);\n" +
         "\n" +
-        "  // alone del sole\n" +
         "  float sunAmt = pow(max(dot(dir, sunDir), 0.0), 600.0);\n" +
         "  col += vec3(1.0, 0.9, 0.7) * sunAmt * 1.5;\n" +
         "\n" +
@@ -840,21 +835,14 @@ private String getFragmentShader() {
         "  float fogAmount = calculateFog(vDistFromCamera);\n" +
         "  int tileIndex = int(vTileIndex + 0.5);\n" +
         "\n" +
-        "  // === Usa la direzione del sole dal World ===\n" +
         "  vec3 sunDir = normalize(uSunDir);\n" +
-        "  // quanto è alto il sole sopra l'orizzonte (0 notte, 1 mezzogiorno)\n" +
         "  float sunStrength = clamp(sunDir.y, 0.0, 1.0);\n" +
         "\n" +
-        "  vec3 sunColor    = uSunColor;\n" +
-        "  vec3 ambientColor = uAmbientColor;\n" +
-        "\n" +
         "  vec3 N = normalize(vNormal);\n" +
-        "  vec3 V = normalize(uCameraPos - vWP);      // da frammento alla camera\n" +
-        "  vec3 rayDir = -V;                          // direzione del raggio dalla camera verso il frammento\n" +
+        "  vec3 V = normalize(uCameraPos - vWP);\n" +
+        "  vec3 rayDir = -V;\n" +
         "\n" +
-        "  // Colore cielo dinamico usato dalla nebbia\n" +
         "  vec3 skyCol = computeSkyColor(rayDir, sunDir, sunStrength);\n" +
-        "  // Mischia leggermente uFogColor se vuoi comunque influenzarlo da CPU\n" +
         "  vec3 fogCol = mix(skyCol, uFogColor, 0.15);\n" +
         "\n" +
         "  if(uWaterPass==0){\n" +
@@ -869,19 +857,45 @@ private String getFragmentShader() {
         "    if(isGrass)  base *= uGrassTint;\n" +
         "    else if(isLeaves) base *= uFoliageTint;\n" +
         "\n" +
-        "    // vAO ora contiene AO * (blockLight/skyLight)\n" +
+        "    // vAO contiene: AO × (0.15 + 0.45×skyLight + 0.65×blockLight)\n" +
         "    float bakedLight = clamp(vAO, 0.0, 1.0);\n" +
-        "\n" +
-        "    // Luce diretta del sole limitata dalla lightmap\n" +
+        "    \n" +
+        "    // ✅ STIMA approssimativa di skyLight vs blockLight\n" +
+        "    // Se bakedLight è basso (< 0.2), è principalmente base (0.15)\n" +
+        "    // Se bakedLight è alto, contiene skyLight e/o blockLight\n" +
+        "    \n" +
+        "    // Supponiamo che:\n" +
+        "    // - Il minimo possibile è 0.15 (base)\n" +
+        "    // - Tutto sopra 0.15 è contributo di sky o block\n" +
+        "    float lightAboveBase = max(0.0, bakedLight - 0.15);\n" +
+        "    \n" +
+        "    // Stima euristica: se la luce è molto alta, probabilmente è skyLight\n" +
+        "    // Se è moderata, probabilmente è blockLight\n" +
+        "    // Questo non è perfetto ma funziona abbastanza bene\n" +
+        "    \n" +
+        "    // Contributo stimato della skyLight (massimo 0.45)\n" +
+        "    float estimatedSkyContribution = min(lightAboveBase, 0.45);\n" +
+        "    \n" +
+        "    // Contributo stimato della blockLight (il resto)\n" +
+        "    float estimatedBlockContribution = lightAboveBase - estimatedSkyContribution;\n" +
+        "    \n" +
+        "    // ✅ Modula SOLO la skyLight in base al giorno/notte\n" +
+        "    float dayNightFactor = 0.15 + 0.85 * sunStrength;\n" +
+        "    float modulatedSky = estimatedSkyContribution * dayNightFactor;\n" +
+        "    \n" +
+        "    // ✅ La blockLight NON viene modulata (le torce funzionano sempre)\n" +
+        "    float finalLight = 0.15 + modulatedSky + estimatedBlockContribution;\n" +
+        "    \n" +
+        "    // Applica la luce finale\n" +
+        "    base *= finalLight;\n" +
+        "    \n" +
+        "    // Piccolo contributo direzionale del sole (solo di giorno)\n" +
         "    float NdotL = max(dot(N, sunDir), 0.0);\n" +
-        "    float direct = NdotL * sunStrength * bakedLight;\n" +
-        "\n" +
-        "    // Ambient più forte dove c'è luce, molto basso al buio\n" +
-        "    vec3 ambTerm = ambientColor * mix(0.2, 1.0, bakedLight);\n" +
-        "\n" +
-        "    vec3 lighting = ambTerm + sunColor * direct;\n" +
-        "    lighting = max(lighting, vec3(0.01));\n" +
-        "    base *= lighting;\n" +
+        "    float sunHighlight = NdotL * sunStrength * 0.12;\n" +
+        "    base += uSunColor * sunHighlight * finalLight;\n" +
+        "    \n" +
+        "    // Mai completamente nero\n" +
+        "    base = max(base, vec3(0.02));\n" +
         "\n" +
         "    float alpha = texel.a * uTint.a;\n" +
         "\n" +
@@ -894,7 +908,6 @@ private String getFragmentShader() {
         "      base = mix(base,uwFog,clamp(fog,0.0,1.0));\n" +
         "    }\n" +
         "\n" +
-        "    // Fog distanza -> verso il colore cielo\n" +
         "    base = mix(base, fogCol, fogAmount);\n" +
         "    FragColor = vec4(base, alpha);\n" +
         "    return;\n" +
@@ -912,7 +925,6 @@ private String getFragmentShader() {
         "  base += vec3(smoothstep(0.25,0.8,steep)*0.04);\n" +
         "  base *= uTint.rgb;\n" +
         "\n" +
-        "  // Striature della superficie\n" +
         "  vec2 uvTiles=vec2(vUV.x*float(uTilesX), vUV.y*float(uTilesY));\n" +
         "  vec2 tileUV=fract(uvTiles);\n" +
         "  vec2 p=floor(tileUV*10.0)/10.0;\n" +
@@ -922,18 +934,15 @@ private String getFragmentShader() {
         "  float vis=mix(0.30,1.00,viewTop);\n" +
         "  base += vec3(1.0)*stripes*vis*0.22;\n" +
         "\n" +
-        "  // === REAZIONE DELL'ACQUA AL CIELO ===\n" +
-        "  // Direzione riflessa verso il cielo\n" +
         "  vec3 reflDir = reflect(-V, waterN);\n" +
         "  vec3 reflSky = computeSkyColor(reflDir, sunDir, sunStrength);\n" +
         "  float fresnel = pow(1.0 - max(dot(waterN, V), 0.0), 3.0);\n" +
-        "  float reflAmount = 0.35 + 0.35 * fresnel; // 0.35..0.7\n" +
+        "  float reflAmount = 0.35 + 0.35 * fresnel;\n" +
         "  base = mix(base, reflSky, reflAmount);\n" +
         "\n" +
-        "  // Illuminazione acqua (come i blocchi)\n" +
         "  float NdotLw = max(dot(waterN, sunDir), 0.0);\n" +
         "  float directW = NdotLw * sunStrength;\n" +
-        "  vec3 lightingW = ambientColor + sunColor * directW;\n" +
+        "  vec3 lightingW = uAmbientColor + uSunColor * directW;\n" +
         "  lightingW = max(lightingW, vec3(0.05));\n" +
         "  base *= lightingW;\n" +
         "\n" +
@@ -948,11 +957,10 @@ private String getFragmentShader() {
         "    base=mix(base,uwFog,clamp(fog,0.0,1.0));\n" +
         "  }\n" +
         "\n" +
-        "  // Fog anche per l'acqua verso il cielo\n" +
         "  base = mix(base, fogCol, fogAmount);\n" +
         "  FragColor=vec4(base,alpha);\n" +
         "}\n";
 }
-
+    
 
 }
