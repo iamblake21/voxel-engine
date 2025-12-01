@@ -328,31 +328,39 @@ private int floorMod(int x, int mod) {
     
     // ==================== GENERATION ====================
     
-    private void ensureFeatures(Chunk chunk) {
-        if (chunk.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
-            return;
-        }
-        
-        if (!neighborsHaveTerrain(chunk.getX(), chunk.getZ())) {
-            return;
-        }
-        
-        worldGenerator.generateFeatures(
-            chunk.getX(), chunk.getZ(),
-            chunk.getBlockData(),
-            chunk.getHeightMapData(),
-            createBlockPlacer()
-        );
-        
-        chunk.setPhase(Chunk.Phase.FEATURES);
-        chunk.setDirty(true);
-        
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dx = -1; dx <= 1; dx++) {
-                markChunkDirty(chunk.getX() + dx, chunk.getZ() + dz);
+private void ensureFeatures(Chunk chunk) {
+    if (chunk.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
+        return;
+    }
+    
+    if (!neighborsHaveTerrain(chunk.getX(), chunk.getZ())) {
+        return;
+    }
+    
+    worldGenerator.generateFeatures(
+        chunk.getX(), chunk.getZ(),
+        chunk.getBlockData(),
+        chunk.getHeightMapData(),
+        createBlockPlacer()
+    );
+    
+    chunk.setPhase(Chunk.Phase.FEATURES);
+    chunk.setDirty(true);
+    
+    LightPropagator.recomputeChunkBlockLight(this, chunk);
+    LightPropagator.propagateSkyLightHorizontal(this, chunk);
+    
+    // Marca i vicini dirty
+    for (int dz = -1; dz <= 1; dz++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            Chunk neighbor = getChunkIfLoaded(chunk.getX() + dx, chunk.getZ() + dz);
+            if (neighbor != null) {
+                LightPropagator.recomputeChunkBlockLight(this, neighbor);
+                neighbor.setDirty(true);
             }
         }
     }
+}
     
     private boolean neighborsHaveTerrain(int cx, int cz) {
         for (int dz = -1; dz <= 1; dz++) {
