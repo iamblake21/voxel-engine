@@ -33,11 +33,9 @@ public class Mesh {
         glBufferData(GL_ARRAY_BUFFER, buffer, GL_STATIC_DRAW);
         memFree(buffer);
 
-        // 🔴 PRIMA: 7 * Float.BYTES
-        // pos(3) + uv(2) + ao(1) + faceIdx(1)
-        // 🟢 ORA: 8 float per vertice
-        // pos(3) + uv(2) + ao(1) + faceIdx(1) + tileIndex(1)
-        int floatsPerVertex = 8;
+        // ✅ AGGIORNATO: 10 float per vertice
+        // pos(3) + uv(2) + ao(1) + faceIdx(1) + tileIndex(1) + skyLight(1) + blockLight(1)
+        int floatsPerVertex = 10;
         int stride = floatsPerVertex * Float.BYTES;
         
         // layout(location=0) in vec3 aPos;
@@ -56,9 +54,17 @@ public class Mesh {
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(3, 1, GL_FLOAT, false, stride, 6L * Float.BYTES);
 
-        // ✅ NUOVO: layout(location=4) in float aTileIndex;
+        // layout(location=4) in float aTileIndex;
         glEnableVertexAttribArray(4);
         glVertexAttribPointer(4, 1, GL_FLOAT, false, stride, 7L * Float.BYTES);
+        
+        // ✅ NUOVO: layout(location=5) in float aSkyLight;
+        glEnableVertexAttribArray(5);
+        glVertexAttribPointer(5, 1, GL_FLOAT, false, stride, 8L * Float.BYTES);
+        
+        // ✅ NUOVO: layout(location=6) in float aBlockLight;
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 1, GL_FLOAT, false, stride, 9L * Float.BYTES);
         
         vertexCount = data.length / floatsPerVertex;
         

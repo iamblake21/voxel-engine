@@ -173,81 +173,81 @@ public class World implements MeshBuilder.WorldAccess {
         return Blocks.get(getBlock(x, y, z));
     }
     
-public void setBlock(int x, int y, int z, int blockId) {
-    if (y < 0 || y >= config.worldHeight) return;
-    
-    int cx = floorDiv(x, config.chunkSize);
-    int cz = floorDiv(z, config.chunkSize);
-    int lx = mod(x, config.chunkSize);
-    int lz = mod(z, config.chunkSize);
-    
-    Chunk chunk = getChunkIfLoaded(cx, cz);
-    if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) return;
-    
-    // Blocco vecchio e nuovo
-    int oldBlockId = chunk.getBlock(lx, y, lz);
-    Block oldBlock = Blocks.get(oldBlockId);
-    Block newBlock = Blocks.get(blockId);
-    
-    // ✅ STEP 1: Rimuovi la luce del vecchio blocco (se emetteva luce)
-    if (oldBlock.getLightLevel() > 0) {
-        LightPropagator.removeBlockLight(this, x, y, z);
-    }
-    
-    // ✅ STEP 2: Aggiorna il blocco
-    chunk.setBlock(lx, y, lz, blockId);
-    chunk.setDirty(true);
-    
-    // ✅ STEP 3: Aggiungi la luce del nuovo blocco (se emette luce)
-    if (newBlock.getLightLevel() > 0) {
-        LightPropagator.addBlockLight(this, x, y, z, newBlock.getLightLevel());
-    }
-    
-    // ✅ STEP 4: Se è cambiata l'opacità, ricalcola skyLight locale
-    if (oldBlock.isOpaque() != newBlock.isOpaque()) {
-        // Ricalcola solo la colonna verticale
-        updateSkyLightColumn(x, z);
-    }
-    
-    // ✅ STEP 5: Marca i chunk vicini dirty se sul bordo
-    if (lx == 0) markChunkDirty(cx - 1, cz);
-    if (lx == config.chunkSize - 1) markChunkDirty(cx + 1, cz);
-    if (lz == 0) markChunkDirty(cx, cz - 1);
-    if (lz == config.chunkSize - 1) markChunkDirty(cx, cz + 1);
-}
-
-/**
- * Ricalcola la skyLight solo per una colonna verticale.
- * Molto più efficiente del ricalcolo completo del chunk.
- */
-private void updateSkyLightColumn(int wx, int wz) {
-    int cx = floorDiv(wx, config.chunkSize);
-    int cz = floorDiv(wz, config.chunkSize);
-    int lx = mod(wx, config.chunkSize);
-    int lz = mod(wz, config.chunkSize);
-    
-    Chunk chunk = getChunkIfLoaded(cx, cz);
-    if (chunk == null) return;
-    
-    // Ricalcola solo questa colonna
-    boolean blocked = false;
-    for (int y = config.worldHeight - 1; y >= 0; y--) {
-        int blockId = getBlock(wx, y, wz);
-        Block b = Blocks.get(blockId);
+    public void setBlock(int x, int y, int z, int blockId) {
+        if (y < 0 || y >= config.worldHeight) return;
         
-        if (!blocked && !b.isOpaque()) {
-            chunk.setSkyLight(lx, y, lz, 15);
-        } else {
-            blocked = true;
-            chunk.setSkyLight(lx, y, lz, 0);
+        int cx = floorDiv(x, config.chunkSize);
+        int cz = floorDiv(z, config.chunkSize);
+        int lx = mod(x, config.chunkSize);
+        int lz = mod(z, config.chunkSize);
+        
+        Chunk chunk = getChunkIfLoaded(cx, cz);
+        if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) return;
+        
+        // Blocco vecchio e nuovo
+        int oldBlockId = chunk.getBlock(lx, y, lz);
+        Block oldBlock = Blocks.get(oldBlockId);
+        Block newBlock = Blocks.get(blockId);
+        
+        // ✅ STEP 1: Rimuovi la luce del vecchio blocco (se emetteva luce)
+        if (oldBlock.getLightLevel() > 0) {
+            LightPropagator.removeBlockLight(this, x, y, z);
         }
+        
+        // ✅ STEP 2: Aggiorna il blocco
+        chunk.setBlock(lx, y, lz, blockId);
+        chunk.setDirty(true);
+        
+        // ✅ STEP 3: Aggiungi la luce del nuovo blocco (se emette luce)
+        if (newBlock.getLightLevel() > 0) {
+            LightPropagator.addBlockLight(this, x, y, z, newBlock.getLightLevel());
+        }
+        
+        // ✅ STEP 4: Se è cambiata l'opacità, ricalcola skyLight locale
+        if (oldBlock.isOpaque() != newBlock.isOpaque()) {
+            // Ricalcola solo la colonna verticale
+            updateSkyLightColumn(x, z);
+        }
+        
+        // ✅ STEP 5: Marca i chunk vicini dirty se sul bordo
+        if (lx == 0) markChunkDirty(cx - 1, cz);
+        if (lx == config.chunkSize - 1) markChunkDirty(cx + 1, cz);
+        if (lz == 0) markChunkDirty(cx, cz - 1);
+        if (lz == config.chunkSize - 1) markChunkDirty(cx, cz + 1);
     }
-    
-    chunk.setDirty(true);
-    
-    // Propaga orizzontalmente (se hai implementato la propagazione orizzontale)
-    // LightPropagator.propagateSkyLightHorizontal(this, chunk);
-}
+
+    /**
+     * Ricalcola la skyLight solo per una colonna verticale.
+     * Molto più efficiente del ricalcolo completo del chunk.
+     */
+    private void updateSkyLightColumn(int wx, int wz) {
+        int cx = floorDiv(wx, config.chunkSize);
+        int cz = floorDiv(wz, config.chunkSize);
+        int lx = mod(wx, config.chunkSize);
+        int lz = mod(wz, config.chunkSize);
+        
+        Chunk chunk = getChunkIfLoaded(cx, cz);
+        if (chunk == null) return;
+        
+        // Ricalcola solo questa colonna
+        boolean blocked = false;
+        for (int y = config.worldHeight - 1; y >= 0; y--) {
+            int blockId = getBlock(wx, y, wz);
+            Block b = Blocks.get(blockId);
+            
+            if (!blocked && !b.isOpaque()) {
+                chunk.setSkyLight(lx, y, lz, 15);
+            } else {
+                blocked = true;
+                chunk.setSkyLight(lx, y, lz, 0);
+            }
+        }
+        
+        chunk.setDirty(true);
+        
+        // Propaga orizzontalmente (se hai implementato la propagazione orizzontale)
+        // LightPropagator.propagateSkyLightHorizontal(this, chunk);
+    }
     
     public void setBlock(int x, int y, int z, String blockId) {
         Block block = Blocks.get(blockId);

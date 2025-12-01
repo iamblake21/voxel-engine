@@ -705,14 +705,20 @@ private String getVertexShader() {
         "layout(location=1) in vec2 aUV;\n" +
         "layout(location=2) in float aAO;\n" +
         "layout(location=3) in float aFaceIdx;\n" +
-        "layout(location=4) in float aTileIndex;\n" + // layer del TextureArray\n" +
-        "uniform mat4 uProj,uView,uModel;\n" +
+        "layout(location=4) in float aTileIndex;\n" +
+        "layout(location=5) in float aSkyLight;\n" +     // ✅ NEW
+        "layout(location=6) in float aBlockLight;\n" +   // ✅ NEW
+        "\n" +
+        "uniform mat4 uProj, uView, uModel;\n" +
         "uniform float uTime;\n" +
         "uniform int uWaterPass;\n" +
         "uniform float uWaterLevel;\n" +
         "uniform vec3 uCameraPos;\n" +
+        "\n" +
         "out vec2 vUV;\n" +
         "out float vAO;\n" +
+        "out float vSkyLight;\n" +      // ✅ NEW
+        "out float vBlockLight;\n" +    // ✅ NEW
         "out vec2 vWorldXZ;\n" +
         "out vec3 vWP;\n" +
         "out float vDistFromCamera;\n" +
@@ -736,13 +742,14 @@ private String getVertexShader() {
         "void main(){\n" +
         "  vUV = aUV;\n" +
         "  vAO = aAO;\n" +
+        "  vSkyLight = aSkyLight;\n" +      // ✅ Pass through
+        "  vBlockLight = aBlockLight;\n" +  // ✅ Pass through
         "  vTileIndex = aTileIndex;\n" +
         "\n" +
         "  vec4 wp4 = uModel * vec4(aPos, 1.0);\n" +
         "  vec3 wp  = wp4.xyz;\n" +
         "  vec3 wpO = wp;\n" +
         "\n" +
-        "  // Normale in spazio mondo (uModel da noi è solo traslazione)\n" +
         "  vec3 localN = faceNormal(aFaceIdx);\n" +
         "  vNormal = mat3(uModel) * localN;\n" +
         "\n" +
@@ -754,7 +761,6 @@ private String getVertexShader() {
         "    float dh = heightWater(wpO.xz, uTime);\n" +
         "    wp.y += dh*w;\n" +
         "    wp4.xyz = wp;\n" +
-        "    // superficie acqua: normale sempre verso l'alto\n" +
         "    vNormal = vec3(0.0,1.0,0.0);\n" +
         "  }\n" +
         "\n" +
@@ -765,10 +771,14 @@ private String getVertexShader() {
         "}\n";
 }
 
+
+
 private String getFragmentShader() {
     return "#version 330 core\n" +
         "in vec2 vUV;\n" +
         "in float vAO;\n" +
+        "in float vSkyLight;\n" +      // ✅ NEW
+        "in float vBlockLight;\n" +    // ✅ NEW
         "in vec2 vWorldXZ;\n" +
         "in vec3 vWP;\n" +
         "in float vDistFromCamera;\n" +
@@ -777,7 +787,7 @@ private String getFragmentShader() {
         "\n" +
         "uniform sampler2DArray uTex;\n" +
         "uniform vec4 uTint;\n" +
-        "uniform int uTilesX,uTilesY;\n" +
+        "uniform int uTilesX, uTilesY;\n" +
         "uniform int uTileGrassTopIndex;\n" +
         "uniform int uTileLeavesIndex;\n" +
         "uniform vec3 uGrassTint;\n" +
@@ -857,44 +867,30 @@ private String getFragmentShader() {
         "    if(isGrass)  base *= uGrassTint;\n" +
         "    else if(isLeaves) base *= uFoliageTint;\n" +
         "\n" +
-        "    // vAO contiene: AO × (0.15 + 0.45×skyLight + 0.65×blockLight)\n" +
-        "    float bakedLight = clamp(vAO, 0.0, 1.0);\n" +
-        "    \n" +
-        "    // ✅ STIMA approssimativa di skyLight vs blockLight\n" +
-        "    // Se bakedLight è basso (< 0.2), è principalmente base (0.15)\n" +
-        "    // Se bakedLight è alto, contiene skyLight e/o blockLight\n" +
-        "    \n" +
-        "    // Supponiamo che:\n" +
-        "    // - Il minimo possibile è 0.15 (base)\n" +
-        "    // - Tutto sopra 0.15 è contributo di sky o block\n" +
-        "    float lightAboveBase = max(0.0, bakedLight - 0.15);\n" +
-        "    \n" +
-        "    // Stima euristica: se la luce è molto alta, probabilmente è skyLight\n" +
-        "    // Se è moderata, probabilmente è blockLight\n" +
-        "    // Questo non è perfetto ma funziona abbastanza bene\n" +
-        "    \n" +
-        "    // Contributo stimato della skyLight (massimo 0.45)\n" +
-        "    float estimatedSkyContribution = min(lightAboveBase, 0.45);\n" +
-        "    \n" +
-        "    // Contributo stimato della blockLight (il resto)\n" +
-        "    float estimatedBlockContribution = lightAboveBase - estimatedSkyContribution;\n" +
-        "    \n" +
-        "    // ✅ Modula SOLO la skyLight in base al giorno/notte\n" +
+        "    // ✅ PERFECT SEPARATION: skyLight and blockLight are separate!\n" +
+        "    // Modulate ONLY skyLight by day/night cycle\n" +
         "    float dayNightFactor = 0.15 + 0.85 * sunStrength;\n" +
-        "    float modulatedSky = estimatedSkyContribution * dayNightFactor;\n" +
+        "    float modulatedSky = vSkyLight * dayNightFactor;\n" +
         "    \n" +
-        "    // ✅ La blockLight NON viene modulata (le torce funzionano sempre)\n" +
-        "    float finalLight = 0.15 + modulatedSky + estimatedBlockContribution;\n" +
+        "    // BlockLight is NEVER modulated (torches work at night!)\n" +
+        "    // Combine: base ambient + sky contribution + block contribution\n" +
+        "    float finalLight = 0.18 + 0.50 * modulatedSky + 0.50 * vBlockLight;\n" +
         "    \n" +
-        "    // Applica la luce finale\n" +
+        "    // Apply AO as a separate multiplier\n" +
+        "    finalLight *= vAO;\n" +
+        "    \n" +
+        "    // Clamp to reasonable range\n" +
+        "    finalLight = clamp(finalLight, 0.0, 1.0);\n" +
+        "    \n" +
+        "    // Apply lighting to base color\n" +
         "    base *= finalLight;\n" +
         "    \n" +
-        "    // Piccolo contributo direzionale del sole (solo di giorno)\n" +
+        "    // Directional sun highlight (only during day)\n" +
         "    float NdotL = max(dot(N, sunDir), 0.0);\n" +
         "    float sunHighlight = NdotL * sunStrength * 0.12;\n" +
         "    base += uSunColor * sunHighlight * finalLight;\n" +
         "    \n" +
-        "    // Mai completamente nero\n" +
+        "    // Minimum brightness (never completely black)\n" +
         "    base = max(base, vec3(0.02));\n" +
         "\n" +
         "    float alpha = texel.a * uTint.a;\n" +
@@ -913,7 +909,7 @@ private String getFragmentShader() {
         "    return;\n" +
         "  }\n" +
         "\n" +
-        "  // --- ACQUA ---\n" +
+        "  // --- ACQUA (unchanged) ---\n" +
         "  vec2 g = gradHeight(vWorldXZ, uTime);\n" +
         "  vec3 waterN = normalize(vec3(-g.x,1.0,-g.y));\n" +
         "  float viewTop = pow(max(dot(vec3(0,1,0),V),0.0),1.4);\n" +

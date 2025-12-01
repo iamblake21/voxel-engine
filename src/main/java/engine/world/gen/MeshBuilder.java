@@ -240,28 +240,22 @@ public class MeshBuilder {
             ao = computeFaceAO(chunk, world, bx, by, bz, nx, ny, nz);
         }
 
-        float[] light = new float[4];
-        for (int i = 0; i < 4; i++) {
-            int vx = Math.round(v[i][0]);
-            int vy = Math.round(v[i][1]);
-            int vz = Math.round(v[i][2]);
+    float[] skyLight = new float[4];
+    float[] blockLight = new float[4];
 
-            int blockL = getBlockLightAt(chunk, world, vx, vy, vz); // 0..15
-            int skyL   = getSkyLightAt(chunk, world, vx, vy, vz);   // 0..15
+    for (int i = 0; i < 4; i++) {
+        int vx = Math.round(v[i][0]);
+        int vy = Math.round(v[i][1]);
+        int vz = Math.round(v[i][2]);
 
-            float blockF = blockL / 15.0f;
-            float skyF   = skyL   / 15.0f;
+        int skyL = getSkyLightAt(chunk, world, vx, vy, vz);     // 0..15
+        int blockL = getBlockLightAt(chunk, world, vx, vy, vz); // 0..15
 
-            float combined = 0.18f + 0.50f * skyF + 0.50f * blockF;
+        // Normalize to 0.0..1.0
+        skyLight[i] = skyL / 15.0f;
+        blockLight[i] = blockL / 15.0f;
+    }
 
-            if (combined > 1.0f) combined = 1.0f;
-
-            light[i] = combined;
-        }
-
-        for (int i = 0; i < 4; i++) {
-            ao[i] *= light[i];
-        }
 
         
     int tileX = block.getTextureTileX(nx, ny, nz);
@@ -282,13 +276,14 @@ public class MeshBuilder {
     int faceIdx = (nx == 1) ? 0 : (nx == -1) ? 1 : (ny == 1) ? 2 : (ny == -1) ? 3 : (nz == 1) ? 4 : 5;
 
     // Two triangles – adesso usiamo uv locali (0..1) e tileIndex
-    push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
-    push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex);
-    push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
+    push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex, skyLight[0], blockLight[0]);
+    push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex, skyLight[1], blockLight[1]);
+    push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex, skyLight[2], blockLight[2]);
 
-    push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex);
-    push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex);
-    push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex);
+    push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex, skyLight[0], blockLight[0]);
+    push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex, skyLight[2], blockLight[2]);
+    push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex, skyLight[3], blockLight[3]);
+
     }
     
     /**
@@ -392,18 +387,22 @@ public class MeshBuilder {
     }
 
     
-    private void push(ArrayList<Float> a, float[] pos, float u, float v, float ao, int faceIdx, int tileIndex) {
-        a.add(pos[0]);           // x
-        a.add(pos[1]);           // y
-        a.add(pos[2]);           // z
-        a.add(u);                // u
-        a.add(v);                // v
-        a.add(ao);               // ao
-        a.add((float) faceIdx);  // face index
-        a.add((float) tileIndex);// layer index (aTileIndex)
-    }
-    
-    private float[] toFloatArray(ArrayList<Float> list) {
+    private void push(ArrayList<Float> a, float[] pos, float u, float v, float ao, 
+                    int faceIdx, int tileIndex, float skyLight, float blockLight) {
+        a.add(pos[0]);              // x
+        a.add(pos[1]);              // y
+        a.add(pos[2]);              // z
+        a.add(u);                   // u
+        a.add(v);                   // v
+        a.add(ao);                  // ao (ONLY ambient occlusion, no light!)
+        a.add((float) faceIdx);     // face index
+        a.add((float) tileIndex);   // layer index
+        a.add(skyLight);            
+        a.add(blockLight);          
+    }    
+
+
+        private float[] toFloatArray(ArrayList<Float> list) {
         float[] arr = new float[list.size()];
         for (int i = 0; i < arr.length; i++) {
             arr[i] = list.get(i);
