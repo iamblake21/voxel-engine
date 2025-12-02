@@ -2,6 +2,7 @@ package engine.world.light;
 
 import engine.world.World;
 import engine.world.Chunk;
+import engine.world.gen.ChunkSnapshot;
 import engine.world.block.Block;
 import engine.world.block.Blocks;
 import java.util.Arrays;
@@ -207,6 +208,132 @@ public static void removeBlockLight(World world, int wx, int wy, int wz) {
 
             chunk.setDirty(true);
         }
+
+
+/**
+     * Calcola la luce completa (Sky + Block) sullo Snapshot usando BFS.
+     */
+    public static void computeLightForSnapshot(ChunkSnapshot snapshot, int chunkSize, int chunkHeight) {
+        // --- 1. SKY LIGHT VERTICALE (Reset & Fill) ---
+        for (int x = 0; x < chunkSize; x++) {
+            for (int z = 0; z < chunkSize; z++) {
+                boolean blocked = false;
+                for (int y = chunkHeight - 1; y >= 0; y--) {
+                    int blockId = snapshot.getBlock(x, y, z);
+                    boolean opaque = Blocks.get(blockId).isOpaque();
+                    
+                    if (!blocked && !opaque) {
+                        snapshot.setSkyLight(x, y, z, 15);
+                    } else {
+                        blocked = true;
+                        snapshot.setSkyLight(x, y, z, 0);
+                    }
+                }
+            }
+        }
+
+        // --- 2. SKY LIGHT ORIZZONTALE (Propagazione) ---
+        // Propaghiamo la luce del cielo che entra dai lati o sotto le sporgenze
+        Queue<Node> queue = new ArrayDeque<>();
+        
+        // Raccogli i sorgenti di SkyLight (dove c'è luce ma un vicino è scuro)
+        for (int x = 0; x < chunkSize; x++) {
+            for (int y = 0; y < chunkHeight; y++) {
+                for (int z = 0; z < chunkSize; z++) {
+                    int skyL = snapshot.peekSkyLight(snapshot.centerX * chunkSize + x, y, snapshot.centerZ * chunkSize + z); 
+                    if (skyL > 0) {
+                        queue.add(new Node(x, y, z, skyL));
+                    }
+                }
+            }
+        }
+        runBfs(snapshot, queue, true, chunkSize, chunkHeight);
+
+        // --- 3. BLOCK LIGHT (Emissive & Propagazione) ---
+        queue.clear();
+        
+        // Trova sorgenti (lava, torce, glowstone)
+        for (int x = 0; x < chunkSize; x++) {
+            for (int y = 0; y < chunkHeight; y++) {
+                for (int z = 0; z < chunkSize; z++) {
+                    int blockId = snapshot.getBlock(x, y, z);
+                    int emission = Blocks.get(blockId).getLightLevel();
+                    if (emission > 0) {
+                        snapshot.setBlockLight(x, y, z, emission);
+                        queue.add(new Node(x, y, z, emission));
+                    }
+                }
+            }
+        }
+        runBfs(snapshot, queue, false, chunkSize, chunkHeight);
+    }
+
+    // Algoritmo BFS generico per Snapshot
+    private static void runBfs(ChunkSnapshot snapshot, Queue<Node> queue, boolean isSky, int chunkSize, int chunkHeight) {
+        int worldOx = snapshot.centerX * chunkSize;
+        int worldOz = snapshot.centerZ * chunkSize;
+        while (!queue.isEmpty()) {
+            Node n = queue.poll();
+            if (n.level <= 1) continue;
+
+            for (int[] d : DIRS) {
+                int nx = n.x + d[0];
+                int ny = n.y + d[1];
+                int nz = n.z + d[2];
+
+                // Boundary Check: Nello snapshot scriviamo SOLO nel chunk centrale.
+                // Se usciamo dai bordi (0..15), non scriviamo nel buffer locale perché ChunkSnapshot
+                // ha il buffer solo per il centro. 
+                // (Nota: questo crea un leggero taglio di luce ai bordi finché il vicino non si aggiorna, ma è accettabile per ora)
+                if (nx < 0 || nx >= chunkSize || nz < 0 || nz >= chunkSize || ny < 0 || ny >= chunkHeight) {
+                    continue;
+                }
+
+                // Recupera blocco e opacità
+                int blockId = snapshot.getBlock(nx, ny, nz);
+                Block nb = Blocks.get(blockId);
+                if (nb.isOpaque() && !nb.isTransparent()) continue;
+
+                // Recupera livello luce attuale
+                // Nota: peekSkyLight/BlockLight dello snapshot richiedono coord WORLD
+                int currentLight;
+                if (isSky) currentLight = snapshot.peekSkyLight(worldOx + nx, ny, worldOz + nz);
+                else       currentLight = snapshot.peekBlockLight(worldOx + nx, ny, worldOz + nz);
+
+                int newLevel = n.level - 1; // Riduzione naturale (aria)
+                
+                // Se è acqua, riduciamo di più la luce (es. -2 o -3)
+                if (nb.isLiquid()) newLevel -= 2;
+
+                if (newLevel > currentLight) {
+                    if (isSky) snapshot.setSkyLight(nx, ny, nz, newLevel);
+                    else       snapshot.setBlockLight(nx, ny, nz, newLevel);
+                    
+                    queue.add(new Node(nx, ny, nz, newLevel));
+                }
+            }
+        }
+
+        // 2. BlockLight (Emettitori)
+        // Nota: Una propagazione BFS completa richiederebbe coda e logica complessa.
+        // Qui facciamo un passaggio semplice: accendiamo i blocchi emissivi.
+        // Per la propagazione completa (torce che illuminano intorno) servirebbe
+        // replicare la logica BFS usando snapshot.peekBlock/setBlockLight.
+        for (int x = 0; x < chunkSize; x++) {
+            for (int y = 0; y < chunkHeight; y++) {
+                for (int z = 0; z < chunkSize; z++) {
+                    int blockId = snapshot.getBlock(x, y, z);
+                    int emission = Blocks.get(blockId).getLightLevel();
+                    if (emission > 0) {
+                        snapshot.setBlockLight(x, y, z, emission);
+                    }
+                }
+            }
+        }
+        
+        // TODO: Qui potresti implementare una BFS locale per propagare la luce
+        // all'interno dello snapshot lightBuffer.
+    }
 
 
         public static void propagateSkyLightHorizontal(World world, Chunk chunk) {

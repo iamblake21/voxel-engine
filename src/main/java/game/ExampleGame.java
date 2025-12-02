@@ -22,8 +22,7 @@ public class ExampleGame implements IGame {
     private Player player;
     private EntityType<Player> playerType;
     
-    // Render controls
-    private RenderInputHandler renderInputHandler;  // <-- Aggiungi
+    private RenderInputHandler renderInputHandler;  
 
     public ExampleGame(Config config) {
         this.config = config;
@@ -32,7 +31,7 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(12)  // <-- Cambia da 6 a 12 o quanto vuoi
+                .viewDistance(16)  // <-- Cambia da 6 a 12 o quanto vuoi
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
                 .build();

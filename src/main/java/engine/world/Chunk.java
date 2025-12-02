@@ -17,6 +17,8 @@ public class Chunk {
 
     public static final int SIZE = 16;
     public static final int HEIGHT = 256;
+    private volatile boolean meshPending = false;
+
 
     /** Numero massimo di livelli di dettaglio per chunk. */
     public static final int MAX_LOD_LEVELS = 4;
@@ -62,7 +64,6 @@ public class Chunk {
         this.skyLight   = new byte[SIZE * HEIGHT * SIZE];
 
 
-
         // Initialize with air
         int airId = Blocks.AIR().getNumericId();
         Arrays.fill(blocks, airId);
@@ -84,6 +85,10 @@ public class Chunk {
     private int index(int x, int y, int z) {
         return (y * SIZE + z) * SIZE + x;
     }
+
+
+    public boolean isMeshPending() { return meshPending; }
+    public void setMeshPending(boolean p) { this.meshPending = p; }
 
     // ==================== BLOCK ACCESS ====================
 
@@ -230,6 +235,18 @@ public class Chunk {
         if (lod >= MAX_LOD_LEVELS) return MAX_LOD_LEVELS - 1;
         return lod;
     }
+
+
+    public void applyLightData(byte[] buffer) {
+    if (buffer.length != this.blockLight.length) return;
+    
+    for (int i = 0; i < buffer.length; i++) {
+        byte val = buffer[i];
+        this.skyLight[i] = (byte)((val >> 4) & 0xF);
+        this.blockLight[i] = (byte)(val & 0xF);
+    }
+    // Non settiamo dirty=true qui perché stiamo per caricare la mesh comunque
+}
 
     // ==================== COORDINATES ====================
 
