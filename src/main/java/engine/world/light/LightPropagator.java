@@ -5,254 +5,272 @@ import engine.world.Chunk;
 import engine.world.gen.ChunkSnapshot;
 import engine.world.block.Block;
 import engine.world.block.Blocks;
+
 import java.util.Arrays;
-
-
-import java.util.ArrayDeque;
-import java.util.Queue;
+import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 public class LightPropagator {
 
-    private static final int MAX_LIGHT = 15;
+    // --- COSTANTI BITWISE (Assumendo Chunk.SIZE = 16) ---
+    // Se la tua Chunk.SIZE è diversa (es. 32), modifica SHIFT a 5 e MASK a 31
+    private static final int CHUNK_SHIFT = 4; 
+    private static final int CHUNK_MASK = 0xF; 
 
+    // --- COSTANTI PACKING (Per coordinate globali in un long) ---
+    // Struttura Long: [Level 4b][Y 12b][Z 24b][X 24b]
+    private static final int BITS_X = 24;
+    private static final int BITS_Z = 24;
+    private static final int BITS_Y = 12; // Supporta altezza fino a 4096
+    private static final int BITS_LEVEL = 4;
+    
+    private static final long MASK_COORD_X = (1L << BITS_X) - 1;
+    private static final long MASK_COORD_Z = (1L << BITS_Z) - 1;
+    private static final long MASK_COORD_Y = (1L << BITS_Y) - 1;
+    private static final long MASK_LIGHT_LEVEL = 0xF;
+
+    // --- COSTANTI PACKING SNAPSHOT (Per coordinate locali in un int) ---
+    private static final int S_SHIFT_X = 0;
+    private static final int S_SHIFT_Z = 5;
+    private static final int S_SHIFT_Y = 10;
+    private static final int S_SHIFT_LEVEL = 20;
+    private static final int S_MASK_XZ = 0x1F;
+    private static final int S_MASK_Y  = 0x3FF;
+    private static final int S_MASK_LEVEL = 0xF;
+
+    // Direzioni "appiattite" per iterazione veloce
     private static final int[][] DIRS = {
         { 1, 0, 0}, {-1, 0, 0},
         { 0, 1, 0}, { 0,-1, 0},
-        { 0, 0, 1}, { 0, 0,-1},
+        { 0, 0, 1}, { 0, 0,-1}
     };
 
-        /**
- * Aggiorna la blockLight quando viene piazzato un blocco emissivo.
- * Propaga la luce ai chunk vicini.
- */
-public static void addBlockLight(World world, int wx, int wy, int wz, int lightLevel) {
-    if (lightLevel <= 0) return;
-    
-    Chunk chunk = world.getChunkAtWorld(wx, wz);
-    if (chunk == null) return;
-    
-    int lx = floorMod(wx, Chunk.SIZE);
-    int lz = floorMod(wz, Chunk.SIZE);
-    
-    // Imposta la luce del blocco sorgente
-    chunk.setBlockLight(lx, wy, lz, lightLevel);
-    chunk.setDirty(true);
-    
-    // Propaga ai vicini
-    Queue<Node> queue = new ArrayDeque<>();
-    queue.add(new Node(wx, wy, wz, lightLevel));
-    
-    while (!queue.isEmpty()) {
-        Node n = queue.poll();
-        if (n.level <= 1) continue;
-        
-        for (int[] d : DIRS) {
-            int nx = n.x + d[0];
-            int ny = n.y + d[1];
-            int nz = n.z + d[2];
-            
-            if (ny < 0 || ny >= world.getConfig().worldHeight) continue;
-            
-            int neighborBlockId = world.peekBlock(nx, ny, nz);
-            Block nb = Blocks.get(neighborBlockId);
-            if (nb.isOpaque() && !nb.isTransparent()) continue;
-            
-            Chunk nChunk = world.getChunkIfLoaded(
-                Math.floorDiv(nx, Chunk.SIZE),
-                Math.floorDiv(nz, Chunk.SIZE)
-            );
-            if (nChunk == null) continue;
-            
-            int nlx = floorMod(nx, Chunk.SIZE);
-            int nlz = floorMod(nz, Chunk.SIZE);
-            
-            int old = nChunk.getBlockLight(nlx, ny, nlz);
-            int newLevel = n.level - 1;
-            
-            if (newLevel > old) {
-                nChunk.setBlockLight(nlx, ny, nlz, newLevel);
-                queue.add(new Node(nx, ny, nz, newLevel));
-                nChunk.setDirty(true);
+    /**
+     * Coda circolare primitiva per evitare allocazione di oggetti Node.
+     * Si espande automaticamente se necessario.
+     */
+    private static class LongLightQueue {
+        long[] data = new long[1024];
+        int head = 0;
+        int tail = 0;
+
+        void add(long val) {
+            data[tail] = val;
+            tail = (tail + 1) & (data.length - 1);
+            if (tail == head) resize();
+        }
+
+        long poll() {
+            long val = data[head];
+            head = (head + 1) & (data.length - 1);
+            return val;
+        }
+
+        boolean isEmpty() { return head == tail; }
+
+        private void resize() {
+            long[] newData = new long[data.length << 1];
+            int len = data.length;
+            int r = len - head;
+            System.arraycopy(data, head, newData, 0, r);
+            System.arraycopy(data, 0, newData, r, tail);
+            head = 0;
+            tail = len;
+            data = newData;
+        }
+    }
+
+    // =================================================================================
+    //  METODI WORLD (Globali)
+    // =================================================================================
+
+    public static void addBlockLight(World world, int wx, int wy, int wz, int lightLevel) {
+        if (lightLevel <= 0) return;
+
+        Chunk chunk = world.getChunkAtWorld(wx, wz);
+        if (chunk == null) return;
+
+        // Usa operazioni bitwise invece di floorMod (molto più veloci)
+        chunk.setBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK, lightLevel);
+        chunk.setDirty(true);
+
+        LongLightQueue queue = new LongLightQueue();
+        queue.add(packWorld(wx, wy, wz, lightLevel));
+
+        propagateAdd(world, queue);
+    }
+
+    public static void removeBlockLight(World world, int wx, int wy, int wz) {
+        Chunk chunk = world.getChunkAtWorld(wx, wz);
+        if (chunk == null) return;
+
+        int oldLight = chunk.getBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK);
+        if (oldLight == 0) return;
+
+        // Code separate per le due fasi
+        LongLightQueue removalQueue = new LongLightQueue();
+        LongLightQueue addQueue = new LongLightQueue();
+
+        // Imposta a 0 e avvia rimozione
+        chunk.setBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK, 0);
+        chunk.setDirty(true);
+        removalQueue.add(packWorld(wx, wy, wz, oldLight));
+
+        // --- FASE 1: RIMOZIONE ---
+        int worldHeight = world.getConfig().worldHeight;
+
+        while (!removalQueue.isEmpty()) {
+            long val = removalQueue.poll();
+            int level = unpackLevel(val);
+            int x = unpackX(val);
+            int y = unpackY(val);
+            int z = unpackZ(val);
+
+            for (int[] d : DIRS) {
+                int nx = x + d[0];
+                int ny = y + d[1];
+                int nz = z + d[2];
+
+                if (ny < 0 || ny >= worldHeight) continue;
+
+                Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
+                if (nChunk == null) continue;
+
+                int neighborLight = nChunk.getBlockLight(nx & CHUNK_MASK, ny, nz & CHUNK_MASK);
+
+                if (neighborLight != 0 && neighborLight < level) {
+                    // Era illuminato da noi -> spegni e propaga spegnimento
+                    nChunk.setBlockLight(nx & CHUNK_MASK, ny, nz & CHUNK_MASK, 0);
+                    nChunk.setDirty(true);
+                    removalQueue.add(packWorld(nx, ny, nz, neighborLight));
+                } else if (neighborLight >= level) {
+                    // È una sorgente esterna -> aggiungi alla coda di riempimento
+                    addQueue.add(packWorld(nx, ny, nz, neighborLight));
+                }
+            }
+        }
+
+        // --- FASE 2: RE-PROPAGAZIONE ---
+        propagateAdd(world, addQueue);
+    }
+
+    // Logica di propagazione condivisa (Add e Re-fill fase 2)
+    private static void propagateAdd(World world, LongLightQueue queue) {
+        int worldHeight = world.getConfig().worldHeight;
+
+        while (!queue.isEmpty()) {
+            long val = queue.poll();
+            int level = unpackLevel(val);
+            if (level <= 1) continue;
+
+            int x = unpackX(val);
+            int y = unpackY(val);
+            int z = unpackZ(val);
+
+            for (int[] d : DIRS) {
+                int nx = x + d[0];
+                int ny = y + d[1];
+                int nz = z + d[2];
+
+                if (ny < 0 || ny >= worldHeight) continue;
+
+                // Controllo Opacity rapido prima di getChunk se possibile, 
+                // ma dobbiamo recuperare il blocco dal mondo.
+                int neighborBlockId = world.peekBlock(nx, ny, nz);
+                if (Blocks.get(neighborBlockId).isOpaque()) continue; // isOpaque include già !isTransparent solitamente
+
+                Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
+                if (nChunk == null) continue;
+
+                int nlx = nx & CHUNK_MASK;
+                int nlz = nz & CHUNK_MASK;
+
+                int oldLevel = nChunk.getBlockLight(nlx, ny, nlz);
+                int newLevel = level - 1;
+
+                if (newLevel > oldLevel) {
+                    nChunk.setBlockLight(nlx, ny, nlz, newLevel);
+                    nChunk.setDirty(true);
+                    queue.add(packWorld(nx, ny, nz, newLevel));
+                }
             }
         }
     }
-}
 
-/**
- * Rimuove la blockLight quando viene rimosso un blocco emissivo.
- * Usa un algoritmo a due fasi: removal + re-propagation.
- */
-public static void removeBlockLight(World world, int wx, int wy, int wz) {
-    Chunk chunk = world.getChunkAtWorld(wx, wz);
-    if (chunk == null) return;
-    
-    int lx = floorMod(wx, Chunk.SIZE);
-    int lz = floorMod(wz, Chunk.SIZE);
-    
-    int oldLight = chunk.getBlockLight(lx, wy, lz);
-    if (oldLight == 0) return;
-    
-    // FASE 1: RIMOZIONE - Trova tutti i blocchi che dipendevano da questa luce
-    Queue<Node> removalQueue = new ArrayDeque<>();
-    Queue<Node> addQueue = new ArrayDeque<>();
-    
-    chunk.setBlockLight(lx, wy, lz, 0);
-    chunk.setDirty(true);
-    removalQueue.add(new Node(wx, wy, wz, oldLight));
-    
-    while (!removalQueue.isEmpty()) {
-        Node n = removalQueue.poll();
+    // =================================================================================
+    //  METODI CHUNK / SNAPSHOT (Locali)
+    // =================================================================================
+
+    public static void recomputeChunkSkyLightVertical(World world, Chunk chunk) {
+        if (chunk == null) return;
         
-        for (int[] d : DIRS) {
-            int nx = n.x + d[0];
-            int ny = n.y + d[1];
-            int nz = n.z + d[2];
-            
-            if (ny < 0 || ny >= world.getConfig().worldHeight) continue;
-            
-            Chunk nChunk = world.getChunkIfLoaded(
-                Math.floorDiv(nx, Chunk.SIZE),
-                Math.floorDiv(nz, Chunk.SIZE)
-            );
-            if (nChunk == null) continue;
-            
-            int nlx = floorMod(nx, Chunk.SIZE);
-            int nlz = floorMod(nz, Chunk.SIZE);
-            
-            int neighborLight = nChunk.getBlockLight(nlx, ny, nlz);
-            
-            // Se il vicino aveva luce inferiore, era illuminato da noi
-            if (neighborLight != 0 && neighborLight < n.level) {
-                nChunk.setBlockLight(nlx, ny, nlz, 0);
-                removalQueue.add(new Node(nx, ny, nz, neighborLight));
-                nChunk.setDirty(true);
-            }
-            // Se aveva luce uguale o superiore, è una sorgente indipendente
-            else if (neighborLight >= n.level) {
-                addQueue.add(new Node(nx, ny, nz, neighborLight));
-            }
-        }
-    }
-    
-    // FASE 2: RE-PROPAGAZIONE - Ri-propaga la luce dalle sorgenti rimaste
-    while (!addQueue.isEmpty()) {
-        Node n = addQueue.poll();
-        if (n.level <= 1) continue;
-        
-        for (int[] d : DIRS) {
-            int nx = n.x + d[0];
-            int ny = n.y + d[1];
-            int nz = n.z + d[2];
-            
-            if (ny < 0 || ny >= world.getConfig().worldHeight) continue;
-            
-            int neighborBlockId = world.peekBlock(nx, ny, nz);
-            Block nb = Blocks.get(neighborBlockId);
-            if (nb.isOpaque() && !nb.isTransparent()) continue;
-            
-            Chunk nChunk = world.getChunkIfLoaded(
-                Math.floorDiv(nx, Chunk.SIZE),
-                Math.floorDiv(nz, Chunk.SIZE)
-            );
-            if (nChunk == null) continue;
-            
-            int nlx = floorMod(nx, Chunk.SIZE);
-            int nlz = floorMod(nz, Chunk.SIZE);
-            
-            int old = nChunk.getBlockLight(nlx, ny, nlz);
-            int newLevel = n.level - 1;
-            
-            if (newLevel > old) {
-                nChunk.setBlockLight(nlx, ny, nlz, newLevel);
-                addQueue.add(new Node(nx, ny, nz, newLevel));
-                nChunk.setDirty(true);
-            }
-        }
-    }
-}
-    
+        // Accesso diretto ai dati se possibile sarebbe meglio, ma usiamo i setter
+        int wx0 = chunk.getWorldX();
+        int wz0 = chunk.getWorldZ();
+        int worldHeight = world.getConfig().worldHeight;
 
+        for (int lx = 0; lx < Chunk.SIZE; lx++) {
+            for (int lz = 0; lz < Chunk.SIZE; lz++) {
+                int wx = wx0 + lx;
+                int wz = wz0 + lz;
+                
+                // Ottimizzazione: Scansione verticale
+                // Appena troviamo un blocco opaco, settiamo tutto sotto a 0 in un colpo solo 
+                // (se l'array di dati lo permette) o continuiamo il loop velocemente.
+                boolean blocked = false;
+                for (int y = worldHeight - 1; y >= 0; y--) {
+                    if (blocked) {
+                        chunk.setSkyLight(lx, y, lz, 0);
+                        continue;
+                    }
 
-        public static void recomputeChunkSkyLightVertical(World world, Chunk chunk) {
-            if (chunk == null) return;
-
-            byte[] sky = chunk.getSkyLightData();
-            Arrays.fill(sky, (byte)0);
-
-            int wx0 = chunk.getWorldX();
-            int wz0 = chunk.getWorldZ();
-            int worldHeight = world.getConfig().worldHeight;
-
-            for (int lx = 0; lx < Chunk.SIZE; lx++) {
-                for (int lz = 0; lz < Chunk.SIZE; lz++) {
-                    int wx = wx0 + lx;
-                    int wz = wz0 + lz;
-
-                    // dall'alto verso il basso
-                    boolean blocked = false;
-                    for (int y = worldHeight - 1; y >= 0; y--) {
-                        int blockId = world.getBlock(wx, y, wz);
-                        Block b = Blocks.get(blockId);
-
-                        if (!blocked && !b.isOpaque()) {
-                            // questo blocco "vede" il cielo
-                            chunk.setSkyLight(lx, y, lz, 15);
-                        } else {
-                            // appena troviamo un opaco, da qui in giù buio
-                            blocked = true;
-                            chunk.setSkyLight(lx, y, lz, 0);
-                        }
+                    int blockId = world.getBlock(wx, y, wz);
+                    if (Blocks.get(blockId).isOpaque()) {
+                        blocked = true;
+                        chunk.setSkyLight(lx, y, lz, 0);
+                    } else {
+                        chunk.setSkyLight(lx, y, lz, 15);
                     }
                 }
             }
-
-            chunk.setDirty(true);
         }
+        chunk.setDirty(true);
+    }
 
-
-/**
-     * Calcola la luce completa (Sky + Block) sullo Snapshot usando BFS.
+    /**
+     * Calcola la luce completa (Sky + Block) sullo Snapshot.
+     * Versione ottimizzata con Array Int e Packing.
      */
-    public static void computeLightForSnapshot(ChunkSnapshot snapshot, int chunkSize, int chunkHeight) {
-        // --- 1. SKY LIGHT VERTICALE (Reset & Fill) ---
+    public static void computeLightForSnapshot(ChunkSnapshot snapshot, int chunkSize, int chunkHeight, List<Long> neighborsToPropagate) {
+        Set<Long> neighborsSet = new HashSet<>();
+        
+        // Coda su array int per performance massima
+        int[] queue = new int[chunkSize * chunkHeight * chunkSize * 2];
+        int head = 0;
+        int tail = 0;
+
+        // --- 1. SKY LIGHT (Vertical + Init Queue) ---
         for (int x = 0; x < chunkSize; x++) {
             for (int z = 0; z < chunkSize; z++) {
-                boolean blocked = false;
+                int light = 15;
                 for (int y = chunkHeight - 1; y >= 0; y--) {
                     int blockId = snapshot.getBlock(x, y, z);
-                    boolean opaque = Blocks.get(blockId).isOpaque();
+                    if (Blocks.get(blockId).isOpaque()) light = 0;
                     
-                    if (!blocked && !opaque) {
-                        snapshot.setSkyLight(x, y, z, 15);
-                    } else {
-                        blocked = true;
-                        snapshot.setSkyLight(x, y, z, 0);
+                    snapshot.setSkyLight(x, y, z, light);
+                    if (light > 0) {
+                        queue[tail++] = packSnapshot(x, y, z, light);
                     }
                 }
             }
         }
 
-        // --- 2. SKY LIGHT ORIZZONTALE (Propagazione) ---
-        // Propaghiamo la luce del cielo che entra dai lati o sotto le sporgenze
-        Queue<Node> queue = new ArrayDeque<>();
-        
-        // Raccogli i sorgenti di SkyLight (dove c'è luce ma un vicino è scuro)
-        for (int x = 0; x < chunkSize; x++) {
-            for (int y = 0; y < chunkHeight; y++) {
-                for (int z = 0; z < chunkSize; z++) {
-                    int skyL = snapshot.peekSkyLight(snapshot.centerX * chunkSize + x, y, snapshot.centerZ * chunkSize + z); 
-                    if (skyL > 0) {
-                        queue.add(new Node(x, y, z, skyL));
-                    }
-                }
-            }
-        }
-        runBfs(snapshot, queue, true, chunkSize, chunkHeight);
+        // --- 2. SKY LIGHT (Propagazione) ---
+        runBfsSnapshot(snapshot, queue, head, tail, true, chunkSize, chunkHeight, neighborsSet);
 
-        // --- 3. BLOCK LIGHT (Emissive & Propagazione) ---
-        queue.clear();
-        
-        // Trova sorgenti (lava, torce, glowstone)
+        // --- 3. BLOCK LIGHT (Init + Propagazione) ---
+        head = 0; tail = 0; // Reset coda
         for (int x = 0; x < chunkSize; x++) {
             for (int y = 0; y < chunkHeight; y++) {
                 for (int z = 0; z < chunkSize; z++) {
@@ -260,206 +278,105 @@ public static void removeBlockLight(World world, int wx, int wy, int wz) {
                     int emission = Blocks.get(blockId).getLightLevel();
                     if (emission > 0) {
                         snapshot.setBlockLight(x, y, z, emission);
-                        queue.add(new Node(x, y, z, emission));
+                        queue[tail++] = packSnapshot(x, y, z, emission);
+                    } else {
+                        snapshot.setBlockLight(x, y, z, 0);
                     }
                 }
             }
         }
-        runBfs(snapshot, queue, false, chunkSize, chunkHeight);
+        runBfsSnapshot(snapshot, queue, head, tail, false, chunkSize, chunkHeight, neighborsSet);
+
+        neighborsToPropagate.addAll(neighborsSet);
     }
 
-    // Algoritmo BFS generico per Snapshot
-    private static void runBfs(ChunkSnapshot snapshot, Queue<Node> queue, boolean isSky, int chunkSize, int chunkHeight) {
-        int worldOx = snapshot.centerX * chunkSize;
-        int worldOz = snapshot.centerZ * chunkSize;
-        while (!queue.isEmpty()) {
-            Node n = queue.poll();
-            if (n.level <= 1) continue;
+    private static void runBfsSnapshot(ChunkSnapshot snapshot, int[] queue, int head, int tail, 
+                                     boolean isSky, int chunkSize, int chunkHeight, Set<Long> neighborsSet) {
+        int cx = snapshot.centerX;
+        int cz = snapshot.centerZ;
+        int worldOffsetX = cx * chunkSize;
+        int worldOffsetZ = cz * chunkSize;
+
+        while (head != tail) {
+            int val = queue[head++];
+            int level = (val >> S_SHIFT_LEVEL) & S_MASK_LEVEL;
+            if (level <= 1) continue;
+
+            int x = (val >> S_SHIFT_X) & S_MASK_XZ;
+            int z = (val >> S_SHIFT_Z) & S_MASK_XZ;
+            int y = (val >> S_SHIFT_Y) & S_MASK_Y;
 
             for (int[] d : DIRS) {
-                int nx = n.x + d[0];
-                int ny = n.y + d[1];
-                int nz = n.z + d[2];
+                int nx = x + d[0];
+                int ny = y + d[1];
+                int nz = z + d[2];
 
-                // Boundary Check: Nello snapshot scriviamo SOLO nel chunk centrale.
-                // Se usciamo dai bordi (0..15), non scriviamo nel buffer locale perché ChunkSnapshot
-                // ha il buffer solo per il centro. 
-                // (Nota: questo crea un leggero taglio di luce ai bordi finché il vicino non si aggiorna, ma è accettabile per ora)
-                if (nx < 0 || nx >= chunkSize || nz < 0 || nz >= chunkSize || ny < 0 || ny >= chunkHeight) {
+                if (ny < 0 || ny >= chunkHeight) continue;
+
+                if (nx < 0 || nx >= chunkSize || nz < 0 || nz >= chunkSize) {
+                    int neighborCX = cx + (nx < 0 ? -1 : (nx >= chunkSize ? 1 : 0));
+                    int neighborCZ = cz + (nz < 0 ? -1 : (nz >= chunkSize ? 1 : 0));
+                    neighborsSet.add(((long) neighborCX << 32) | (neighborCZ & 0xFFFFFFFFL));
                     continue;
                 }
 
-                // Recupera blocco e opacità
                 int blockId = snapshot.getBlock(nx, ny, nz);
-                Block nb = Blocks.get(blockId);
-                if (nb.isOpaque() && !nb.isTransparent()) continue;
+                if (Blocks.get(blockId).isOpaque()) continue;
 
-                // Recupera livello luce attuale
-                // Nota: peekSkyLight/BlockLight dello snapshot richiedono coord WORLD
-                int currentLight;
-                if (isSky) currentLight = snapshot.peekSkyLight(worldOx + nx, ny, worldOz + nz);
-                else       currentLight = snapshot.peekBlockLight(worldOx + nx, ny, worldOz + nz);
-
-                int newLevel = n.level - 1; // Riduzione naturale (aria)
+                int globalX = worldOffsetX + nx;
+                int globalZ = worldOffsetZ + nz;
                 
-                // Se è acqua, riduciamo di più la luce (es. -2 o -3)
-                if (nb.isLiquid()) newLevel -= 2;
+                // Usa peekSkyLight/BlockLight esistenti che accettano coord globali
+                int currentLight = isSky ? snapshot.peekSkyLight(globalX, ny, globalZ) 
+                                         : snapshot.peekBlockLight(globalX, ny, globalZ);
+                
+                int newLevel = level - 1;
+                // Esempio penalità liquidi
+                // if (Blocks.get(blockId).isLiquid()) newLevel -= 2;
 
                 if (newLevel > currentLight) {
                     if (isSky) snapshot.setSkyLight(nx, ny, nz, newLevel);
                     else       snapshot.setBlockLight(nx, ny, nz, newLevel);
                     
-                    queue.add(new Node(nx, ny, nz, newLevel));
-                }
-            }
-        }
-
-        // 2. BlockLight (Emettitori)
-        // Nota: Una propagazione BFS completa richiederebbe coda e logica complessa.
-        // Qui facciamo un passaggio semplice: accendiamo i blocchi emissivi.
-        // Per la propagazione completa (torce che illuminano intorno) servirebbe
-        // replicare la logica BFS usando snapshot.peekBlock/setBlockLight.
-        for (int x = 0; x < chunkSize; x++) {
-            for (int y = 0; y < chunkHeight; y++) {
-                for (int z = 0; z < chunkSize; z++) {
-                    int blockId = snapshot.getBlock(x, y, z);
-                    int emission = Blocks.get(blockId).getLightLevel();
-                    if (emission > 0) {
-                        snapshot.setBlockLight(x, y, z, emission);
-                    }
-                }
-            }
-        }
-        
-        // TODO: Qui potresti implementare una BFS locale per propagare la luce
-        // all'interno dello snapshot lightBuffer.
-    }
-
-
-        public static void propagateSkyLightHorizontal(World world, Chunk chunk) {
-    Queue<Node> queue = new ArrayDeque<>();
-    
-    // 1) Trova tutti i blocchi con skyLight > 0 nel chunk
-    for (int x = 0; x < Chunk.SIZE; x++) {
-        for (int y = 0; y < Chunk.HEIGHT; y++) {
-            for (int z = 0; z < Chunk.SIZE; z++) {
-                int light = chunk.getSkyLight(x, y, z);
-                if (light > 1) { // Almeno livello 2 per propagare
-                    int wx = chunk.getWorldX() + x;
-                    int wz = chunk.getWorldZ() + z;
-                    queue.add(new Node(wx, y, wz, light));
-                }
-            }
-        }
-    }
-    
-    // 2) Propaga usando BFS (stesso algoritmo del blockLight)
-    while (!queue.isEmpty()) {
-        Node n = queue.poll();
-        if (n.level <= 1) continue;
-
-        for (int[] d : DIRS) {
-            int nx = n.x + d[0];
-            int ny = n.y + d[1];
-            int nz = n.z + d[2];
-
-            if (ny < 0 || ny >= world.getConfig().worldHeight) continue;
-
-            int neighborBlockId = world.peekBlock(nx, ny, nz);
-            Block nb = Blocks.get(neighborBlockId);
-            
-            // SkyLight passa attraverso blocchi trasparenti
-            if (nb.isOpaque() && !nb.isTransparent()) continue;
-
-            Chunk nChunk = world.getChunkIfLoaded(
-                Math.floorDiv(nx, Chunk.SIZE),
-                Math.floorDiv(nz, Chunk.SIZE)
-            );
-            if (nChunk == null) continue;
-
-            int lx = floorMod(nx, Chunk.SIZE);
-            int lz = floorMod(nz, Chunk.SIZE);
-
-            int old = nChunk.getSkyLight(lx, ny, lz);
-            int newLevel = n.level - 1;
-            
-            if (newLevel > old) {
-                nChunk.setSkyLight(lx, ny, lz, newLevel);
-                queue.add(new Node(nx, ny, nz, newLevel));
-                nChunk.setDirty(true);
-            }
-        }
-    }
-}
-
-    public static void recomputeChunkBlockLight(World world, Chunk chunk) {
-        byte[] light = chunk.getBlockLightData();
-        // reset
-        for (int i = 0; i < light.length; i++) light[i] = 0;
-
-        Queue<Node> queue = new ArrayDeque<>();
-
-        // 1) trova tutti i sorgenti di luce nel chunk
-        for (int x = 0; x < Chunk.SIZE; x++) {
-            for (int y = 0; y < Chunk.HEIGHT; y++) {
-                for (int z = 0; z < Chunk.SIZE; z++) {
-                    int blockId = chunk.getBlock(x, y, z);
-                    Block b = Blocks.get(blockId);
-                    int lvl = b.getLightLevel();
-                    if (lvl > 0) {
-                        chunk.setBlockLight(x, y, z, lvl);
-                        queue.add(new Node(chunk.getWorldX() + x, y, chunk.getWorldZ() + z, lvl));
-                    }
-                }
-            }
-        }
-
-        // 2) flood fill in world-space (per attraversare i confini di chunk)
-        while (!queue.isEmpty()) {
-            Node n = queue.poll();
-            if (n.level <= 1) continue; // niente luce rimasta
-
-            for (int[] d : DIRS) {
-                int nx = n.x + d[0];
-                int ny = n.y + d[1];
-                int nz = n.z + d[2];
-
-                if (ny < 0 || ny >= world.getConfig().worldHeight) continue;
-
-                int neighborBlockId = world.peekBlock(nx, ny, nz);
-                Block nb = Blocks.get(neighborBlockId);
-                // blocchi completamente opachi fermano la luce
-                if (nb.isOpaque() && !nb.isTransparent()) continue;
-
-                Chunk nChunk = world.getChunkIfLoaded(
-                    Math.floorDiv(nx, Chunk.SIZE),
-                    Math.floorDiv(nz, Chunk.SIZE)
-                );
-                if (nChunk == null) continue;
-
-                int lx = floorMod(nx, Chunk.SIZE);
-                int lz = floorMod(nz, Chunk.SIZE);
-
-                int old = nChunk.getBlockLight(lx, ny, lz);
-                int newLevel = n.level - 1;
-                if (newLevel > old) {
-                    nChunk.setBlockLight(lx, ny, lz, newLevel);
-                    queue.add(new Node(nx, ny, nz, newLevel));
-                    nChunk.setDirty(true); // la mesh va aggiornata
+                    queue[tail++] = packSnapshot(nx, ny, nz, newLevel);
                 }
             }
         }
     }
 
-    private static int floorMod(int x, int m) {
-        int r = x % m;
-        return r < 0 ? r + m : r;
+    // =================================================================================
+    //  HELPER BIT-PACKING
+    // =================================================================================
+
+    // Packing per coordinate GLOBALI (Long)
+    // X e Z sono offsettati per gestire i numeri negativi (aggiungiamo un bias se necessario, 
+    // ma qui usiamo mask, assumendo che i bit siano sufficienti per il casting)
+    private static long packWorld(int x, int y, int z, int level) {
+        return ((long)level << (BITS_Y + BITS_Z + BITS_X)) | 
+               ((long)(y & MASK_COORD_Y) << (BITS_Z + BITS_X)) | 
+               ((long)(z & MASK_COORD_Z) << BITS_X) | 
+               (x & MASK_COORD_X);
     }
 
-    private static class Node {
-        final int x, y, z, level;
-        Node(int x, int y, int z, int level) {
-            this.x = x; this.y = y; this.z = z; this.level = level;
-        }
+    private static int unpackX(long val) {
+        // Sign extension trick: cast to int with proper shifting if needed. 
+        // Qui assumiamo che i 24 bit siano sufficienti e gestiamo il segno manualmente se x è negativo.
+        // Metodo semplice: cast to int, then shift back up/down to restore sign if needed.
+        int raw = (int)(val & MASK_COORD_X);
+        // Fix per segno se usiamo 24 bit: se il 24esimo bit è 1, estendi il segno
+        if ((raw & (1 << 23)) != 0) raw |= ~MASK_COORD_X;
+        return raw;
+    }
+    private static int unpackZ(long val) {
+        int raw = (int)((val >>> BITS_X) & MASK_COORD_Z);
+        if ((raw & (1 << 23)) != 0) raw |= ~MASK_COORD_Z;
+        return raw;
+    }
+    private static int unpackY(long val) { return (int)((val >>> (BITS_X + BITS_Z)) & MASK_COORD_Y); }
+    private static int unpackLevel(long val) { return (int)((val >>> (BITS_X + BITS_Z + BITS_Y)) & MASK_LIGHT_LEVEL); }
+
+    // Packing per coordinate SNAPSHOT/LOCALI (Int)
+    private static int packSnapshot(int x, int y, int z, int level) {
+        return (x << S_SHIFT_X) | (z << S_SHIFT_Z) | (y << S_SHIFT_Y) | (level << S_SHIFT_LEVEL);
     }
 }

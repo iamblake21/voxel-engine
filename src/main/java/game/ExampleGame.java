@@ -31,9 +31,10 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(16)  // <-- Cambia da 6 a 12 o quanto vuoi
+                .viewDistance(12)  // <-- Cambia da 6 a 12 o quanto vuoi
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
+                .vsync(true)
                 .build();
 
         Engine engine = new Engine(config);

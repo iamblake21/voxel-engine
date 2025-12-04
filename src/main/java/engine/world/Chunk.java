@@ -18,6 +18,8 @@ public class Chunk {
     public static final int SIZE = 16;
     public static final int HEIGHT = 256;
     private volatile boolean meshPending = false;
+    private boolean userModified = false;
+
 
 
     /** Numero massimo di livelli di dettaglio per chunk. */
@@ -35,9 +37,9 @@ public class Chunk {
 
     // Mesh per LOD:
     // solidLOD[0] = mesh normale
-    private final Mesh[] solidLOD       = new Mesh[MAX_LOD_LEVELS];
+    private final Mesh[] solidLOD = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] transparentLOD = new Mesh[MAX_LOD_LEVELS];
-    private final Mesh[] waterLOD       = new Mesh[MAX_LOD_LEVELS];
+    private final Mesh[] waterLOD = new Mesh[MAX_LOD_LEVELS];
     private final byte[] blockLight; // 0..15
     private final byte[] skyLight;
 
@@ -61,7 +63,7 @@ public class Chunk {
         this.blocks = new int[SIZE * HEIGHT * SIZE];
         this.heightMap = new int[SIZE * SIZE];
         this.blockLight = new byte[SIZE * HEIGHT * SIZE];
-        this.skyLight   = new byte[SIZE * HEIGHT * SIZE];
+        this.skyLight = new byte[SIZE * HEIGHT * SIZE];
 
 
         // Initialize with air
@@ -69,7 +71,7 @@ public class Chunk {
         Arrays.fill(blocks, airId);
         Arrays.fill(heightMap, -1);
         Arrays.fill(blockLight, (byte)0);
-        Arrays.fill(skyLight,   (byte)0);
+        Arrays.fill(skyLight, (byte)0);
 
 
         // Initialize empty meshes for all LODs
@@ -107,6 +109,8 @@ public class Chunk {
         dirty = true;
     }
 
+
+
     public Block getBlockType(int x, int y, int z) {
         return Blocks.get(getBlock(x, y, z));
     }
@@ -125,6 +129,9 @@ public class Chunk {
         blockLight[index(x, y, z)] = (byte)Math.max(0, Math.min(15, level));
     }
 
+    
+    public boolean isUserModified() { return userModified; }
+    public void setUserModified(boolean value) { this.userModified = value; }
 
     public int getSkyLight(int x, int y, int z) {
     if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return 0;
@@ -174,15 +181,15 @@ public class Chunk {
     /**
      * Upload mesh data for a specific LOD level.
      *
-     * @param lod          LOD level (0..MAX_LOD_LEVELS-1)
-     * @param solidData    vertex data for solid geometry
+     * @param lod          LOD level (0..MAX_LOD_LEVELS-1)
+     * @param solidData    vertex data for solid geometry
      * @param transparentData vertex data for transparent blocks
-     * @param waterData    vertex data for water
+     * @param waterData    vertex data for water
      */
     public void uploadMeshLOD(int lod,
-                              float[] solidData,
-                              float[] transparentData,
-                              float[] waterData) {
+                             float[] solidData,
+                             float[] transparentData,
+                             float[] waterData) {
         int level = clampLod(lod);
 
         solidLOD[level].upload(solidData, false);
@@ -236,17 +243,29 @@ public class Chunk {
         return lod;
     }
 
+    // ==================== NUOVI METODI PER APPLICARE LA LUCE ====================
 
-    public void applyLightData(byte[] buffer) {
-    if (buffer.length != this.blockLight.length) return;
-    
-    for (int i = 0; i < buffer.length; i++) {
-        byte val = buffer[i];
-        this.skyLight[i] = (byte)((val >> 4) & 0xF);
-        this.blockLight[i] = (byte)(val & 0xF);
+    /**
+     * Applica i dati di Sky Light dal buffer calcolato nel worker thread.
+     */
+    public void applySkyLightData(byte[] skyLightBuffer) {
+        if (skyLightBuffer.length != this.skyLight.length) return;
+        
+        // Copia direttamente il buffer aggiornato
+        System.arraycopy(skyLightBuffer, 0, this.skyLight, 0, this.skyLight.length);
     }
-    // Non settiamo dirty=true qui perché stiamo per caricare la mesh comunque
-}
+
+    /**
+     * Applica i dati di Block Light dal buffer calcolato nel worker thread.
+     */
+    public void applyBlockLightData(byte[] blockLightBuffer) {
+        if (blockLightBuffer.length != this.blockLight.length) return;
+        
+        // Copia direttamente il buffer aggiornato
+        System.arraycopy(blockLightBuffer, 0, this.blockLight, 0, this.blockLight.length);
+    }
+    
+    // Il vecchio metodo applyLightData è stato rimosso.
 
     // ==================== COORDINATES ====================
 

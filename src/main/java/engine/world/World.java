@@ -68,7 +68,7 @@ public class World implements MeshBuilder.WorldAccess {
         
         this.safeRadius = this.config.viewDistance;
         this.preGenRadius = this.config.viewDistance;
-        System.out.println("[World] Async Pipeline Initialized (Snapshot Mode)");
+        System.out.println("[World] Async Pipeline Initialized (Snapshot Mode)" + numWorkers);
     }
     
     // ==================== UPDATE & LOOP ====================
@@ -100,8 +100,9 @@ public class World implements MeshBuilder.WorldAccess {
         // 2. Processa mesh pronte (MESH + LUCE)
         // Massimo 16 upload per frame
         int processedMesh = 0;
+        final int MAX_MESH_UPLOAD_PER_FRAME = 4; // <--- MODIFICA QUI
         ChunkMeshTask meshTask;
-        while (processedMesh < 16 && (meshTask = genExecutor.pollCompletedMesh()) != null) {
+        while (processedMesh < MAX_MESH_UPLOAD_PER_FRAME && (meshTask = genExecutor.pollCompletedMesh()) != null) {            
             integrateCompletedMesh(meshTask);
             processedMesh++;
         }
@@ -133,7 +134,8 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
     private void integrateCompletedMesh(ChunkMeshTask task) {
         Chunk chunk = getChunkIfLoaded(task.chunkX, task.chunkZ);
         if (chunk != null) {
-            chunk.applyLightData(task.snapshot.getLightBuffer());
+            chunk.applySkyLightData(task.snapshot.getSkyLightWriteBuffer());
+            chunk.applyBlockLightData(task.snapshot.getBlockLightWriteBuffer());
             
             chunk.uploadMesh(
                 task.meshData.solidVertices,
@@ -146,6 +148,22 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
             if (chunk.getPhase() == Chunk.Phase.TERRAIN) {
                 chunk.setPhase(Chunk.Phase.FEATURES); 
             }
+
+            if (!task.neighborsToPropagate.isEmpty()) {
+            // Usa un Set per filtrare i duplicati ed evitare lavoro eccessivo
+            Set<Long> uniqueNeighbors = new HashSet<>(task.neighborsToPropagate); 
+            
+            // Non limitiamo qui se abbiamo già un buon throttling altrove.
+            for (long neighborKey : uniqueNeighbors) { 
+                int ncx = (int) (neighborKey >> 32);
+                int ncz = (int) neighborKey; 
+                
+                // Questo innesca il ricalcolo del vicino
+                markChunkDirty(ncx, ncz); 
+            }
+}
+
+            
         }
     }
 
@@ -162,7 +180,7 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
         playerChunkZ = pcz;
         
         // --- FASE 1: GENERAZIONE TERRENO (Vecchia logica) ---
-        int maxSubmitPerFrame = 64;
+        int maxSubmitPerFrame = 8;
         int submitted = 0;
 
         // 1a. Area Sicura (Collisioni)
@@ -200,7 +218,7 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
 
 // --- FASE 2: FEATURES & MESH ---
     int meshSubmitted = 0;
-    int maxMeshPerFrame = 32;
+    int maxMeshPerFrame = 16;
 
     for (Chunk chunk : chunks.values()) {
         if (meshSubmitted >= maxMeshPerFrame) break;
@@ -284,26 +302,36 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
     
     // ==================== BLOCK ACCESS ====================
     
-    public void setBlock(int x, int y, int z, int blockId) {
-        if (y < 0 || y >= config.worldHeight) return;
-        
-        int cx = floorDiv(x, config.chunkSize);
-        int cz = floorDiv(z, config.chunkSize);
-        int lx = mod(x, config.chunkSize);
-        int lz = mod(z, config.chunkSize);
-        
-        Chunk chunk = getChunkIfLoaded(cx, cz);
-        if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) return;
-        
-        chunk.setBlock(lx, y, lz, blockId);
-        chunk.setDirty(true); // Al prossimo maintainChunks verrà rigenerata la mesh
-        
-        // Marca dirty anche i vicini se siamo sul bordo
-        if (lx == 0) markChunkDirty(cx - 1, cz);
-        if (lx == config.chunkSize - 1) markChunkDirty(cx + 1, cz);
-        if (lz == 0) markChunkDirty(cx, cz - 1);
-        if (lz == config.chunkSize - 1) markChunkDirty(cx, cz + 1);
+public void setBlock(int x, int y, int z, int blockId) {
+    if (y < 0 || y >= config.worldHeight) return;
+    
+    int cx = floorDiv(x, config.chunkSize);
+    int cz = floorDiv(z, config.chunkSize);
+    int lx = mod(x, config.chunkSize);
+    int lz = mod(z, config.chunkSize);
+    
+    Chunk chunk = getChunkIfLoaded(cx, cz);
+    if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) return;
+    
+    int oldBlockId = chunk.getBlock(lx, y, lz);
+    
+    int oldLightLevel = Blocks.get(oldBlockId).getLightLevel();
+    int newLightLevel = Blocks.get(blockId).getLightLevel();
+    
+    if (oldLightLevel > 0 && newLightLevel < oldLightLevel) {
+        LightPropagator.removeBlockLight(this, x, y, z);
+    } 
+    else if (newLightLevel > oldLightLevel) {
+        LightPropagator.addBlockLight(this, x, y, z, newLightLevel);
     }
+    chunk.setBlock(lx, y, lz, blockId);
+    chunk.setDirty(true); 
+    chunk.setUserModified(true);
+        if (lx == 0) markChunkDirty(cx - 1, cz);
+    if (lx == config.chunkSize - 1) markChunkDirty(cx + 1, cz);
+    if (lz == 0) markChunkDirty(cx, cz - 1);
+    if (lz == config.chunkSize - 1) markChunkDirty(cx, cz + 1);
+}
     
     // ==================== UTILS & GETTERS ====================
 
@@ -491,8 +519,6 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
             chunk.setDirty(true);
 
             // 2) Calcola la luce (usando i metodi standard del World, siamo nel main thread)
-            LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
-            LightPropagator.recomputeChunkBlockLight(this, chunk);
             // Non propaghiamo orizzontalmente qui per velocità allo spawn, 
             // tanto verrà aggiornato dai frame successivi
         }
@@ -516,19 +542,13 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
      * Richiede che i vicini siano almeno in fase TERRAIN.
      */
     private void ensureFeatures(Chunk chunk) {
-        // Se abbiamo già fatto le features, usciamo
         if (chunk.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
             return;
         }
 
-        // Controlla se i vicini (3x3) hanno il terreno pronto.
-        // È fondamentale per non tagliare gli alberi a metà.
         if (!areNeighborsTerrainReady(chunk.getX(), chunk.getZ())) {
             return;
         }
-
-        // Genera features (Alberi, cactus, ecc.)
-        // Passiamo un "placer" che scrive direttamente nel chunk
         worldGenerator.generateFeatures(
             chunk.getX(), chunk.getZ(),
             chunk.getBlockData(),
@@ -536,7 +556,6 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
             new FeatureGenerator.BlockPlacer() {
                 @Override
                 public void setBlock(int cx, int cz, int lx, int ly, int lz, int blockId) {
-                    // Scrivi nel chunk corretto (potrebbe essere un vicino)
                     Chunk target = getChunkIfLoaded(cx, cz);
                     if (target != null) {
                         target.setBlock(lx, ly, lz, blockId);
@@ -553,10 +572,8 @@ private void integrateCompletedTerrain(ChunkGenerationTask task) {
                 @Override public boolean canPlace(int cx, int cz) { return true; }
             }
         );
-
-        // Avanza di fase
         chunk.setPhase(Chunk.Phase.FEATURES);
-        chunk.setDirty(true); // Ora siamo pronti per la mesh!
+        chunk.setDirty(true);
     }
 
     private boolean isHeadroomClear(int x, int topY, int z) {
