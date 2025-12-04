@@ -45,10 +45,13 @@ public class Chunk {
     private final byte[] skyLight;
 
     public enum Phase {
-        EMPTY,
-        TERRAIN,
-        FEATURES
+        EMPTY,           // Chunk non generato
+        TERRAIN,         // Terreno generato
+        FEATURES,        // Features (alberi, etc.) aggiunte
+        LIGHT_DONE,      // Luce calcolata
+        MESH_DONE;       // Mesh generata
     }
+
 
     private Phase phase = Phase.EMPTY;
 
@@ -97,14 +100,6 @@ public class Chunk {
         this.lightPending = p;
     }
 
-    public boolean isLightStable() {
-        return lightStable;
-    }
-
-    public void setLightStable(boolean p) {
-        this.lightStable = p;
-    }
-
     public void setMeshPending(boolean p) {
         this.meshPending = p;
     }
@@ -143,14 +138,6 @@ public class Chunk {
             return;
         }
         blockLight[index(x, y, z)] = (byte) Math.max(0, Math.min(15, level));
-    }
-
-    public boolean isUserModified() {
-        return userModified;
-    }
-
-    public void setUserModified(boolean value) {
-        this.userModified = value;
     }
 
     public int getSkyLight(int x, int y, int z) {
@@ -321,13 +308,6 @@ public class Chunk {
         this.phase = phase;
     }
 
-    public boolean isDirty() {
-        return dirty;
-    }
-
-    public void setDirty(boolean dirty) {
-        this.dirty = dirty;
-    }
 
     // ==================== CLEANUP ====================
 

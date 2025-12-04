@@ -85,156 +85,154 @@ public class LightPropagator {
     // METODI WORLD (Globali)
     // =================================================================================
 
-    public static void addBlockLight(World world, int wx, int wy, int wz, int lightLevel) {
-        if (lightLevel <= 0)
-            return;
+        public static void addBlockLight(World world, int wx, int wy, int wz, int lightLevel) {
+            if (lightLevel <= 0)
+                return;
 
-        Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null)
-            return;
+            Chunk chunk = world.getChunkAtWorld(wx, wz);
+            if (chunk == null)
+                return;
 
-        chunk.setBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK, lightLevel);
-        chunk.setDirty(true);
+            chunk.setBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK, lightLevel);
+            // ✅ RIMOSSO: chunk.setDirty(true);
 
-        LongLightQueue queue = new LongLightQueue();
-        queue.add(packWorld(wx, wy, wz, lightLevel));
+            LongLightQueue queue = new LongLightQueue();
+            queue.add(packWorld(wx, wy, wz, lightLevel));
 
-        propagateAdd(world, queue);
-    }
+            propagateAdd(world, queue);
+        }
 
-    public static void removeBlockLight(World world, int wx, int wy, int wz) {
-        Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null)
-            return;
+        public static void removeBlockLight(World world, int wx, int wy, int wz) {
+            Chunk chunk = world.getChunkAtWorld(wx, wz);
+            if (chunk == null)
+                return;
 
-        int oldLight = chunk.getBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK);
-        if (oldLight == 0)
-            return;
+            int oldLight = chunk.getBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK);
+            if (oldLight == 0)
+                return;
 
-        LongLightQueue removalQueue = new LongLightQueue();
-        LongLightQueue addQueue = new LongLightQueue();
+            LongLightQueue removalQueue = new LongLightQueue();
+            LongLightQueue addQueue = new LongLightQueue();
 
-        chunk.setBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK, 0);
-        chunk.setDirty(true);
-        removalQueue.add(packWorld(wx, wy, wz, oldLight));
+            chunk.setBlockLight(wx & CHUNK_MASK, wy, wz & CHUNK_MASK, 0);
+            // ✅ RIMOSSO: chunk.setDirty(true);
+            removalQueue.add(packWorld(wx, wy, wz, oldLight));
 
-        int worldHeight = world.getConfig().worldHeight;
+            int worldHeight = world.getConfig().worldHeight;
 
-        while (!removalQueue.isEmpty()) {
-            long val = removalQueue.poll();
-            int level = unpackLevel(val);
-            int x = unpackX(val);
-            int y = unpackY(val);
-            int z = unpackZ(val);
+            while (!removalQueue.isEmpty()) {
+                long val = removalQueue.poll();
+                int level = unpackLevel(val);
+                int x = unpackX(val);
+                int y = unpackY(val);
+                int z = unpackZ(val);
 
-            for (int[] d : DIRS) {
-                int nx = x + d[0];
-                int ny = y + d[1];
-                int nz = z + d[2];
+                for (int[] d : DIRS) {
+                    int nx = x + d[0];
+                    int ny = y + d[1];
+                    int nz = z + d[2];
 
-                if (ny < 0 || ny >= worldHeight)
+                    if (ny < 0 || ny >= worldHeight)
+                        continue;
+
+                    Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
+                    if (nChunk == null)
+                        continue;
+
+                    int neighborLight = nChunk.getBlockLight(nx & CHUNK_MASK, ny, nz & CHUNK_MASK);
+
+                    if (neighborLight != 0 && neighborLight < level) {
+                        nChunk.setBlockLight(nx & CHUNK_MASK, ny, nz & CHUNK_MASK, 0);
+                        // ✅ RIMOSSO: nChunk.setDirty(true);
+                        removalQueue.add(packWorld(nx, ny, nz, neighborLight));
+                    } else if (neighborLight >= level) {
+                        addQueue.add(packWorld(nx, ny, nz, neighborLight));
+                    }
+                }
+            }
+
+            propagateAdd(world, addQueue);
+        }
+
+        private static void propagateAdd(World world, LongLightQueue queue) {
+            int worldHeight = world.getConfig().worldHeight;
+
+            while (!queue.isEmpty()) {
+                long val = queue.poll();
+                int level = unpackLevel(val);
+                if (level <= 1)
                     continue;
 
-                Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null)
-                    continue;
+                int x = unpackX(val);
+                int y = unpackY(val);
+                int z = unpackZ(val);
 
-                int neighborLight = nChunk.getBlockLight(nx & CHUNK_MASK, ny, nz & CHUNK_MASK);
+                for (int[] d : DIRS) {
+                    int nx = x + d[0];
+                    int ny = y + d[1];
+                    int nz = z + d[2];
 
-                if (neighborLight != 0 && neighborLight < level) {
-                    nChunk.setBlockLight(nx & CHUNK_MASK, ny, nz & CHUNK_MASK, 0);
-                    nChunk.setDirty(true);
-                    removalQueue.add(packWorld(nx, ny, nz, neighborLight));
-                } else if (neighborLight >= level) {
-                    addQueue.add(packWorld(nx, ny, nz, neighborLight));
+                    if (ny < 0 || ny >= worldHeight)
+                        continue;
+
+                    int neighborBlockId = world.peekBlock(nx, ny, nz);
+                    if (Blocks.get(neighborBlockId).isOpaque())
+                        continue;
+
+                    Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
+                    if (nChunk == null)
+                        continue;
+
+                    int nlx = nx & CHUNK_MASK;
+                    int nlz = nz & CHUNK_MASK;
+
+                    int oldLevel = nChunk.getBlockLight(nlx, ny, nlz);
+                    int newLevel = level - 1;
+
+                    if (newLevel > oldLevel) {
+                        nChunk.setBlockLight(nlx, ny, nlz, newLevel);
+                        // ✅ RIMOSSO: nChunk.setDirty(true);
+                        queue.add(packWorld(nx, ny, nz, newLevel));
+                    }
                 }
             }
         }
-
-        propagateAdd(world, addQueue);
-    }
-
-    private static void propagateAdd(World world, LongLightQueue queue) {
-        int worldHeight = world.getConfig().worldHeight;
-
-        while (!queue.isEmpty()) {
-            long val = queue.poll();
-            int level = unpackLevel(val);
-            if (level <= 1)
-                continue;
-
-            int x = unpackX(val);
-            int y = unpackY(val);
-            int z = unpackZ(val);
-
-            for (int[] d : DIRS) {
-                int nx = x + d[0];
-                int ny = y + d[1];
-                int nz = z + d[2];
-
-                if (ny < 0 || ny >= worldHeight)
-                    continue;
-
-                int neighborBlockId = world.peekBlock(nx, ny, nz);
-                if (Blocks.get(neighborBlockId).isOpaque())
-                    continue;
-
-                Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null)
-                    continue;
-
-                int nlx = nx & CHUNK_MASK;
-                int nlz = nz & CHUNK_MASK;
-
-                int oldLevel = nChunk.getBlockLight(nlx, ny, nlz);
-                int newLevel = level - 1;
-
-                if (newLevel > oldLevel) {
-                    nChunk.setBlockLight(nlx, ny, nlz, newLevel);
-                    nChunk.setDirty(true);
-                    queue.add(packWorld(nx, ny, nz, newLevel));
-                }
-            }
-        }
-    }
 
     // =================================================================================
     // METODI CHUNK / SNAPSHOT (Locali)
     // =================================================================================
 
-    public static void recomputeChunkSkyLightVertical(World world, Chunk chunk) {
-        if (chunk == null)
-            return;
+        public static void recomputeChunkSkyLightVertical(World world, Chunk chunk) {
+            if (chunk == null)
+                return;
 
-        int wx0 = chunk.getWorldX();
-        int wz0 = chunk.getWorldZ();
-        int worldHeight = world.getConfig().worldHeight;
+            int wx0 = chunk.getWorldX();
+            int wz0 = chunk.getWorldZ();
+            int worldHeight = world.getConfig().worldHeight;
 
-        for (int lx = 0; lx < Chunk.SIZE; lx++) {
-            for (int lz = 0; lz < Chunk.SIZE; lz++) {
-                int wx = wx0 + lx;
-                int wz = wz0 + lz;
+            for (int lx = 0; lx < Chunk.SIZE; lx++) {
+                for (int lz = 0; lz < Chunk.SIZE; lz++) {
+                    int wx = wx0 + lx;
+                    int wz = wz0 + lz;
 
-                boolean blocked = false;
-                for (int y = worldHeight - 1; y >= 0; y--) {
-                    if (blocked) {
-                        chunk.setSkyLight(lx, y, lz, 0);
-                        continue;
-                    }
+                    boolean blocked = false;
+                    for (int y = worldHeight - 1; y >= 0; y--) {
+                        if (blocked) {
+                            chunk.setSkyLight(lx, y, lz, 0);
+                            continue;
+                        }
 
-                    int blockId = world.getBlock(wx, y, wz);
-                    if (Blocks.get(blockId).isOpaque()) {
-                        blocked = true;
-                        chunk.setSkyLight(lx, y, lz, 0);
-                    } else {
-                        chunk.setSkyLight(lx, y, lz, 15);
+                        int blockId = world.getBlock(wx, y, wz);
+                        if (Blocks.get(blockId).isOpaque()) {
+                            blocked = true;
+                            chunk.setSkyLight(lx, y, lz, 0);
+                        } else {
+                            chunk.setSkyLight(lx, y, lz, 15);
+                        }
                     }
                 }
             }
         }
-        chunk.setDirty(true);
-    }
-
     private static long packWorld(int x, int y, int z, int level) {
         return ((long) level << (BITS_Y + BITS_Z + BITS_X)) |
                 ((long) (y & MASK_COORD_Y) << (BITS_Z + BITS_X)) |

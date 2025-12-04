@@ -69,7 +69,6 @@ public final class GameBlocks {
         WOOD = Blocks.register("game:wood",
                 new Block(BlockProperties.create()
                         .standardSolid()
-                        .lightLevel(15)
                         .tile(4, 0)));
 
         // Leaves - tree foliage
