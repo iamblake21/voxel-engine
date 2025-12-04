@@ -27,6 +27,9 @@ public final class GameBlocks {
     // Liquids
     public static Block WATER;
 
+    // Debug
+    public static Block LIGHTDEUG;
+
     private GameBlocks() {
     }
 
@@ -87,6 +90,14 @@ public final class GameBlocks {
                 new Block(BlockProperties.create()
                         .standardSolid()
                         .tile(0, 1)));
+        LIGHTDEUG = Blocks.register("game:light",
+                new Block(
+                        BlockProperties.create()
+                        .standardSolid()
+                        .tile(1, 1)
+                        .lightLevel(15)
+                )
+        );
 
         System.out.println("[GameBlocks] Registered " +
                 engine.registry.Registries.BLOCKS.size() + " blocks total");

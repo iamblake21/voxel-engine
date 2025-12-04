@@ -147,7 +147,10 @@ public class Player extends Entity {
         if (input.isKeyDown(GLFW_KEY_2)) selectedBlock = Blocks.get("game:dirt").getNumericId();
         if (input.isKeyDown(GLFW_KEY_3)) selectedBlock = Blocks.get("game:wood").getNumericId();
         if (input.isKeyDown(GLFW_KEY_4)) selectedBlock = Blocks.get("game:leaves").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_5)) selectedBlock = Blocks.get("game:water").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_5)) selectedBlock = Blocks.get("game:snow").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_6)) selectedBlock = Blocks.get("game:light").getNumericId();
+
+
     }
     
     /**

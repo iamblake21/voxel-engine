@@ -74,7 +74,7 @@ public final class GameBiomes {
         MOUNTAINS = Biomes.register("game:mountains",
             new Biome(BiomeProperties.create()
                 .mountains()                   // preset montagne (base 72, var 24, mountainHeight ~80)
-                .surfaceBlock("game:stone")    // niente erba in cima per ora
+                .surfaceBlock("game:snow")    // niente erba in cima per ora
                 .subsurfaceBlock("game:stone")
                 .stoneBlock("game:stone")));
         
