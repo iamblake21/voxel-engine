@@ -366,9 +366,16 @@ public class LightPropagator {
         for (int x = 0; x < chunkSize; x++) {
             for (int y = 0; y < chunkHeight; y++) {
                 for (int z = 0; z < chunkSize; z++) {
-                    int light = snapshot.peekBlockLight(wx + x, y, wz + z);
-                    if (light > 0)
-                        queue[tail++] = packSnapshot(x, y, z, light);
+                    int currentLight = snapshot.peekBlockLight(wx + x, y, wz + z);
+                    int blockId = snapshot.getBlock(x, y, z);
+                    int emission = Blocks.get(blockId).getLightLevel();
+                    if (emission > currentLight) {
+                        currentLight = emission;
+                        snapshot.setBlockLight(x, y, z, emission);
+                    }
+                    if (currentLight > 0) {
+                        queue[tail++] = packSnapshot(x, y, z, currentLight);
+                    }
                 }
             }
         }

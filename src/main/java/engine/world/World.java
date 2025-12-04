@@ -157,9 +157,6 @@ public class World implements MeshBuilder.WorldAccess {
                     Chunk nChunk = getChunkIfLoaded(ncx, ncz);
                     if (nChunk != null) {
                         nChunk.setLightStable(false);
-                        // Invalida luce vicino
-                        // Non marchiamo dirty la mesh del vicino qui, lo farà integrateCompletedLight
-                        // del vicino
                     }
                 }
             }
@@ -275,9 +272,43 @@ public class World implements MeshBuilder.WorldAccess {
     }
 
     private void ensureFeatures(Chunk chunk) {
-        // Placeholder per generazione alberi/features
-        // Per ora passiamo subito a FEATURES
+        if (chunk.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
+            return;
+        }
+
+        if (!areNeighborsTerrainReady(chunk.getX(), chunk.getZ())) {
+            return;
+        }
+        worldGenerator.generateFeatures(
+                chunk.getX(), chunk.getZ(),
+                chunk.getBlockData(),
+                chunk.getHeightMapData(),
+                new FeatureGenerator.BlockPlacer() {
+                    @Override
+                    public void setBlock(int cx, int cz, int lx, int ly, int lz, int blockId) {
+                        Chunk target = getChunkIfLoaded(cx, cz);
+                        if (target != null) {
+                            target.setBlock(lx, ly, lz, blockId);
+                            target.setDirty(true);
+                        }
+                    }
+
+                    @Override
+                    public int getBlock(int cx, int cz, int lx, int ly, int lz) {
+                        Chunk target = getChunkIfLoaded(cx, cz);
+                        return (target != null) ? target.getBlock(lx, ly, lz) : 0;
+                    }
+
+                    @Override
+                    public boolean canPlace(int cx, int cz) {
+                        return true;
+                    }
+                });
+
+        LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
+
         chunk.setPhase(Chunk.Phase.FEATURES);
+        chunk.setDirty(true);
     }
 
     /**

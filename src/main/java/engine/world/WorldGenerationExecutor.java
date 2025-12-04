@@ -109,7 +109,6 @@ public class WorldGenerationExecutor {
 
     private void processMeshTask(ChunkMeshTask task) {
         // 1. Calcola Luce su Snapshot (SOLO SE NUOVO CHUNK)
-        LightPropagator.computeFullLightForSnapshot(task.snapshot, chunkSize, chunkHeight, task.neighborsToPropagate);
 
         // 2. Costruisci Mesh su Snapshot
         MeshBuilder builder = new MeshBuilder(chunkSize, chunkHeight);
