@@ -26,6 +26,13 @@ public class BlockProperties {
     float slipperiness = 0.6f; // Ice-like sliding
     int lightLevel = 0;
 
+    String modelPath = null;  
+
+    public BlockProperties model(String path) {
+        this.modelPath = path;
+        return this;
+    }
+
     
     private BlockProperties() {}
     
@@ -62,6 +69,16 @@ public class BlockProperties {
         this.transparent = transparent;
         return this;
     }
+
+
+    public String getModelPath() { 
+        return modelPath; 
+    }
+
+    public boolean hasCustomModel() {
+        return modelPath != null;
+    }
+
     
     public BlockProperties liquid(boolean liquid) {
         this.liquid = liquid;

@@ -29,6 +29,9 @@ public final class GameBlocks {
 
     // Debug
     public static Block LIGHTDEUG;
+    public static Block FLOWERDEBUG; 
+    public static Block TORCHDEBUG;   
+
 
     private GameBlocks() {
     }
@@ -96,9 +99,23 @@ public final class GameBlocks {
                         .standardSolid()
                         .tile(1, 1)
                         .lightLevel(15)
-                )
-        );
-
+                ));
+        FLOWERDEBUG = Blocks.register("game:poppy", new Block(
+                BlockProperties.create()
+                .solid(false)
+                .opaque(false)
+                .model("block/poppy")
+                .tile(0, 2)
+        ));
+        TORCHDEBUG = Blocks.register("game:torch", new Block(
+                BlockProperties.create()
+                .solid(false)
+                .opaque(false)
+                .model("block/torch")
+                .tile(1, 2)
+                .lightLevel(15)
+        ));
+        
         System.out.println("[GameBlocks] Registered " +
                 engine.registry.Registries.BLOCKS.size() + " blocks total");
     }

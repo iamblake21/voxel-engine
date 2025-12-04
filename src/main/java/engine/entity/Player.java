@@ -149,7 +149,8 @@ public class Player extends Entity {
         if (input.isKeyDown(GLFW_KEY_4)) selectedBlock = Blocks.get("game:leaves").getNumericId();
         if (input.isKeyDown(GLFW_KEY_5)) selectedBlock = Blocks.get("game:snow").getNumericId();
         if (input.isKeyDown(GLFW_KEY_6)) selectedBlock = Blocks.get("game:light").getNumericId();
-
+        if (input.isKeyDown(GLFW_KEY_7)) selectedBlock = Blocks.get("game:poppy").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_8)) selectedBlock = Blocks.get("game:torch").getNumericId();
 
     }
     
