@@ -20,10 +20,11 @@ public class Chunk {
     private volatile boolean meshPending = false;
     private boolean userModified = false;
 
-
-
     /** Numero massimo di livelli di dettaglio per chunk. */
     public static final int MAX_LOD_LEVELS = 4;
+
+    private volatile boolean lightPending = false;
+    private volatile boolean lightStable = false;
 
     // Chunk coordinates in chunk-space
     private final int chunkX;
@@ -42,8 +43,6 @@ public class Chunk {
     private final Mesh[] waterLOD = new Mesh[MAX_LOD_LEVELS];
     private final byte[] blockLight; // 0..15
     private final byte[] skyLight;
-
-
 
     public enum Phase {
         EMPTY,
@@ -65,14 +64,12 @@ public class Chunk {
         this.blockLight = new byte[SIZE * HEIGHT * SIZE];
         this.skyLight = new byte[SIZE * HEIGHT * SIZE];
 
-
         // Initialize with air
         int airId = Blocks.AIR().getNumericId();
         Arrays.fill(blocks, airId);
         Arrays.fill(heightMap, -1);
-        Arrays.fill(blockLight, (byte)0);
-        Arrays.fill(skyLight, (byte)0);
-
+        Arrays.fill(blockLight, (byte) 0);
+        Arrays.fill(skyLight, (byte) 0);
 
         // Initialize empty meshes for all LODs
         for (int i = 0; i < MAX_LOD_LEVELS; i++) {
@@ -88,9 +85,29 @@ public class Chunk {
         return (y * SIZE + z) * SIZE + x;
     }
 
+    public boolean isMeshPending() {
+        return meshPending;
+    }
 
-    public boolean isMeshPending() { return meshPending; }
-    public void setMeshPending(boolean p) { this.meshPending = p; }
+    public boolean isLightPending() {
+        return lightPending;
+    }
+
+    public void setLightPending(boolean p) {
+        this.lightPending = p;
+    }
+
+    public boolean isLightStable() {
+        return lightStable;
+    }
+
+    public void setLightStable(boolean p) {
+        this.lightStable = p;
+    }
+
+    public void setMeshPending(boolean p) {
+        this.meshPending = p;
+    }
 
     // ==================== BLOCK ACCESS ====================
 
@@ -109,11 +126,10 @@ public class Chunk {
         dirty = true;
     }
 
-
-
     public Block getBlockType(int x, int y, int z) {
         return Blocks.get(getBlock(x, y, z));
     }
+
     // ==================== BLOCK LIGHT ====================
     public int getBlockLight(int x, int y, int z) {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
@@ -126,20 +142,26 @@ public class Chunk {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
             return;
         }
-        blockLight[index(x, y, z)] = (byte)Math.max(0, Math.min(15, level));
+        blockLight[index(x, y, z)] = (byte) Math.max(0, Math.min(15, level));
     }
 
-    
-    public boolean isUserModified() { return userModified; }
-    public void setUserModified(boolean value) { this.userModified = value; }
+    public boolean isUserModified() {
+        return userModified;
+    }
+
+    public void setUserModified(boolean value) {
+        this.userModified = value;
+    }
 
     public int getSkyLight(int x, int y, int z) {
-    if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return 0;
-    return skyLight[index(x, y, z)] & 0xFF;
-}
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
+            return 0;
+        return skyLight[index(x, y, z)] & 0xFF;
+    }
 
     public void setSkyLight(int x, int y, int z, int level) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return;
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
+            return;
         int clamped = Math.max(0, Math.min(15, level));
         skyLight[index(x, y, z)] = (byte) clamped;
     }
@@ -148,21 +170,21 @@ public class Chunk {
         return skyLight;
     }
 
-
     public byte[] getBlockLightData() {
         return blockLight;
     }
 
-
     // ==================== HEIGHT MAP ====================
 
     public int getHeight(int x, int z) {
-        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE) return -1;
+        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE)
+            return -1;
         return heightMap[z * SIZE + x];
     }
 
     public void setHeight(int x, int z, int height) {
-        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE) return;
+        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE)
+            return;
         heightMap[z * SIZE + x] = height;
     }
 
@@ -181,15 +203,15 @@ public class Chunk {
     /**
      * Upload mesh data for a specific LOD level.
      *
-     * @param lod          LOD level (0..MAX_LOD_LEVELS-1)
-     * @param solidData    vertex data for solid geometry
+     * @param lod                      LOD level (0..MAX_LOD_LEVELS-1)
+     * @param solidData          vertex data for solid geometry
      * @param transparentData vertex data for transparent blocks
-     * @param waterData    vertex data for water
+     * @param waterData          vertex data for water
      */
     public void uploadMeshLOD(int lod,
-                             float[] solidData,
-                             float[] transparentData,
-                             float[] waterData) {
+            float[] solidData,
+            float[] transparentData,
+            float[] waterData) {
         int level = clampLod(lod);
 
         solidLOD[level].upload(solidData, false);
@@ -238,8 +260,10 @@ public class Chunk {
     }
 
     private int clampLod(int lod) {
-        if (lod < 0) return 0;
-        if (lod >= MAX_LOD_LEVELS) return MAX_LOD_LEVELS - 1;
+        if (lod < 0)
+            return 0;
+        if (lod >= MAX_LOD_LEVELS)
+            return MAX_LOD_LEVELS - 1;
         return lod;
     }
 
@@ -249,8 +273,9 @@ public class Chunk {
      * Applica i dati di Sky Light dal buffer calcolato nel worker thread.
      */
     public void applySkyLightData(byte[] skyLightBuffer) {
-        if (skyLightBuffer.length != this.skyLight.length) return;
-        
+        if (skyLightBuffer.length != this.skyLight.length)
+            return;
+
         // Copia direttamente il buffer aggiornato
         System.arraycopy(skyLightBuffer, 0, this.skyLight, 0, this.skyLight.length);
     }
@@ -259,37 +284,61 @@ public class Chunk {
      * Applica i dati di Block Light dal buffer calcolato nel worker thread.
      */
     public void applyBlockLightData(byte[] blockLightBuffer) {
-        if (blockLightBuffer.length != this.blockLight.length) return;
-        
+        if (blockLightBuffer.length != this.blockLight.length)
+            return;
+
         // Copia direttamente il buffer aggiornato
         System.arraycopy(blockLightBuffer, 0, this.blockLight, 0, this.blockLight.length);
     }
-    
+
     // Il vecchio metodo applyLightData è stato rimosso.
 
     // ==================== COORDINATES ====================
 
-    public int getX() { return chunkX; }
-    public int getZ() { return chunkZ; }
+    public int getX() {
+        return chunkX;
+    }
 
-    public int getWorldX() { return chunkX * SIZE; }
-    public int getWorldZ() { return chunkZ * SIZE; }
+    public int getZ() {
+        return chunkZ;
+    }
+
+    public int getWorldX() {
+        return chunkX * SIZE;
+    }
+
+    public int getWorldZ() {
+        return chunkZ * SIZE;
+    }
 
     // ==================== STATE ====================
 
-    public Phase getPhase() { return phase; }
-    public void setPhase(Phase phase) { this.phase = phase; }
+    public Phase getPhase() {
+        return phase;
+    }
 
-    public boolean isDirty() { return dirty; }
-    public void setDirty(boolean dirty) { this.dirty = dirty; }
+    public void setPhase(Phase phase) {
+        this.phase = phase;
+    }
+
+    public boolean isDirty() {
+        return dirty;
+    }
+
+    public void setDirty(boolean dirty) {
+        this.dirty = dirty;
+    }
 
     // ==================== CLEANUP ====================
 
     public void cleanup() {
         for (int i = 0; i < MAX_LOD_LEVELS; i++) {
-            if (solidLOD[i] != null) solidLOD[i].cleanup();
-            if (transparentLOD[i] != null) transparentLOD[i].cleanup();
-            if (waterLOD[i] != null) waterLOD[i].cleanup();
+            if (solidLOD[i] != null)
+                solidLOD[i].cleanup();
+            if (transparentLOD[i] != null)
+                transparentLOD[i].cleanup();
+            if (waterLOD[i] != null)
+                waterLOD[i].cleanup();
         }
     }
 }
