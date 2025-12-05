@@ -432,6 +432,69 @@ public class LightPropagator {
         return tail;
     }
 
+
+    /**
+     * Rimuove luce da una posizione specifica (non necessariamente una sorgente)
+     */
+    public static void removeLightAt(World world, int wx, int wy, int wz, int lightLevel, boolean isSky) {
+        LongLightQueue removalQueue = new LongLightQueue();
+        LongLightQueue addQueue = new LongLightQueue();
+        
+        removalQueue.add(packWorld(wx, wy, wz, lightLevel));
+        
+        int worldHeight = world.getConfig().worldHeight;
+        
+        while (!removalQueue.isEmpty()) {
+            long val = removalQueue.poll();
+            int level = unpackLevel(val);
+            int x = unpackX(val);
+            int y = unpackY(val);
+            int z = unpackZ(val);
+            
+            for (int[] d : DIRS) {
+                int nx = x + d[0];
+                int ny = y + d[1];
+                int nz = z + d[2];
+                
+                if (ny < 0 || ny >= worldHeight) continue;
+                
+                Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
+                if (nChunk == null) continue;
+                
+                int nlx = nx & CHUNK_MASK;
+                int nlz = nz & CHUNK_MASK;
+                
+                int neighborLight = isSky ? nChunk.getSkyLight(nlx, ny, nlz) 
+                                        : nChunk.getBlockLight(nlx, ny, nlz);
+                
+                if (neighborLight == 0) continue;
+                
+                // Se la luce del vicino è più debole, rimuovila (veniva da noi)
+                if (neighborLight < level) {
+                    if (isSky) nChunk.setSkyLight(nlx, ny, nlz, 0);
+                    else nChunk.setBlockLight(nlx, ny, nlz, 0);
+                    
+                    removalQueue.add(packWorld(nx, ny, nz, neighborLight));
+                } 
+                // Se la luce del vicino è >= level, potrebbe essere una sorgente indipendente
+                else {
+                    // Controlla se è una sorgente
+                    Block block = Blocks.get(world.peekBlock(nx, ny, nz));
+                    if (!isSky && block.getLightLevel() > 0) {
+                        // È una sorgente, ri-propagala
+                        addQueue.add(packWorld(nx, ny, nz, block.getLightLevel()));
+                    } else if (neighborLight >= level) {
+                        // Luce forte da altrove, ri-propagala
+                        addQueue.add(packWorld(nx, ny, nz, neighborLight));
+                    }
+                }
+            }
+        }
+        
+        // Ri-propaga le sorgenti indipendenti
+        propagateAdd(world, addQueue);
+    }
+
     // Sostituisci il tuo metodo runBfsSnapshot con questo:
     private static void runBfsSnapshot(ChunkSnapshot snapshot, int[] queue, int head, int tail,
             boolean isSky, int chunkSize, int chunkHeight, Set<Long> neighborsSet) {

@@ -403,25 +403,56 @@ public void setBlock(int x, int y, int z, int blockId) {
         return;
 
     int oldBlockId = chunk.getBlock(lx, y, lz);
-    boolean oldIsOpaque = Blocks.get(oldBlockId).isOpaque();
-    boolean newIsOpaque = Blocks.get(blockId).isOpaque();
-    int oldLightLevel = Blocks.get(oldBlockId).getLightLevel();
-    int newLightLevel = Blocks.get(blockId).getLightLevel();
+    Block oldBlock = Blocks.get(oldBlockId);
+    Block newBlock = Blocks.get(blockId);
+    
+    boolean oldIsOpaque = oldBlock.isOpaque();
+    boolean newIsOpaque = newBlock.isOpaque();
+    int oldLightLevel = oldBlock.getLightLevel();
+    int newLightLevel = newBlock.getLightLevel();
+    
+    int oldBlockLight = chunk.getBlockLight(lx, y, lz);
+    int oldSkyLight = chunk.getSkyLight(lx, y, lz);
+    
     chunk.setBlock(lx, y, lz, blockId);
+    
     boolean lightChanged = false;
+    
+    // === GESTIONE BLOCK LIGHT ===
+    
+    // CASO 1: Nuova sorgente luminosa (torcia)
     if (newLightLevel > oldLightLevel) {
         LightPropagator.addBlockLight(this, x, y, z, newLightLevel);
         lightChanged = true;
-    } else if (oldLightLevel > 0) {
+    } 
+    // CASO 2: Rimozione sorgente luminosa
+    else if (oldLightLevel > 0) {
         LightPropagator.removeBlockLight(this, x, y, z);
         lightChanged = true;
     }
+    // CASO 3: - Piazzi blocco OPACO in zona illuminata
+    else if (!oldIsOpaque && newIsOpaque && oldBlockLight > 0) {
+        // Il blocco diventa opaco e c'era luce propagata
+        chunk.setBlockLight(lx, y, lz, 0);  // Cancella subito
+        LightPropagator.removeLightAt(this, x, y, z, oldBlockLight, false); // false = blockLight
+        lightChanged = true;
+    }
+    // CASO 4: - Rimuovi blocco OPACO (scavi)
+    else if (oldIsOpaque && !newIsOpaque) {
+        // Il blocco diventa trasparente, la luce può entrare
+        // Non serve fare nulla - la propagazione dai vicini gestirà
+        lightChanged = true;
+    }
+    
+    // === GESTIONE SKYLIGHT ===
     
     if (oldIsOpaque != newIsOpaque) {
         LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
         lightChanged = true;
     }
+    
     invalidateChunkLight(cx, cz);
+    
     if (lightChanged) {
         for (int dz = -1; dz <= 1; dz++) {
             for (int dx = -1; dx <= 1; dx++) {
@@ -436,6 +467,7 @@ public void setBlock(int x, int y, int z, int blockId) {
         if (lz == config.chunkSize - 1) invalidateChunkLight(cx, cz + 1);
     }
 }
+
 
     private void invalidateChunkLight(int cx, int cz) {
         Chunk c = getChunkIfLoaded(cx, cz);
