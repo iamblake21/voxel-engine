@@ -41,12 +41,13 @@ public class World implements MeshBuilder.WorldAccess {
     private float gameTime = 0f;
 
     // Day/Night Cycle
-    private static final float DAY_LENGTH_SECONDS = 60f;
+    private static final float DAY_LENGTH_SECONDS = 600f;
     private float timeOfDay = 0f;
     private float dayTicks = 0f;
 
     public World(Config config) {
         this.config = config;
+        this.dayTicks = DAY_LENGTH_SECONDS * 0.5f;
         this.maxLoadDistance = config.viewDistance;
         this.preGenRadius = Math.min(16, config.viewDistance / 2);
 
