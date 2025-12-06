@@ -107,50 +107,31 @@ public class WorldGenerationExecutor {
         activeTasksMap.remove(task.getChunkKey());
     }
 
-    private void processMeshTask(ChunkMeshTask task) {
-        // 1. Calcola Luce su Snapshot (SOLO SE NUOVO CHUNK)
+ private void processMeshTask(ChunkMeshTask task) {
+    MeshBuilder builder = new MeshBuilder(chunkSize, chunkHeight);
 
-        // 2. Costruisci Mesh su Snapshot
-        MeshBuilder builder = new MeshBuilder(chunkSize, chunkHeight);
+    // ChunkSnapshot implementa ENTRAMBE le interfacce ChunkData e WorldAccess
+    // quindi lo puoi passare direttamente a entrambi i parametri!
+    task.meshData = builder.buildMesh(task.snapshot, task.snapshot);
+    
+    task.complete = true;
+    completedMesh.offer(task);
+}
 
-        // Adattatore ChunkData per il MeshBuilder che legge dallo snapshot
-        MeshBuilder.ChunkData adapter = new MeshBuilder.ChunkData() {
-            @Override
-            public int getBlock(int x, int y, int z) {
-                return task.snapshot.getBlock(x, y, z);
-            }
+private void processLightTask(LightPropagationTask task) {
+    // Usa il nuovo metodo che calcola TUTTA la luce (skylight + blocklight)
+    LightPropagator.computeFullLightForSnapshot(
+        task.snapshot, 
+        chunkSize, 
+        chunkHeight, 
+        task.neighborsToPropagate
+    );
+    
+    task.complete = true;
+    completedLight.offer(task);
+}
 
-            @Override
-            public int getWorldX() {
-                return task.chunkX * chunkSize;
-            }
 
-            @Override
-            public int getWorldZ() {
-                return task.chunkZ * chunkSize;
-            }
-
-            @Override
-            public int getBlockLight(int x, int y, int z) {
-                return task.snapshot.peekBlockLight(getWorldX() + x, y, getWorldZ() + z);
-            }
-
-            @Override
-            public int getSkyLight(int x, int y, int z) {
-                return task.snapshot.peekSkyLight(getWorldX() + x, y, getWorldZ() + z);
-            }
-        };
-
-        task.meshData = builder.buildMesh(adapter, task.snapshot); // snapshot agisce come WorldAccess
-        task.complete = true;
-        completedMesh.offer(task);
-    }
-
-    private void processLightTask(LightPropagationTask task) {
-        LightPropagator.propagateLightOnlyForSnapshot(task.snapshot, chunkSize, chunkHeight, task.neighborsToPropagate);
-        task.complete = true;
-        completedLight.offer(task);
-    }
 
     public boolean submit(int cx, int cz, ChunkGenerationTask.Priority p) {
         long key = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
