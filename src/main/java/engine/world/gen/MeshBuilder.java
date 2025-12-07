@@ -24,8 +24,11 @@ import java.util.Map;
  */
 public class MeshBuilder {
 
-    private static final float COS_45 = 0.707106781f; // cos(45 deg)
-    private static final float SIN_45 = 0.707106781f; // sin(45 deg)
+    private static class LightResult {
+        final float[] sky;
+        final float[] block;
+        public LightResult(float[] s, float[] b) { sky=s; block=b; }
+    }
 
 
     private static final Map<String, CompiledModel> COMPILED_MODELS = new HashMap<>();
@@ -91,6 +94,82 @@ public class MeshBuilder {
         return buildMeshLOD(chunk, world, 0);
     }
 
+
+    /**
+     * Compute smooth vertex lighting per each corner of a face
+     * This properly averages light from neighboring blocks
+     */
+private LightResult computeFaceLights(ChunkData chunk, WorldAccess world,
+        int x, int y, int z, int nx, int ny, int nz) {
+    
+    float[] skyOut = new float[4];
+    float[] blockOut = new float[4];
+    
+    int fx = x + nx, fy = y + ny, fz = z + nz;
+    float skyLight = getSkyLightAt(chunk, world, fx, fy, fz) / 15.0f;
+    float blockLight = getBlockLightAt(chunk, world, fx, fy, fz) / 15.0f;
+    
+    for (int i = 0; i < 4; i++) {
+        skyOut[i] = skyLight;
+        blockOut[i] = blockLight;
+    }
+    
+    return new LightResult(skyOut, blockOut);
+}
+    /**
+     * Calculate smooth lighting for a single vertex by averaging the light 
+     * from 4 blocks that touch that vertex (Minecraft-style smooth lighting)
+     */
+    private void vertexLight(ChunkData c, WorldAccess w, 
+                             int cx, int cy, int cz,      // Center position (the air block)
+                             int dx1, int dy1, int dz1,   // Direction 1 (side)
+                             int dx2, int dy2, int dz2,   // Direction 2 (side)
+                             int idx, float[] skyArr, float[] blkArr) {
+        
+        // Get blocks around this vertex
+        int l0 = getSkyLightAt(c, w, cx, cy, cz);                          // Center (air)
+        int l1 = getSkyLightAt(c, w, cx + dx1, cy + dy1, cz + dz1);        // Side 1
+        int l2 = getSkyLightAt(c, w, cx + dx2, cy + dy2, cz + dz2);        // Side 2
+        int l3 = getSkyLightAt(c, w, cx + dx1 + dx2, cy + dy1 + dy2, cz + dz1 + dz2); // Corner
+        
+        int b0 = getBlockLightAt(c, w, cx, cy, cz);
+        int b1 = getBlockLightAt(c, w, cx + dx1, cy + dy1, cz + dz1);
+        int b2 = getBlockLightAt(c, w, cx + dx2, cy + dy2, cz + dz2);
+        int b3 = getBlockLightAt(c, w, cx + dx1 + dx2, cy + dy1 + dy2, cz + dz1 + dz2);
+        
+        // Check if sides block light
+        boolean block1 = isOccluder(getBlockAt(c, w, cx + dx1, cy + dy1, cz + dz1));
+        boolean block2 = isOccluder(getBlockAt(c, w, cx + dx2, cy + dy2, cz + dz2));
+        
+        // If both sides are blocked, don't use corner light (it's occluded)
+        int skySum, blockSum, count;
+        if (block1 && block2) {
+            // Both sides blocked - only use center
+            skySum = l0;
+            blockSum = b0;
+            count = 1;
+        } else if (block1) {
+            // Side 1 blocked - use center and side 2 only
+            skySum = l0 + l2;
+            blockSum = b0 + b2;
+            count = 2;
+        } else if (block2) {
+            // Side 2 blocked - use center and side 1 only
+            skySum = l0 + l1;
+            blockSum = b0 + b1;
+            count = 2;
+        } else {
+            // No blocking - use all 4 samples
+            skySum = l0 + l1 + l2 + l3;
+            blockSum = b0 + b1 + b2 + b3;
+            count = 4;
+        }
+        
+        // Average and normalize (0-15 range to 0-1)
+        skyArr[idx] = (skySum / (float)count) / 15.0f;
+        blkArr[idx] = (blockSum / (float)count) / 15.0f;
+    }
+
     /**
      * * Build mesh data for a chunk at specified LOD level.
      * * * @param chunk The chunk data
@@ -120,7 +199,7 @@ public class MeshBuilder {
                     if (block.isAir())
                         continue;
 
-                    // ✅ NUOVO: Check se ha modello custom
+                    // Check se ha modello custom
                     if (block.getProperties().hasCustomModel()) {
                         renderCustomModel(solidV, transpV, waterV, chunk, world,
                                 x, y, z, block, simplifiedAO, skipTransparent);
@@ -141,9 +220,6 @@ public class MeshBuilder {
     /**
      * Check if a face should be rendered.
      * Direct port from MinecraftOneFile.faceVisible() with LOD awareness.
-     * * ✅ FIX: Aggiunto check per blocchi NON solidi (come fiori/modelli custom)
-     * per
-     * prevenire il culling della faccia del blocco di supporto.
      */
     private boolean faceVisible(ChunkData chunk, WorldAccess world,
             int x, int y, int z, Block self,
@@ -169,13 +245,11 @@ public class MeshBuilder {
             return neighbor.isAir();
         }
 
-        // === FIX PER MODELLI CUSTOM NON-CUBICI / NON-SOLIDI ===
         // Se il blocco vicino NON è solido (come un fiore, una torcia, ecc.),
         // la faccia del blocco corrente DEVE essere visibile.
         if (!neighbor.isSolid()) {
             return true;
         }
-        // ======================================================
 
         // Logica originale (per blocchi solidi e trasparenti come foglie/vetro):
         // show face if neighbor is air, liquid, or transparent leaves
@@ -191,7 +265,6 @@ public class MeshBuilder {
             ChunkData chunk, WorldAccess world, int x, int y, int z,
             Block block, boolean simplifiedAO, boolean aggressiveCull, boolean skipTransparent) {
 
-        // ✅ COPIA TUTTO IL CONTENUTO DEL LOOP ESISTENTE QUI
         int[][] dirs = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
 
         for (int[] d : dirs) {
@@ -233,8 +306,7 @@ public class MeshBuilder {
             return;
         }
 
-        // Target mesh: Se il blocco non è liquido e non è opaco, usa il buffer
-        // trasparente.
+        // Target mesh
         ArrayList<Float> dst;
         if (block.isLiquid()) {
             dst = waterV;
@@ -247,13 +319,6 @@ public class MeshBuilder {
         // Luce (campionata al centro del blocco)
         float skyLight = getSkyLightAt(chunk, world, bx, by, bz) / 15.0f;
         float blockLight = getBlockLightAt(chunk, world, bx, by, bz) / 15.0f;
-
-        // DEBUG: verifica se ci sono facce da renderizzare
-        if (compiled.faces.isEmpty()) {
-            System.out.println(
-                    "[ERROR MeshBuilder] Modello custom " + modelPath + " non ha facce compilate. Controlla il JSON.");
-            return;
-        }
 
         for (CompiledFace face : compiled.faces) {
             // Face culling
@@ -271,24 +336,19 @@ public class MeshBuilder {
             // Offset vertici con posizione blocco
             float[][] v = new float[4][3];
             for (int i = 0; i < 4; i++) {
-                // NOTA: I vertici in face.vertices sono già ruotati da compileFace
                 v[i][0] = bx + face.vertices[i][0];
                 v[i][1] = by + face.vertices[i][1];
                 v[i][2] = bz + face.vertices[i][2];
             }
-            System.out.println("--- Vertici Rotati per Blocco a " + bx + "," + by + "," + bz + " ---");
-            for (int i = 0; i < 4; i++) {
-                System.out.println("V" + i + ": (" + v[i][0] + ", " + v[i][1] + ", " + v[i][2] + ")");
-            }
 
-        // Due triangoli
-        push(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-        push(dst, v[1], face.uvs[1][0], face.uvs[1][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-        push(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-        
-        push(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-        push(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-        push(dst, v[3], face.uvs[3][0], face.uvs[3][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            // Due triangoli
+            push(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            push(dst, v[1], face.uvs[1][0], face.uvs[1][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            push(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            
+            push(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            push(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            push(dst, v[3], face.uvs[3][0], face.uvs[3][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
         }
     }
 
@@ -314,8 +374,8 @@ public class MeshBuilder {
     }
 
     /**
-     *  * Compila elementi JSON in geometry
-     *  
+     *  * Compila elementi JSON in geometry
+     *  
      */
     private CompiledModel compileModel(BlockModel model, Block block) {
         CompiledModel compiled = new CompiledModel();
@@ -342,7 +402,6 @@ public class MeshBuilder {
                 CompiledFace cf = compileFace(faceName, minX, minY, minZ, maxX, maxY, maxZ,
                         face, elem, model, block);
 
-
                 compiled.faces.add(cf);
             }
         }
@@ -350,153 +409,152 @@ public class MeshBuilder {
         return compiled;
     }
 
-private CompiledFace compileFace(String faceName, float minX, float minY, float minZ,
-        float maxX, float maxY, float maxZ,
-        BlockModel.ModelElement.Face face,
-        BlockModel.ModelElement elem,
-        BlockModel model, Block block) {
-    CompiledFace cf = new CompiledFace();
+    private CompiledFace compileFace(String faceName, float minX, float minY, float minZ,
+            float maxX, float maxY, float maxZ,
+            BlockModel.ModelElement.Face face,
+            BlockModel.ModelElement elem,
+            BlockModel model, Block block) {
+        CompiledFace cf = new CompiledFace();
 
-    // ✅ Genera vertici base (senza rotazione)
-    float[][] baseVertices;
-    switch (faceName) {
-        case "north": // -Z
-            baseVertices = new float[][] {
-                { minX, minY, minZ }, { maxX, minY, minZ },
-                { maxX, maxY, minZ }, { minX, maxY, minZ }
+        // Genera vertici base (senza rotazione)
+        float[][] baseVertices;
+        switch (faceName) {
+            case "north": // -Z
+                baseVertices = new float[][] {
+                    { minX, minY, minZ }, { maxX, minY, minZ },
+                    { maxX, maxY, minZ }, { minX, maxY, minZ }
+                };
+                cf.normal = new int[] { 0, 0, -1 };
+                break;
+            case "south": // +Z
+                baseVertices = new float[][] {
+                    { maxX, minY, maxZ }, { minX, minY, maxZ },
+                    { minX, maxY, maxZ }, { maxX, maxY, maxZ }
+                };
+                cf.normal = new int[] { 0, 0, 1 };
+                break;
+            case "west": // -X
+                baseVertices = new float[][] {
+                    { minX, minY, maxZ }, { minX, minY, minZ },
+                    { minX, maxY, minZ }, { minX, maxY, maxZ }
+                };
+                cf.normal = new int[] { -1, 0, 0 };
+                break;
+            case "east": // +X
+                baseVertices = new float[][] {
+                    { maxX, minY, minZ }, { maxX, minY, maxZ },
+                    { maxX, maxY, maxZ }, { maxX, maxY, minZ }
+                };
+                cf.normal = new int[] { 1, 0, 0 };
+                break;
+            case "down": // -Y
+                baseVertices = new float[][] {
+                    { minX, minY, minZ }, { minX, minY, maxZ },
+                    { maxX, minY, maxZ }, { maxX, minY, minZ }
+                };
+                cf.normal = new int[] { 0, -1, 0 };
+                break;
+            case "up": // +Y
+                baseVertices = new float[][] {
+                    { minX, maxY, minZ }, { maxX, maxY, minZ },
+                    { maxX, maxY, maxZ }, { minX, maxY, maxZ }
+                };
+                cf.normal = new int[] { 0, 1, 0 };
+                break;
+            default:
+                baseVertices = new float[4][3];
+                cf.normal = new int[] { 0, 0, 0 };
+        }
+
+        // APPLICA ROTAZIONE se presente
+        if (elem.rotation != null && elem.rotation.angle != 0) {
+            float ox = elem.rotation.origin[0] / 16f;
+            float oy = elem.rotation.origin[1] / 16f;
+            float oz = elem.rotation.origin[2] / 16f;
+            float angle = (float) Math.toRadians(elem.rotation.angle);
+
+            cf.vertices = new float[4][3];
+            for (int i = 0; i < 4; i++) {
+                cf.vertices[i] = rotateVertex(baseVertices[i], ox, oy, oz, 
+                                             elem.rotation.axis, angle);
+            }
+            
+            // Ruota anche la normale
+            cf.normal = rotateNormal(cf.normal, elem.rotation.axis, angle);
+        } else {
+            cf.vertices = baseVertices;
+        }
+
+        if (face.uv != null && face.uv.length == 4) {
+            cf.uvs = new float[][] {
+                { face.uv[0] / 16f, face.uv[3] / 16f },
+                { face.uv[2] / 16f, face.uv[3] / 16f },
+                { face.uv[2] / 16f, face.uv[1] / 16f },
+                { face.uv[0] / 16f, face.uv[1] / 16f }
             };
-            cf.normal = new int[] { 0, 0, -1 };
-            break;
-        case "south": // +Z
-            baseVertices = new float[][] {
-                { maxX, minY, maxZ }, { minX, minY, maxZ },
-                { minX, maxY, maxZ }, { maxX, maxY, maxZ }
-            };
-            cf.normal = new int[] { 0, 0, 1 };
-            break;
-        case "west": // -X
-            baseVertices = new float[][] {
-                { minX, minY, maxZ }, { minX, minY, minZ },
-                { minX, maxY, minZ }, { minX, maxY, maxZ }
-            };
-            cf.normal = new int[] { -1, 0, 0 };
-            break;
-        case "east": // +X
-            baseVertices = new float[][] {
-                { maxX, minY, minZ }, { maxX, minY, maxZ },
-                { maxX, maxY, maxZ }, { maxX, maxY, minZ }
-            };
-            cf.normal = new int[] { 1, 0, 0 };
-            break;
-        case "down": // -Y
-            baseVertices = new float[][] {
-                { minX, minY, minZ }, { minX, minY, maxZ },
-                { maxX, minY, maxZ }, { maxX, minY, minZ }
-            };
-            cf.normal = new int[] { 0, -1, 0 };
-            break;
-        case "up": // +Y
-            baseVertices = new float[][] {
-                { minX, maxY, minZ }, { maxX, maxY, minZ },
-                { maxX, maxY, maxZ }, { minX, maxY, maxZ }
-            };
-            cf.normal = new int[] { 0, 1, 0 };
-            break;
-        default:
-            baseVertices = new float[4][3];
-            cf.normal = new int[] { 0, 0, 0 };
+        } else {
+            cf.uvs = new float[][] { {0,1}, {1,1}, {1,0}, {0,0} };
+        }
+
+        cf.tileIndex = block.getTextureTileY(0,0,0) * ATLAS_TILES_X + block.getTextureTileX(0,0,0);
+        cf.cullface = face.cullface;
+        cf.shade = elem.shade;
+        cf.tintindex = face.tintindex;
+        return cf;
     }
 
-    // ✅ APPLICA ROTAZIONE se presente
-    if (elem.rotation != null && elem.rotation.angle != 0) {
-        float ox = elem.rotation.origin[0] / 16f;
-        float oy = elem.rotation.origin[1] / 16f;
-        float oz = elem.rotation.origin[2] / 16f;
-        float angle = (float) Math.toRadians(elem.rotation.angle);
-
-        cf.vertices = new float[4][3];
-        for (int i = 0; i < 4; i++) {
-            cf.vertices[i] = rotateVertex(baseVertices[i], ox, oy, oz, 
-                                         elem.rotation.axis, angle);
+    private float[] rotateVertex(float[] v, float ox, float oy, float oz, 
+                                 String axis, float angle) {
+        float x = v[0] - ox;
+        float y = v[1] - oy;
+        float z = v[2] - oz;
+        
+        float cos = (float) Math.cos(angle);
+        float sin = (float) Math.sin(angle);
+        
+        float nx, ny, nz;
+        if ("y".equals(axis)) {
+            nx = x * cos - z * sin;
+            ny = y;
+            nz = x * sin + z * cos;
+        } else if ("x".equals(axis)) {
+            nx = x;
+            ny = y * cos - z * sin;
+            nz = y * sin + z * cos;
+        } else { // z
+            nx = x * cos - y * sin;
+            ny = x * sin + y * cos;
+            nz = z;
         }
         
-        // Ruota anche la normale
-        cf.normal = rotateNormal(cf.normal, elem.rotation.axis, angle);
-    } else {
-        cf.vertices = baseVertices;
+        return new float[] { nx + ox, ny + oy, nz + oz };
     }
 
-if (face.uv != null && face.uv.length == 4) {
-    cf.uvs = new float[][] {
-        { face.uv[0] / 16f, face.uv[3] / 16f },  // ← SWAP: Bottom-left usa uv[3]
-        { face.uv[2] / 16f, face.uv[3] / 16f },  // ← SWAP: Bottom-right usa uv[3]
-        { face.uv[2] / 16f, face.uv[1] / 16f },  // ← SWAP: Top-right usa uv[1]
-        { face.uv[0] / 16f, face.uv[1] / 16f }   // ← SWAP: Top-left usa uv[1]
-    };
-} else {
-    cf.uvs = new float[][] { {0,1}, {1,1}, {1,0}, {0,0} };  // ← ANCHE QUI: inverto Y
-}
-
-    cf.tileIndex = block.getTextureTileY(0,0,0) * ATLAS_TILES_X + block.getTextureTileX(0,0,0);
-    cf.cullface = face.cullface;
-    cf.shade = elem.shade;
-    cf.tintindex = face.tintindex;
-    return cf;
-}
-
-// ✅ AGGIUNGI questi metodi helper
-private float[] rotateVertex(float[] v, float ox, float oy, float oz, 
-                             String axis, float angle) {
-    float x = v[0] - ox;
-    float y = v[1] - oy;
-    float z = v[2] - oz;
-    
-    float cos = (float) Math.cos(angle);
-    float sin = (float) Math.sin(angle);
-    
-    float nx, ny, nz;
-    if ("y".equals(axis)) {
-        nx = x * cos - z * sin;
-        ny = y;
-        nz = x * sin + z * cos;
-    } else if ("x".equals(axis)) {
-        nx = x;
-        ny = y * cos - z * sin;
-        nz = y * sin + z * cos;
-    } else { // z
-        nx = x * cos - y * sin;
-        ny = x * sin + y * cos;
-        nz = z;
+    private int[] rotateNormal(int[] normal, String axis, float angle) {
+        float cos = (float) Math.cos(angle);
+        float sin = (float) Math.sin(angle);
+        
+        float x = normal[0];
+        float y = normal[1];
+        float z = normal[2];
+        
+        float nx, ny, nz;
+        if ("y".equals(axis)) {
+            nx = x * cos - z * sin;
+            ny = y;
+            nz = x * sin + z * cos;
+        } else if ("x".equals(axis)) {
+            nx = x;
+            ny = y * cos - z * sin;
+            nz = y * sin + z * cos;
+        } else {
+            nx = x * cos - y * sin;
+            ny = x * sin + y * cos;
+            nz = z;
+        }
+        
+        return new int[] { Math.round(nx), Math.round(ny), Math.round(nz) };
     }
-    
-    return new float[] { nx + ox, ny + oy, nz + oz };
-}
-
-private int[] rotateNormal(int[] normal, String axis, float angle) {
-    float cos = (float) Math.cos(angle);
-    float sin = (float) Math.sin(angle);
-    
-    float x = normal[0];
-    float y = normal[1];
-    float z = normal[2];
-    
-    float nx, ny, nz;
-    if ("y".equals(axis)) {
-        nx = x * cos - z * sin;
-        ny = y;
-        nz = x * sin + z * cos;
-    } else if ("x".equals(axis)) {
-        nx = x;
-        ny = y * cos - z * sin;
-        nz = y * sin + z * cos;
-    } else {
-        nx = x * cos - y * sin;
-        ny = x * sin + y * cos;
-        nz = z;
-    }
-    
-    return new int[] { Math.round(nx), Math.round(ny), Math.round(nz) };
-}
 
     // Helper methods
     private int getFaceIndexFromNormal(int[] normal) {
@@ -551,112 +609,79 @@ private int[] rotateNormal(int[] normal, String axis, float angle) {
      * Add a face to the vertex list.
      * Direct port from MinecraftOneFile.addFaceInto() with simplified AO option.
      */
-    private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
-            int bx, int by, int bz, int nx, int ny, int nz,
-            Block block, boolean isTransp, boolean simplifiedAO) {
+// Sostituisci questo metodo nella classe MeshBuilder.java
+private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
+        int bx, int by, int bz, int nx, int ny, int nz,
+        Block block, boolean isTransp, boolean simplifiedAO) {
 
-        // Vertex positions - exact copy from original
-        float[][] v;
-        if (nx == 1) {
-            v = new float[][] {
-                    { bx + 1, by, bz }, { bx + 1, by + 1, bz },
-                    { bx + 1, by + 1, bz + 1 }, { bx + 1, by, bz + 1 }
-            };
-        } else if (nx == -1) {
-            v = new float[][] {
-                    { bx, by, bz }, { bx, by, bz + 1 },
-                    { bx, by + 1, bz + 1 }, { bx, by + 1, bz }
-            };
-        } else if (ny == 1) {
-            v = new float[][] {
-                    { bx, by + 1, bz }, { bx + 1, by + 1, bz },
-                    { bx + 1, by + 1, bz + 1 }, { bx, by + 1, bz + 1 }
-            };
-        } else if (ny == -1) {
-            v = new float[][] {
-                    { bx, by, bz }, { bx, by, bz + 1 },
-                    { bx + 1, by, bz + 1 }, { bx + 1, by, bz }
-            };
-        } else if (nz == 1) {
-            v = new float[][] {
-                    { bx, by, bz + 1 }, { bx, by + 1, bz + 1 },
-                    { bx + 1, by + 1, bz + 1 }, { bx + 1, by, bz + 1 }
-            };
-        } else { // nz == -1
-            v = new float[][] {
-                    { bx, by, bz }, { bx + 1, by, bz },
-                    { bx + 1, by + 1, bz }, { bx, by + 1, bz }
-            };
-        }
+    // 1. GENERAZIONE VERTICI (Identica a prima)
+    float[][] v;
+    if (ny == 1) { // TOP (+Y)
+        v = new float[][] { {bx, by+1, bz}, {bx+1, by+1, bz}, {bx+1, by+1, bz+1}, {bx, by+1, bz+1} };
+    } else if (ny == -1) { // BOTTOM (-Y)
+        v = new float[][] { {bx, by, bz}, {bx+1, by, bz}, {bx+1, by, bz+1}, {bx, by, bz+1} };
+    } else if (nx == 1) { // EAST (+X)
+        v = new float[][] { {bx+1, by, bz+1}, {bx+1, by, bz}, {bx+1, by+1, bz}, {bx+1, by+1, bz+1} };
+    } else if (nx == -1) { // WEST (-X)
+        v = new float[][] { {bx, by, bz}, {bx, by, bz+1}, {bx, by+1, bz+1}, {bx, by+1, bz} };
+    } else if (nz == 1) { // SOUTH (+Z)
+        v = new float[][] { {bx, by, bz+1}, {bx+1, by, bz+1}, {bx+1, by+1, bz+1}, {bx, by+1, bz+1} };
+    } else { // NORTH (-Z)
+        v = new float[][] { {bx+1, by, bz}, {bx, by, bz}, {bx, by+1, bz}, {bx+1, by+1, bz} };
+    }
 
-        // UV coordinates - exact copy from original
-        float[][] uv;
-        if (nx == 1) {
-            uv = new float[][] { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 } };
-        } else if (nx == -1) {
-            uv = new float[][] { { 1, 0 }, { 0, 0 }, { 0, 1 }, { 1, 1 } };
-        } else if (ny == 1) {
-            uv = new float[][] { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } };
-        } else if (ny == -1) {
-            uv = new float[][] { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 } };
-        } else if (nz == 1) {
-            uv = new float[][] { { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } };
-        } else { // nz == -1
-            uv = new float[][] { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
-        }
+    // 2. UV (Identiche a prima)
+    float[][] uv = new float[][] { {0,0}, {1,0}, {1,1}, {0,1} };
 
-        // Compute AO - use simplified version for higher LOD
-        float[] ao;
-        if (simplifiedAO) {
-            // Simplified AO: just directional lighting
-            float brightness;
-            if (ny == 1)
-                brightness = 1.0f; // Top face: full bright
-            else if (ny == -1)
-                brightness = 0.5f; // Bottom face: darkest
-            else if (nx != 0)
-                brightness = 0.7f; // X faces: medium
-            else
-                brightness = 0.8f; // Z faces: slightly brighter
-            ao = new float[] { brightness, brightness, brightness, brightness };
-        } else {
-            ao = computeFaceAO(chunk, world, bx, by, bz, nx, ny, nz);
-        }
+    // 3. CALCOLO AO E LUCE (QUI TORNA LA LOGICA "PER VERTICE")
+    float[] ao;
+    float[] skyLight = new float[4];
+    float[] blockLight = new float[4];
 
-        float[] skyLight = new float[4];
-        float[] blockLight = new float[4];
+    if (simplifiedAO) {
+        // Logica semplice (uguale per tutti i vertici)
+        float b = (ny == 1) ? 1.0f : (ny == -1) ? 0.5f : (nx != 0) ? 0.6f : 0.8f;
+        ao = new float[] { b, b, b, b };
+        int fx = bx + nx, fy = by + ny, fz = bz + nz;
+        float s = getSkyLightAt(chunk, world, fx, fy, fz) / 15.0f;
+        float bl = getBlockLightAt(chunk, world, fx, fy, fz) / 15.0f;
+        for(int i=0; i<4; i++) { skyLight[i]=s; blockLight[i]=bl; }
+    } else {
+        // Logica SMOOTH: Calcola 4 valori diversi per i 4 angoli!
+        ao = computeFaceAO(chunk, world, bx, by, bz, nx, ny, nz);
+        LightResult lr = computeFaceLights(chunk, world, bx, by, bz, nx, ny, nz);
+        skyLight = lr.sky;
+        blockLight = lr.block;
+    }
 
-        for (int i = 0; i < 4; i++) {
-            int vx = Math.round(v[i][0]);
-            int vy = Math.round(v[i][1]);
-            int vz = Math.round(v[i][2]);
+    // 4. PREPARAZIONE TEXTURE
+    int tileX = block.getTextureTileX(nx, ny, nz);
+    int tileY = block.getTextureTileY(nx, ny, nz);
+    int tileIndex = tileY * ATLAS_TILES_X + tileX;
 
-            int skyL = getSkyLightAt(chunk, world, vx, vy, vz); // 0..15
-            int blockL = getBlockLightAt(chunk, world, vx, vy, vz); // 0..15
+    boolean flipV = isGrassSide(block, ny);
+    float v0loc = flipV ? 1.0f : 0.0f;
+    float v1loc = flipV ? 1.0f : 0.0f;
+    float v2loc = flipV ? 0.0f : 1.0f;
+    float v3loc = flipV ? 0.0f : 1.0f;
 
-            // Normalize to 0.0..1.0
-            skyLight[i] = skyL / 15.0f;
-            blockLight[i] = blockL / 15.0f;
-        }
+    int faceIdx = (nx == 1) ? 0 : (nx == -1) ? 1 : (ny == 1) ? 2 : (ny == -1) ? 3 : (nz == 1) ? 4 : 5;
 
-        int tileX = block.getTextureTileX(nx, ny, nz);
-        int tileY = block.getTextureTileY(nx, ny, nz);
+    // 5. COSTRUZIONE MESH CON "FLIP QUADS" (Anisotropic Fix)
+    // Questo è il segreto per avere smooth lighting senza la riga diagonale brutta.
+    // Confrontiamo la somma degli AO sulle diagonali per decidere come tagliare il quadrato.
+    
+    if (ao[0] + ao[2] > ao[1] + ao[3]) {
+        // Taglio Diagonale A (Triangoli ruotati)
+        push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex, skyLight[1], blockLight[1]);
+        push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex, skyLight[2], blockLight[2]);
+        push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex, skyLight[3], blockLight[3]);
 
-        // Indice del layer nella TextureArray (atlas 8x8 -> 64 layer)
-        int tileIndex = tileY * ATLAS_TILES_X + tileX;
-
-        // Grass side flip - from original
-        boolean flipV = isGrassSide(block, ny);
-
-        // vLoc = uv locale [0..1] (non più offset sull’atlas!)
-        float v0loc = flipV ? 1f - uv[0][1] : uv[0][1];
-        float v1loc = flipV ? 1f - uv[1][1] : uv[1][1];
-        float v2loc = flipV ? 1f - uv[2][1] : uv[2][1];
-        float v3loc = flipV ? 1f - uv[3][1] : uv[3][1];
-
-        int faceIdx = (nx == 1) ? 0 : (nx == -1) ? 1 : (ny == 1) ? 2 : (ny == -1) ? 3 : (nz == 1) ? 4 : 5;
-
-        // Two triangles – adesso usiamo uv locali (0..1) e tileIndex
+        push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex, skyLight[1], blockLight[1]);
+        push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex, skyLight[3], blockLight[3]);
+        push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex, skyLight[0], blockLight[0]);
+    } else {
+        // Taglio Diagonale B (Standard)
         push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex, skyLight[0], blockLight[0]);
         push(dst, v[1], uv[1][0], v1loc, ao[1], faceIdx, tileIndex, skyLight[1], blockLight[1]);
         push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex, skyLight[2], blockLight[2]);
@@ -664,86 +689,114 @@ private int[] rotateNormal(int[] normal, String axis, float angle) {
         push(dst, v[0], uv[0][0], v0loc, ao[0], faceIdx, tileIndex, skyLight[0], blockLight[0]);
         push(dst, v[2], uv[2][0], v2loc, ao[2], faceIdx, tileIndex, skyLight[2], blockLight[2]);
         push(dst, v[3], uv[3][0], v3loc, ao[3], faceIdx, tileIndex, skyLight[3], blockLight[3]);
-
     }
+}
 
     /**
      * * Check if this is a grass side that needs V flip
      * 
      */
     private boolean isGrassSide(Block block, int ny) {
-        // Grass sides need flipping (ny == 0 means horizontal face)
-        if (ny != 0)
-            return false;
+            if (ny != 0)
+                return false;
 
-        // Check if it's grass by looking at registry ID
-        if (block.getRegistryId() == null)
-            return false;
-        return block.getRegistryId().getPath().equals("grass");
+            if (block.getRegistryId() == null)
+                return false;
+            return block.getRegistryId().getPath().equals("grass");
     }
+
+
 
     /**
-     * Compute ambient occlusion for face corners.
-     * Direct port from MinecraftOneFile.computeFaceAO()
-     */
-    private float[] computeFaceAO(ChunkData chunk, WorldAccess world,
-            int x, int y, int z, int nx, int ny, int nz) {
-        float[] out = new float[4];
-        int fx = x + nx, fy = y + ny, fz = z + nz;
-
-        if (nx != 0) {
-            boolean sYp = isOccluder(getBlockAt(chunk, world, fx, fy + 1, fz));
-            boolean sYm = isOccluder(getBlockAt(chunk, world, fx, fy - 1, fz));
-            boolean sZp = isOccluder(getBlockAt(chunk, world, fx, fy, fz + 1));
-            boolean sZm = isOccluder(getBlockAt(chunk, world, fx, fy, fz - 1));
-            boolean c1 = isOccluder(getBlockAt(chunk, world, fx, fy + 1, fz - 1));
-            boolean c2 = isOccluder(getBlockAt(chunk, world, fx, fy + 1, fz + 1));
-            boolean c3 = isOccluder(getBlockAt(chunk, world, fx, fy - 1, fz + 1));
-            boolean c4 = isOccluder(getBlockAt(chunk, world, fx, fy - 1, fz - 1));
-            out[0] = cornerAO(sYp, sZm, c1);
-            out[1] = cornerAO(sYp, sZp, c2);
-            out[2] = cornerAO(sYm, sZp, c3);
-            out[3] = cornerAO(sYm, sZm, c4);
-        } else if (ny != 0) {
-            boolean sXp = isOccluder(getBlockAt(chunk, world, fx + 1, fy, fz));
-            boolean sXm = isOccluder(getBlockAt(chunk, world, fx - 1, fy, fz));
-            boolean sZp = isOccluder(getBlockAt(chunk, world, fx, fy, fz + 1));
-            boolean sZm = isOccluder(getBlockAt(chunk, world, fx, fy, fz - 1));
-            boolean c1 = isOccluder(getBlockAt(chunk, world, fx - 1, fy, fz - 1));
-            boolean c2 = isOccluder(getBlockAt(chunk, world, fx + 1, fy, fz - 1));
-            boolean c3 = isOccluder(getBlockAt(chunk, world, fx + 1, fy, fz + 1));
-            boolean c4 = isOccluder(getBlockAt(chunk, world, fx - 1, fy, fz + 1));
-            out[0] = cornerAO(sXm, sZm, c1);
-            out[1] = cornerAO(sXp, sZm, c2);
-            out[2] = cornerAO(sXp, sZp, c3);
-            out[3] = cornerAO(sXm, sZp, c4);
-        } else { // nz != 0
-            boolean sXp = isOccluder(getBlockAt(chunk, world, fx + 1, fy, fz));
-            boolean sXm = isOccluder(getBlockAt(chunk, world, fx - 1, fy, fz));
-            boolean sYp = isOccluder(getBlockAt(chunk, world, fx, fy + 1, fz));
-            boolean sYm = isOccluder(getBlockAt(chunk, world, fx, fy - 1, fz));
-            boolean c1 = isOccluder(getBlockAt(chunk, world, fx - 1, fy + 1, fz));
-            boolean c2 = isOccluder(getBlockAt(chunk, world, fx + 1, fy + 1, fz));
-            boolean c3 = isOccluder(getBlockAt(chunk, world, fx + 1, fy - 1, fz));
-            boolean c4 = isOccluder(getBlockAt(chunk, world, fx - 1, fy - 1, fz));
-            out[0] = cornerAO(sXm, sYp, c1);
-            out[1] = cornerAO(sXp, sYp, c2);
-            out[2] = cornerAO(sXp, sYm, c3);
-            out[3] = cornerAO(sXm, sYm, c4);
-        }
-
-        return out;
+ * Calcola il livello di AO (0-3) per un singolo vertice basandosi sui vicini.
+ * @param side1 Primo blocco adiacente al vertice (e alla faccia)
+ * @param side2 Secondo blocco adiacente al vertice (e alla faccia)
+ * @param corner Blocco d'angolo (diagonale)
+ */
+private int vertexAO(boolean side1, boolean side2, boolean corner) {
+    if (side1 && side2) {
+        return 0;
     }
+    return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
+}
+
+    /**
+     * Compute ambient occlusion AND directional lighting together
+     * This combines AO darkening with proper light direction
+     */
+private float[] computeFaceAO(ChunkData chunk, WorldAccess world,
+        int x, int y, int z, int nx, int ny, int nz) {
+    
+    // Coordinate del blocco "davanti" alla faccia (generalmente aria o acqua)
+    int ax = x + nx;
+    int ay = y + ny;
+    int az = z + nz;
+
+    // Definiamo i vettori U e V perpendicolari alla normale per trovare i vicini
+    // Questo evita un gigantesco switch-case e funziona per tutte le 6 direzioni
+    int ux = 0, uy = 0, uz = 0;
+    int vx = 0, vy = 0, vz = 0;
+
+    if (ny != 0) { // Top/Bottom (Normale Y) -> U=X, V=Z
+        ux = 1; uz = 0;
+        vx = 0; vz = 1;
+    } else if (nx != 0) { // East/West (Normale X) -> U=Z, V=Y
+        ux = 0; uz = 1;
+        vx = 0; vy = 1;
+    } else { // North/South (Normale Z) -> U=X, V=Y
+        ux = 1; uy = 0;
+        vx = 0; vy = 1;
+    }
+
+    // Campioniamo gli 8 vicini attorno alla faccia nel piano della normale
+    // s = side, c = corner
+    // Ordine standard dei vertici: 
+    // v0: -u, -v | v1: +u, -v | v2: +u, +v | v3: -u, +v
+    // Nota: l'ordine dei vertici qui deve corrispondere a quello usato in addFace/uv
+    
+    // Leggiamo l'opacità dei vicini
+    boolean uMinus = isOccluder(getBlockAt(chunk, world, ax - ux, ay - uy, az - uz));
+    boolean uPlus  = isOccluder(getBlockAt(chunk, world, ax + ux, ay + uy, az + uz));
+    boolean vMinus = isOccluder(getBlockAt(chunk, world, ax - vx, ay - vy, az - vz));
+    boolean vPlus  = isOccluder(getBlockAt(chunk, world, ax + vx, ay + vy, az + vz));
+    
+    // Angoli
+    boolean c0 = isOccluder(getBlockAt(chunk, world, ax - ux - vx, ay - uy - vy, az - uz - vz)); // - -
+    boolean c1 = isOccluder(getBlockAt(chunk, world, ax + ux - vx, ay + uy - vy, az + uz - vz)); // + -
+    boolean c2 = isOccluder(getBlockAt(chunk, world, ax + ux + vx, ay + uy + vy, az + uz + vz)); // + +
+    boolean c3 = isOccluder(getBlockAt(chunk, world, ax - ux + vx, ay - uy + vy, az - uz + vz)); // - +
+
+    // Calcoliamo l'AO discreto (0-3) per i 4 vertici
+    // L'ordine qui deve essere sincronizzato con l'ordine in cui costruisci i vertici in addFace
+    // v0 (basso-sinistra nel piano UV locale) -> side -u, side -v, corner --
+    int ao0 = vertexAO(uMinus, vMinus, c0);
+    int ao1 = vertexAO(uPlus, vMinus, c1);
+    int ao2 = vertexAO(uPlus, vPlus, c2);
+    int ao3 = vertexAO(uMinus, vPlus, c3);
+
+    // Convertiamo da 0-3 a float 0.0-1.0 per lo shader
+    // 0 = scuro, 3 = luce piena.
+    // Mappatura suggerita: 0->0.4, 1->0.6, 2->0.8, 3->1.0
+    return new float[] {
+        mapAoLevel(ao0), mapAoLevel(ao1), mapAoLevel(ao2), mapAoLevel(ao3)
+    };
+}
+
+private float mapAoLevel(int level) {
+    switch(level) {
+        case 0: return 0.4f; // Molto scuro
+        case 1: return 0.6f;
+        case 2: return 0.8f;
+        default: return 1.0f; // Piena luce
+    }
+}
+
 
     private boolean isOccluder(int blockId) {
         Block block = Blocks.get(blockId);
         return block.isOpaque();
     }
 
-    private float cornerAO(boolean s1, boolean s2, boolean c) {
-        int occ = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0);
-        return occ == 0 ? 1.00f : occ == 1 ? 0.90f : occ == 2 ? 0.75f : 0.60f;
-    }
 
     private int getSkyLightAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
         if (y < 0 || y >= chunkHeight)
@@ -773,9 +826,6 @@ private int[] rotateNormal(int[] normal, String axis, float angle) {
 
     private void push(ArrayList<Float> a, float[] pos, float u, float v, float ao,
             int faceIdx, int tileIndex, float skyLight, float blockLight) {
-
-
-                
         a.add(pos[0]); // x
         a.add(pos[1]); // y
         a.add(pos[2]); // z

@@ -772,191 +772,112 @@ private String getVertexShader() {
 }
 
 
-
 private String getFragmentShader() {
     return "#version 330 core\n" +
         "in vec2 vUV;\n" +
         "in float vAO;\n" +
-        "in float vSkyLight;\n" +      // ✅ NEW
-        "in float vBlockLight;\n" +    // ✅ NEW
+        "in float vSkyLight;\n" +
+        "in float vBlockLight;\n" +
         "in vec2 vWorldXZ;\n" +
         "in vec3 vWP;\n" +
         "in float vDistFromCamera;\n" +
-        "in float vTileIndex;\n" +
-        "in vec3  vNormal;\n" +
+        
+        // USA 'flat' NEL VERTEX SHADER SE POSSIBILE, ALTRIMENTI QUI ARROTONDIAMO
+        "in float vTileIndex;\n" + 
+        
+        "in vec3 vNormal;\n" +
         "\n" +
         "uniform sampler2DArray uTex;\n" +
         "uniform vec4 uTint;\n" +
-        "uniform int uTilesX, uTilesY;\n" +
         "uniform int uTileGrassTopIndex;\n" +
         "uniform int uTileLeavesIndex;\n" +
         "uniform vec3 uGrassTint;\n" +
         "uniform vec3 uFoliageTint;\n" +
-        "uniform float uTime;\n" +
         "uniform vec3 uCameraPos;\n" +
         "uniform int uUnderwater;\n" +
         "uniform float uWaterLevel;\n" +
         "uniform int uWaterPass;\n" +
         "uniform int uFogEnabled;\n" +
-        "uniform vec3 uFogColor;\n" +
         "uniform float uFogStart;\n" +
         "uniform float uFogEnd;\n" +
-        "uniform float uTimeOfDay;\n" +
-        "uniform vec3  uSunDir;\n" +
-        "uniform vec3  uSunColor;\n" +
-        "uniform vec3  uAmbientColor;\n" +
+        "uniform vec3 uSunDir;\n" +
         "\n" +
         "out vec4 FragColor;\n" +
         "\n" +
+        // --- FUNZIONI DI UTILITÀ ---\n" +
         "float calculateFog(float dist) {\n" +
         "  if (uFogEnabled == 0) return 0.0;\n" +
         "  float fogFactor = (dist - uFogStart) / (uFogEnd - uFogStart);\n" +
-        "  fogFactor = clamp(fogFactor, 0.0, 1.0);\n" +
-        "  return fogFactor * fogFactor * (3.0 - 2.0 * fogFactor);\n" +
+        "  return clamp(fogFactor, 0.0, 1.0);\n" +
         "}\n" +
         "\n" +
-        "float noise2D(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\n" +
-        "float smoothNoise2D(vec2 p){ vec2 i=floor(p), f=fract(p); float a=noise2D(i); float b=noise2D(i+vec2(1,0)); float c=noise2D(i+vec2(0,1)); float d=noise2D(i+vec2(1,1)); vec2 u=f*f*(3.0-2.0*f); return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y; }\n" +
-        "float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*smoothNoise2D(p); p*=2.0; a*=0.5; } return v; }\n" +
-        "float heightWater(vec2 xz, float t){ vec2 p=xz*0.18 + vec2(t*0.30, -t*0.24); return (fbm(p)*2.0-1.0)*0.3; }\n" +
-        "vec2 gradHeight(vec2 xz, float t){ float e=0.15; float hC=heightWater(xz,t); float hX=heightWater(xz+vec2(e,0),t)-hC; float hZ=heightWater(xz+vec2(0,e),t)-hC; return vec2(hX/e, hZ/e); }\n" +
-        "\n" +
-        "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
-        "  dir = normalize(dir);\n" +
-        "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);\n" +
-        "\n" +
-        "  vec3 dayHorizon  = vec3(0.55, 0.75, 0.95);\n" +
-        "  vec3 dayZenith   = vec3(0.10, 0.35, 0.75);\n" +
-        "  vec3 nightHorizon= vec3(0.02, 0.02, 0.08);\n" +
-        "  vec3 nightZenith = vec3(0.00, 0.00, 0.02);\n" +
-        "\n" +
-        "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0);\n" +
-        "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
-        "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
-        "  vec3 col = mix(dayCol, nightCol, night);\n" +
-        "\n" +
-        "  float sunAmt = pow(max(dot(dir, sunDir), 0.0), 600.0);\n" +
-        "  col += vec3(1.0, 0.9, 0.7) * sunAmt * 1.5;\n" +
-        "\n" +
-        "  return col;\n" +
+        "vec3 getSkyLightColor(vec3 sunDir) {\n" +
+        "  float sunHeight = sunDir.y;\n" +
+        "  vec3 dayColor   = vec3(1.00, 1.00, 1.00);\n" +
+        "  vec3 nightColor = vec3(0.15, 0.20, 0.35); // Notte un po' più luminosa\n" +
+        "  float t = clamp(sunHeight * 2.0 + 0.2, 0.0, 1.0);\n" +
+        "  return mix(nightColor, dayColor, t);\n" +
         "}\n" +
         "\n" +
-        "void main(){\n" +
-        "  float fogAmount = calculateFog(vDistFromCamera);\n" +
+"void main(){\n" +
         "  int tileIndex = int(vTileIndex + 0.5);\n" +
+        "  float dist = length(vWP - uCameraPos);\n" +
+        "  float fogAmount = calculateFog(dist);\n" +
         "\n" +
-        "  vec3 sunDir = normalize(uSunDir);\n" +
-        "  float sunStrength = clamp(sunDir.y, 0.0, 1.0);\n" +
+        "  // 1. LUCE (Teniamo valori 'vivi')\n" +
+        "  // uSunDir.y varia da -1 a 1. Lo mappiamo per avere luce piena (1.0) di giorno e minima (0.2) di notte\n" +
+        "  float sunHeight = uSunDir.y;\n" +
+        "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" + 
+        "  \n" +
+        "  float skyLum = vSkyLight * skyIntensity;\n" +
+        "  float blockLum = vBlockLight;\n" +
+        "  float lightLevel = max(skyLum, blockLum);\n" +
         "\n" +
-        "  vec3 N = normalize(vNormal);\n" +
-        "  vec3 V = normalize(uCameraPos - vWP);\n" +
-        "  vec3 rayDir = -V;\n" +
+        "  // 2. COLORE TEXTURE (Senza alterazioni gamma)\n" +
+        "  vec4 texColor;\n" +
+        "  vec3 finalColor;\n" +
         "\n" +
-        "  vec3 skyCol = computeSkyColor(rayDir, sunDir, sunStrength);\n" +
-        "  vec3 fogCol = mix(skyCol, uFogColor, 0.15);\n" +
+        "  if (uWaterPass == 0) { // BLOCCHI SOLIDI\n" +
+        "     texColor = texture(uTex, vec3(vUV, tileIndex));\n" +
+        "     if(texColor.a < 0.1) discard;\n" +
         "\n" +
-        "  if(uWaterPass==0){\n" +
-        "    // --- BLOCCHI SOLIDI / TRASPARENTI ---\n" +
-        "    vec4 texel = texture(uTex, vec3(vUV, vTileIndex));\n" +
-        "    if(texel.a < 0.05) discard;\n" +
+        "     // Tinting (Erba/Foglie)\n" +
+        "     vec3 terrainTint = uTint.rgb;\n" +
+        "     if(tileIndex == uTileGrassTopIndex) terrainTint *= uGrassTint;\n" +
+        "     else if(tileIndex == uTileLeavesIndex) terrainTint *= uFoliageTint;\n" +
+        "     \n" +
+        "     finalColor = texColor.rgb * terrainTint;\n" +
+        "     \n" +
+        "     // --- FIX ARTEFATTI E COLORE ---\n" +
+        "     // 1. Non scuriamo mai oltre il 10% per evitare il nero assoluto\n" +
+        "     lightLevel = max(lightLevel, 0.1);\n" +
+        "     \n" +
+        "     \n" +
+        "     // 2. Applichiamo l'AO in modo non lineare per evitare scuri troppo forti\n" +
+        "     finalColor *= vAO;\n" +
+        "     // 3. Moltiplichiamo per la luce\n" +
+        "     finalColor *= lightLevel;\n" +
         "\n" +
-        "    bool isGrass  = (tileIndex == uTileGrassTopIndex);\n" +
-        "    bool isLeaves = (tileIndex == uTileLeavesIndex);\n" +
-        "\n" +
-        "    vec3 base = texel.rgb * uTint.rgb;\n" +
-        "    if(isGrass)  base *= uGrassTint;\n" +
-        "    else if(isLeaves) base *= uFoliageTint;\n" +
-        "\n" +
-        "    // ✅ PERFECT SEPARATION: skyLight and blockLight are separate!\n" +
-        "    // Modulate ONLY skyLight by day/night cycle\n" +
-        "    float dayNightFactor = 0.15 + 0.85 * sunStrength;\n" +
-        "    float modulatedSky = vSkyLight * dayNightFactor;\n" +
-        "    \n" +
-        "    // BlockLight is NEVER modulated (torches work at night!)\n" +
-        "    // Combine: base ambient + sky contribution + block contribution\n" +
-        "    float finalLight = 0.18 + 0.50 * modulatedSky + 0.50 * vBlockLight;\n" +
-        "    \n" +
-        "    // Apply AO as a separate multiplier\n" +
-        "    finalLight *= vAO;\n" +
-        "    \n" +
-        "    // Clamp to reasonable range\n" +
-        "    finalLight = clamp(finalLight, 0.0, 1.0);\n" +
-        "    \n" +
-        "    // Apply lighting to base color\n" +
-        "    base *= finalLight;\n" +
-        "    \n" +
-        "    // Directional sun highlight (only during day)\n" +
-        "    float NdotL = max(dot(N, sunDir), 0.0);\n" +
-        "    float sunHighlight = NdotL * sunStrength * 0.12;\n" +
-        "    base += uSunColor * sunHighlight * finalLight;\n" +
-        "    \n" +
-        "    // Minimum brightness (never completely black)\n" +
-        "    base = max(base, vec3(0.02));\n" +
-        "\n" +
-        "    float alpha = texel.a * uTint.a;\n" +
-        "\n" +
-        "    if(uUnderwater==1){\n" +
-        "      vec3 uwFog=vec3(0.12,0.38,0.85);\n" +
-        "      float dist=length(vWP-uCameraPos);\n" +
-        "      float fog = 1.0 - exp(-dist*0.10);\n" +
-        "      float depth = (uWaterLevel - uCameraPos.y)/8.0;\n" +
-        "      fog *= (0.55 + 0.45*clamp(depth,0.0,1.0));\n" +
-        "      base = mix(base,uwFog,clamp(fog,0.0,1.0));\n" +
-        "    }\n" +
-        "\n" +
-        "    base = mix(base, fogCol, fogAmount);\n" +
-        "    FragColor = vec4(base, alpha);\n" +
-        "    return;\n" +
+        "  } else { // ACQUA\n" +
+        "     texColor = vec4(0.2, 0.5, 0.9, 0.6);\n" +
+        "     finalColor = texColor.rgb * lightLevel * vAO;\n" +
         "  }\n" +
         "\n" +
-        "  // --- ACQUA (unchanged) ---\n" +
-        "  vec2 g = gradHeight(vWorldXZ, uTime);\n" +
-        "  vec3 waterN = normalize(vec3(-g.x,1.0,-g.y));\n" +
-        "  float viewTop = pow(max(dot(vec3(0,1,0),V),0.0),1.4);\n" +
+        "  // 3. FOG (Nebbia)\n" +
+        "  vec3 skyColor = getSkyLightColor(uSunDir);\n" +
+        "  // La nebbia deve corrispondere al colore del cielo per fondersi bene\n" +
+        "  vec3 fogColor = skyColor;\n" +
         "\n" +
-        "  vec3 deepBlue=vec3(0.06,0.35,0.68);\n" +
-        "  vec3 lightBlue=vec3(0.35,0.65,0.90);\n" +
-        "  vec3 base=mix(deepBlue,lightBlue,viewTop);\n" +
-        "  float steep = min(length(g)*0.9,1.0);\n" +
-        "  base += vec3(smoothstep(0.25,0.8,steep)*0.04);\n" +
-        "  base *= uTint.rgb;\n" +
-        "\n" +
-        "  vec2 uvTiles=vec2(vUV.x*float(uTilesX), vUV.y*float(uTilesY));\n" +
-        "  vec2 tileUV=fract(uvTiles);\n" +
-        "  vec2 p=floor(tileUV*10.0)/10.0;\n" +
-        "  float s=dot(p, normalize(vec2(1.0,0.25)));\n" +
-        "  float tri=1.0-abs(fract(s*6.0+uTime*0.15)*2.0-1.0);\n" +
-        "  float stripes=smoothstep(0.70,1.0,tri) * mix(0.7,1.0,smoothNoise2D(p*6.0));\n" +
-        "  float vis=mix(0.30,1.00,viewTop);\n" +
-        "  base += vec3(1.0)*stripes*vis*0.22;\n" +
-        "\n" +
-        "  vec3 reflDir = reflect(-V, waterN);\n" +
-        "  vec3 reflSky = computeSkyColor(reflDir, sunDir, sunStrength);\n" +
-        "  float fresnel = pow(1.0 - max(dot(waterN, V), 0.0), 3.0);\n" +
-        "  float reflAmount = 0.35 + 0.35 * fresnel;\n" +
-        "  base = mix(base, reflSky, reflAmount);\n" +
-        "\n" +
-        "  float NdotLw = max(dot(waterN, sunDir), 0.0);\n" +
-        "  float directW = NdotLw * sunStrength;\n" +
-        "  vec3 lightingW = uAmbientColor + uSunColor * directW;\n" +
-        "  lightingW = max(lightingW, vec3(0.05));\n" +
-        "  base *= lightingW;\n" +
-        "\n" +
-        "  float alpha = mix(0.90*uTint.a, 0.45*uTint.a, viewTop);\n" +
-        "\n" +
-        "  if(uUnderwater==1){\n" +
-        "    vec3 uwFog=vec3(0.12,0.38,0.85);\n" +
-        "    float dist=length(vWP-uCameraPos);\n" +
-        "    float fog=1.0-exp(-dist*0.10);\n" +
-        "    float depth=(uWaterLevel-uCameraPos.y)/8.0;\n" +
-        "    fog*= (0.55+0.45*clamp(depth,0.0,1.0));\n" +
-        "    base=mix(base,uwFog,clamp(fog,0.0,1.0));\n" +
+        "  if(uUnderwater == 1){\n" +
+        "      fogColor = vec3(0.1, 0.3, 0.7);\n" +
+        "      fogAmount = 1.0 - exp(-dist * 0.15);\n" +
         "  }\n" +
         "\n" +
-        "  base = mix(base, fogCol, fogAmount);\n" +
-        "  FragColor=vec4(base,alpha);\n" +
+        "  finalColor = mix(finalColor, fogColor, fogAmount);\n" +
+        "\n" +
+        "  // 4. NESSUNA GAMMA CORRECTION QUI!\n" +
+        "  // Usciamo direttamente con il colore calcolato.\n" +
+        "  FragColor = vec4(finalColor, texColor.a * uTint.a);\n" +
         "}\n";
 }
-    
-
 }
