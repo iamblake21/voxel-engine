@@ -781,8 +781,6 @@ private String getFragmentShader() {
         "in vec2 vWorldXZ;\n" +
         "in vec3 vWP;\n" +
         "in float vDistFromCamera;\n" +
-        
-        // USA 'flat' NEL VERTEX SHADER SE POSSIBILE, ALTRIMENTI QUI ARROTONDIAMO
         "in float vTileIndex;\n" + 
         
         "in vec3 vNormal;\n" +
@@ -804,7 +802,6 @@ private String getFragmentShader() {
         "\n" +
         "out vec4 FragColor;\n" +
         "\n" +
-        // --- FUNZIONI DI UTILITÀ ---\n" +
         "float calculateFog(float dist) {\n" +
         "  if (uFogEnabled == 0) return 0.0;\n" +
         "  float fogFactor = (dist - uFogStart) / (uFogEnd - uFogStart);\n" +
