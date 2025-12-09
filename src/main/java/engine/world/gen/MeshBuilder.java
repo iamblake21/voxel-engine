@@ -6,6 +6,7 @@ import engine.world.block.model.BlockModel;
 import engine.world.block.model.BlockModelLoader;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -153,15 +154,41 @@ public class MeshBuilder {
             int x, int y, int z, Block block,
             boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent) {
 
-        float height = 1.0f;
+        float[] heights = new float[4];
         if (block.isLiquid()) {
-            int level = getFluidLevelAt(chunk, world, x, y, z);
+            // For Top Face (POS_Y): v0=(-,-), v1=(+,-), v2=(+,+), v3=(-,+)
+            // U=X, V=Z
+            // v0=x,z (NW corner, neighbors x-1, z-1)
+            // v1=x+1,z (NE corner, neighbors x+1, z-1)
+            // v2=x+1,z+1 (SE corner, neighbors x+1, z+1)
+            // v3=x,z+1 (SW corner, neighbors x-1, z+1)
 
-            // Check if falling (block above is same liquid)
-            int blockAboveId = getBlockAt(chunk, world, x, y + 1, z);
-            boolean isFalling = (blockAboveId == block.getNumericId());
+            // Wait, getCornerHeight params: (x, y, z, cx, cz)
+            // NW: offsets -1, -1 for neighbors relative to corner?
+            // My helper getCornerHeight(.., cx, cz) takes offset DIRECTION for the 3 other
+            // blocks.
+            // Let's redefine getCornerHeight:
+            // It calculates height at the corner defined by (x,z) and (x+ox, z+oz).
 
-            height = getFluidHeight(level, isFalling);
+            // Let's just calculate the 4 corners for the block (x,y,z).
+            // Corner 0 (0,0) -> touches (BX, BZ). touches (BX-1, BZ-1), (BX, BZ-1), (BX-1,
+            // BZ), (BX, BZ).
+            // Neighbors offsets: {-1, -1}, {0, -1}, {-1, 0}, {0, 0}
+
+            int blockAbove = getBlockAt(chunk, world, x, y + 1, z);
+            boolean isFalling = (blockAbove == block.getNumericId());
+
+            if (isFalling) {
+                Arrays.fill(heights, 1.0f);
+            } else {
+                heights[0] = getVertexFluidHeight(chunk, world, x, y, z); // NW Corner (x,z)
+                heights[1] = getVertexFluidHeight(chunk, world, x + 1, y, z); // NE Corner (x+1,z)
+                heights[2] = getVertexFluidHeight(chunk, world, x + 1, y, z + 1); // SE Corner (x+1,z+1)
+                heights[3] = getVertexFluidHeight(chunk, world, x, y, z + 1); // SW Corner (x,z+1)
+            }
+
+        } else {
+            Arrays.fill(heights, 1.0f);
         }
 
         for (int faceIdx = 0; faceIdx < 6; faceIdx++) {
@@ -180,7 +207,58 @@ public class MeshBuilder {
                 target = solidV;
             }
 
-            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting, height);
+            // Construct specific heights for this face if it's a side face?
+            // If Side Face: 2 top vertices should match top face corners.
+            // Example POS_Z (Front): v0=(1,0,1), v1=(0,0,1), v2=(0,1,1), v3=(1,1,1)
+            // Top verts are v2, v3 (y=1).
+            // v2 is (0,1) -> (x, z+1) -> heights[3] (SW)
+            // v3 is (1,1) -> (x+1, z+1) -> heights[2] (SE)
+            // Bottom verts v0, v1 should be 0.
+
+            float[] faceHeights = new float[4];
+            if (block.isLiquid()) {
+                if (faceIdx == FACE_POS_Y) { // Top face
+                    faceHeights = heights; // Use the pre-calculated corner heights directly
+                } else if (faceIdx == FACE_NEG_Y) { // Bottom face
+                    Arrays.fill(faceHeights, 0.0f); // Bottom is always flat at 0
+                } else {
+                    // Side faces.
+                    // Vertices are ordered v0, v1, v2, v3.
+                    // For side faces, v0 and v1 are bottom vertices (y=0), v2 and v3 are top
+                    // vertices (y=1).
+                    // So faceHeights[0] and faceHeights[1] are 0.0f.
+                    // faceHeights[2] and faceHeights[3] need to map to the correct corner heights.
+
+                    faceHeights[0] = 0.0f;
+                    faceHeights[1] = 0.0f;
+
+                    if (faceIdx == FACE_NEG_Z) { // North face (looking towards -Z)
+                        // v2 maps to NW corner (x, z) -> heights[0]
+                        // v3 maps to NE corner (x+1, z) -> heights[1]
+                        faceHeights[2] = heights[0];
+                        faceHeights[3] = heights[1];
+                    } else if (faceIdx == FACE_POS_Z) { // South face (looking towards +Z)
+                        // v2 maps to SE corner (x+1, z+1) -> heights[2]
+                        // v3 maps to SW corner (x, z+1) -> heights[3]
+                        faceHeights[2] = heights[2];
+                        faceHeights[3] = heights[3];
+                    } else if (faceIdx == FACE_NEG_X) { // West face (looking towards -X)
+                        // v2 maps to SW corner (x, z+1) -> heights[3]
+                        // v3 maps to NW corner (x, z) -> heights[0]
+                        faceHeights[2] = heights[3];
+                        faceHeights[3] = heights[0];
+                    } else if (faceIdx == FACE_POS_X) { // East face (looking towards +X)
+                        // v2 maps to NE corner (x+1, z) -> heights[1]
+                        // v3 maps to SE corner (x+1, z+1) -> heights[2]
+                        faceHeights[2] = heights[1];
+                        faceHeights[3] = heights[2];
+                    }
+                }
+            } else {
+                Arrays.fill(faceHeights, 1.0f); // Non-liquid blocks are full height
+            }
+
+            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting, faceHeights);
         }
     }
 
@@ -192,8 +270,10 @@ public class MeshBuilder {
 
         // Water special case
         if (self.isLiquid()) {
-            if (neighbor.isLiquid())
+            if (neighbor.isLiquid()) {
+                // Classic culling: never show faces between two liquids
                 return false;
+            }
             if (neighbor.isAir())
                 return true;
             return false;
@@ -223,13 +303,13 @@ public class MeshBuilder {
 
     private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
             int bx, int by, int bz, int faceIdx, Block block,
-            boolean simplifiedLighting, float height) {
+            boolean simplifiedLighting, float[] heights) {
 
         int[] n = FACE_NORMAL[faceIdx];
         int nx = n[0], ny = n[1], nz = n[2];
 
         // 1. Generate vertices in canonical order
-        float[][] verts = buildFaceVertices(bx, by, bz, faceIdx, height);
+        float[][] verts = buildFaceVertices(bx, by, bz, faceIdx, heights);
 
         // 2. Compute AO and lighting
         float[] ao;
@@ -290,23 +370,90 @@ public class MeshBuilder {
     }
 
     /**
+     * Get the effective fluid height of a single block for smoothing purposes.
+     * Solid = 1.0 (pushes water up)
+     * Air = 0.0 (pulls water down) - actually min height?
+     * Water = Calculated height (0.X or 1.0 if falling)
+     */
+    private float getBaseFluidHeight(ChunkData chunk, WorldAccess world, int x, int y, int z) {
+        int blockId = getBlockAt(chunk, world, x, y, z);
+        Block block = Blocks.get(blockId);
+
+        if (block.isSolid()) {
+            return 1.0f;
+        }
+        if (!block.isLiquid()) {
+            return 0.0f;
+        }
+
+        // It is liquid
+        int level = getFluidLevelAt(chunk, world, x, y, z);
+
+        // Check if falling (block above is same liquid)
+        int blockAboveId = getBlockAt(chunk, world, x, y + 1, z);
+        boolean isFalling = (blockAboveId == block.getNumericId());
+
+        return getFluidHeight(level, isFalling);
+    }
+
+    /**
+     * Calculate fluid height at a vertex (vx, vz) by averaging the 4 surrounding
+     * blocks.
+     * The blocks touching vertex (vx, vz) are:
+     * (vx-1, vz-1), (vx, vz-1), (vx-1, vz), (vx, vz)
+     */
+    private float getVertexFluidHeight(ChunkData chunk, WorldAccess world, int vx, int vy, int vz) {
+        float sum = 0;
+        float max = 0;
+        int count = 0;
+
+        // Coordinates of the 4 blocks around this vertex
+        int[][] neighbors = {
+                { vx - 1, vz - 1 },
+                { vx, vz - 1 },
+                { vx - 1, vz },
+                { vx, vz }
+        };
+
+        for (int[] pos : neighbors) {
+            float h = getBaseFluidHeight(chunk, world, pos[0], vy, pos[1]);
+
+            // Should we ignore 0.0 (Air) if we have liquids?
+            // "Minecraft technique":
+            // Weighted by coverage?
+            // Actually, if a corner touches Air, it should drop down?
+            // But if it touches Solid, it works up.
+
+            // Simple average:
+            sum += h;
+            count++;
+
+            if (h > max)
+                max = h;
+        }
+
+        // Return average?
+        // Standard is average.
+        // Some implementations boost it slightly or stick to max if one is falling?
+        // Let's stick to pure average for now as requested.
+
+        return Math.max(0.1f, sum / count);
+    }
+
+    /**
      * Build 4 vertices for a face in canonical order.
      * v0=(-U,-V), v1=(+U,-V), v2=(+U,+V), v3=(-U,+V)
+     * heights: [h0, h1, h2, h3]
      */
-    private float[][] buildFaceVertices(int bx, int by, int bz, int faceIdx, float height) {
+    private float[][] buildFaceVertices(int bx, int by, int bz, int faceIdx, float[] heights) {
         int[] n = FACE_NORMAL[faceIdx];
         int[] u = FACE_TANGENT_U[faceIdx];
         int[] v = FACE_TANGENT_V[faceIdx];
 
-        // Face center (block center + 0.5 in normal direction)
+        // Face center
         float cx = bx + 0.5f + n[0] * 0.5f;
         float cy = by + 0.5f + n[1] * 0.5f;
         float cz = bz + 0.5f + n[2] * 0.5f;
-
-        // Custom height logic
-        if (height < 1.0f && faceIdx == FACE_POS_Y) {
-            cy = by + height;
-        }
 
         float[][] verts = {
                 { cx - u[0] * 0.5f - v[0] * 0.5f, cy - u[1] * 0.5f - v[1] * 0.5f, cz - u[2] * 0.5f - v[2] * 0.5f },
@@ -315,12 +462,50 @@ public class MeshBuilder {
                 { cx - u[0] * 0.5f + v[0] * 0.5f, cy - u[1] * 0.5f + v[1] * 0.5f, cz - u[2] * 0.5f + v[2] * 0.5f }
         };
 
-        if (height < 1.0f && faceIdx != FACE_POS_Y && faceIdx != FACE_NEG_Y) {
-            float topY = by + 1.0f;
-            float targetY = by + height;
-            for (float[] vert : verts) {
-                if (Math.abs(vert[1] - topY) < 0.01f) {
-                    vert[1] = targetY;
+        // Apply heights if Top/Bottom face or Side face
+        // Actually, only Top face (POS_Y) needs slope.
+        // Side faces need to connect to the slope of Top/Bottom?
+        // Actually if water is full (1.0), side goes to 1.0
+        // If water is sloped, side top-vertices should match top-face vertices?
+        // This is complex. For now let's just slope the Top Face.
+        // Side faces: If we smooth top, sides should match.
+
+        // Let's assume heights[] contains the Y-offset for each vertex v0..v3
+        // Base Y is 'by'. Target Y is 'by + h'.
+
+        for (int i = 0; i < 4; i++) {
+            // For Top Face (POS_Y), base is by.
+            // We replace Y with by + heights[i].
+            if (faceIdx == FACE_POS_Y) {
+                verts[i][1] = by + heights[i];
+            }
+            // For Bottom Face (NEG_Y), usually flat at 0?
+            else if (faceIdx == FACE_NEG_Y) {
+                // Keep flat
+            } else {
+                // Side faces.
+                // Vertices with Y > center are Top vertices.
+                // Vertices with Y < center are Bottom vertices.
+                // Identify which are top.
+                if (verts[i][1] > by + 0.5f) {
+                    // This is a top vertex.
+                    // Which height corresponds to this corner?
+                    // Need to map side-face vertex index to block-corner index.
+                    // This mapping depends on U/V orientation.
+                    // Simpler: Just rely on flat top for sides for now?
+                    // If we want sides to match slope, we need to pass the correct heights.
+                    // Let's implement Top Face Smoothing first.
+                    verts[i][1] = by + heights[i]; // Apply same height logic? No, heights are 4 corners.
+                    // Side faces share 2 top corners with the top face.
+                    // Which ones?
+                    // Depends on faceIdx.
+                    // Let's simplisticly flatten sides to max of the 2 corners?
+                    // Or just clamp to lowest?
+                    // Actually, if we pass the CORRECT 4 heights for the SIDE face (2 top, 2
+                    // bottom), we are golden.
+                    // But getCornerHeight returns 4 top-corners of the block.
+                    // Side face needs 2 top corners and 2 bottom (0).
+                    // We need to construct heights[] properly before calling this.
                 }
             }
         }
