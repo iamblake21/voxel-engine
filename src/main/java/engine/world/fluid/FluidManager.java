@@ -110,6 +110,30 @@ public class FluidManager {
         int maxLevel = block.getMaxFluidLevel();
         int tickRate = block.getFluidTickRate();
 
+        // Infinite Source Logic
+        // If we are a liquid block (even not full), Check if we have 2+ sources around
+        // us
+        // Only if we are not already full
+        if (currentLevel < maxLevel) {
+            int sourceNeighbors = 0;
+            int[] dx = { 1, -1, 0, 0 };
+            int[] dz = { 0, 0, 1, -1 };
+
+            for (int i = 0; i < 4; i++) {
+                Block nBlock = world.getBlockType(x + dx[i], y, z + dz[i]);
+                int nLevel = world.getFluidLevel(x + dx[i], y, z + dz[i]);
+                if (nBlock.getNumericId() == block.getNumericId() && nLevel == maxLevel) {
+                    sourceNeighbors++;
+                }
+            }
+
+            if (sourceNeighbors >= 2) {
+                // Become a source
+                world.setFluidLevel(x, y, z, maxLevel);
+                currentLevel = maxLevel; // Update local var for subsequent logic
+            }
+        }
+
         // 1. Calculate the MAX theoretical level this block should have based on
         // neighbors
         int maxNeighborLevel = 0;
