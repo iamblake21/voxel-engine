@@ -18,68 +18,69 @@ import static org.lwjgl.glfw.GLFW.*;
  * Direct port from MinecraftOneFile physics.
  */
 public class Player extends Entity {
-    
+
     private final Config config;
     private final Camera camera;
     private World world;
     private PhysicsEngine physics;
-    
+
     // Movement state
     private boolean onGround = false;
     private boolean flying = false;
     private boolean flyKeyLatch = false;
-    
+
     // Water state
     private boolean bodyInWater = false;
     private boolean headInWater = false;
     private boolean bodyWasInWater = false;
     private boolean headWasInWater = false;
-    
+
     // Selected block for placement
     private int selectedBlock = 1; // Stone by default
-    
+
     public Player(EntityType<?> type, Config config) {
         super(type);
         this.config = config;
         this.camera = new Camera(config);
     }
-    
+
     /**
      * Initialize player with world reference
      */
     public void init(Engine engine) {
         this.world = engine.getWorld();
         this.physics = engine.getPhysics();
-        
+
         // Set camera
         engine.getRenderer().setCamera(camera);
-        
+
         // Find spawn position
         if (world != null) {
             Vec3 spawn = world.findSpawnPosition();
             setPosition(spawn.x, spawn.y, spawn.z);
         }
-        
+
         updateCamera();
     }
-    
+
     @Override
     public void update(float deltaTime) {
         // Update handled by game class with input
     }
-    
+
     /**
      * Update player with input
      */
     public void update(float deltaTime, InputManager input) {
-        if (world == null) return;
-        
+        if (world == null)
+            return;
+
         handleInput(input, deltaTime);
         applyPhysics(deltaTime);
-        updateCamera();        
+        updateCamera();
         world.maintainChunks(x, z);
     }
-    
+
     /**
      * Handle player input
      */
@@ -89,40 +90,58 @@ public class Player extends Entity {
         yaw += input.getMouseDX() * sensitivity;
         pitch += input.getMouseDY() * sensitivity;
         pitch = Math.max(-89f, Math.min(89f, pitch));
-        
+
         // Movement
         float speed = onGround ? config.playerSpeed : 4f;
-        if (flying) speed = config.playerFlySpeed;
+        if (flying)
+            speed = config.playerFlySpeed;
         if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT) && !flying) {
             speed *= config.playerSprintMultiplier;
         }
-        
+
         // Calculate forward/right vectors
         float yawRad = (float) Math.toRadians(yaw);
         float fx = (float) Math.cos(yawRad);
         float fz = (float) Math.sin(yawRad);
         float rx = -fz;
         float rz = fx;
-        
+
         // WASD movement
         float mx = 0, mz = 0;
-        if (input.isKeyDown(GLFW_KEY_W)) { mx += fx; mz += fz; }
-        if (input.isKeyDown(GLFW_KEY_S)) { mx -= fx; mz -= fz; }
-        if (input.isKeyDown(GLFW_KEY_D)) { mx += rx; mz += rz; }
-        if (input.isKeyDown(GLFW_KEY_A)) { mx -= rx; mz -= rz; }
-        
+        if (input.isKeyDown(GLFW_KEY_W)) {
+            mx += fx;
+            mz += fz;
+        }
+        if (input.isKeyDown(GLFW_KEY_S)) {
+            mx -= fx;
+            mz -= fz;
+        }
+        if (input.isKeyDown(GLFW_KEY_D)) {
+            mx += rx;
+            mz += rz;
+        }
+        if (input.isKeyDown(GLFW_KEY_A)) {
+            mx -= rx;
+            mz -= rz;
+        }
+
         // Normalize
         float len = (float) Math.sqrt(mx * mx + mz * mz);
-        if (len > 0) { mx /= len; mz /= len; }
-        
+        if (len > 0) {
+            mx /= len;
+            mz /= len;
+        }
+
         vx = mx * speed;
         vz = mz * speed;
-        
+
         // Flying controls
         if (flying) {
             float vyInput = 0;
-            if (input.isKeyDown(GLFW_KEY_SPACE)) vyInput += speed;
-            if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) vyInput -= speed;
+            if (input.isKeyDown(GLFW_KEY_SPACE))
+                vyInput += speed;
+            if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT))
+                vyInput -= speed;
             vy = vyInput;
             onGround = false;
         } else {
@@ -132,28 +151,38 @@ public class Player extends Entity {
                 onGround = false;
             }
         }
-        
+
         // Toggle fly
         boolean fDown = input.isKeyDown(GLFW_KEY_F);
         if (fDown && !flyKeyLatch) {
             flying = !flying;
             flyKeyLatch = true;
-            if (flying) vy = 0;
+            if (flying)
+                vy = 0;
         }
-        if (!fDown) flyKeyLatch = false;
-        
+        if (!fDown)
+            flyKeyLatch = false;
+
         // Block selection (1-5)
-        if (input.isKeyDown(GLFW_KEY_1)) selectedBlock = Blocks.get("game:stone").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_2)) selectedBlock = Blocks.get("game:dirt").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_3)) selectedBlock = Blocks.get("game:wood").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_4)) selectedBlock = Blocks.get("game:leaves").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_5)) selectedBlock = Blocks.get("game:snow").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_6)) selectedBlock = Blocks.get("game:light").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_7)) selectedBlock = Blocks.get("game:poppy").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_8)) selectedBlock = Blocks.get("game:torch").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_1))
+            selectedBlock = Blocks.get("game:water").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_2))
+            selectedBlock = Blocks.get("game:dirt").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_3))
+            selectedBlock = Blocks.get("game:wood").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_4))
+            selectedBlock = Blocks.get("game:leaves").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_5))
+            selectedBlock = Blocks.get("game:snow").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_6))
+            selectedBlock = Blocks.get("game:light").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_7))
+            selectedBlock = Blocks.get("game:poppy").getNumericId();
+        if (input.isKeyDown(GLFW_KEY_8))
+            selectedBlock = Blocks.get("game:torch").getNumericId();
 
     }
-    
+
     /**
      * Apply physics (gravity, water, collisions)
      */
@@ -162,47 +191,52 @@ public class Player extends Entity {
         if (!flying) {
             vy -= config.gravity * deltaTime;
         }
-        
+
         // Water physics
         float hw = config.playerWidth * 0.5f;
         float hh = config.playerHeight;
-        
+
         bodyInWater = !flying && isInWater(x, y, z, hw, hh);
         headInWater = !flying && isBlockWater(x, y + config.playerEyeHeight, z);
-        
+
         boolean justExitedHead = headWasInWater && !headInWater;
         boolean justEnteredBody = !bodyWasInWater && bodyInWater;
-        
+
         if (bodyInWater) {
             float imm = getImmersionFraction();
             float buoy = headInWater ? 11f : 9f;
             float antiSink = (vy < 0 ? (3.5f + 2.5f * imm) : 0f);
             vy += (buoy + antiSink) * deltaTime;
-            
+
             float linDrag = 3.5f * imm;
             vx -= vx * linDrag * deltaTime;
             vz -= vz * linDrag * deltaTime;
-            
+
             float vertDrag = (vy < 0 ? 1.4f : 0.6f) * imm;
             vy -= vy * vertDrag * deltaTime;
-            
+
             // Clamp velocities
-            if (justEnteredBody && vy < -1.2f) vy = -1f;
-            if (justExitedHead && vy < 7.0f) vy = 7.0f;
-            if (!headInWater && vy > 20f) vy = 20f;
-            if (vy < -3.0f) vy = -3.0f;
+            if (justEnteredBody && vy < -1.2f)
+                vy = -1f;
+            if (justExitedHead && vy < 7.0f)
+                vy = 7.0f;
+            if (!headInWater && vy > 20f)
+                vy = 20f;
+            if (vy < -3.0f)
+                vy = -3.0f;
         } else {
-            if (vy < -50f) vy = -50f;
+            if (vy < -50f)
+                vy = -50f;
         }
-        
+
         // Collision resolution
         resolveMovement(deltaTime, hw, hh);
-        
+
         // Update water state
         headWasInWater = headInWater;
         bodyWasInWater = bodyInWater;
     }
-    
+
     /**
      * Resolve movement with collision
      */
@@ -216,11 +250,12 @@ public class Player extends Entity {
         } else {
             x += vx * dt;
         }
-        
+
         // Y movement
         if (collides(x, y + vy * dt, z, hw, hh)) {
-            float signY = Math.signum(vy);     
-            if (vy < 0) onGround = true;
+            float signY = Math.signum(vy);
+            if (vy < 0)
+                onGround = true;
             vy = 0;
             while (!collides(x, y + signY * 0.001f, z, hw, hh)) {
                 y += signY * 0.001f;
@@ -229,7 +264,7 @@ public class Player extends Entity {
             y += vy * dt;
             onGround = false;
         }
-        
+
         // Z movement
         if (collides(x, y, z + vz * dt, hw, hh)) {
             vz *= 0.8f;
@@ -240,7 +275,7 @@ public class Player extends Entity {
             z += vz * dt;
         }
     }
-    
+
     /**
      * Check collision with world
      */
@@ -251,7 +286,7 @@ public class Player extends Entity {
         int maxY = (int) Math.floor(py + hh);
         int minZ = (int) Math.floor(pz - hw);
         int maxZ = (int) Math.floor(pz + hw);
-        
+
         for (int bx = minX; bx <= maxX; bx++) {
             for (int by = minY; by <= maxY; by++) {
                 for (int bz = minZ; bz <= maxZ; bz++) {
@@ -264,7 +299,7 @@ public class Player extends Entity {
         }
         return false;
     }
-    
+
     /**
      * Check if AABB overlaps water
      */
@@ -275,7 +310,7 @@ public class Player extends Entity {
         int maxY = (int) Math.floor(py + hh);
         int minZ = (int) Math.floor(pz - hw);
         int maxZ = (int) Math.floor(pz + hw);
-        
+
         for (int bx = minX; bx <= maxX; bx++) {
             for (int by = minY; by <= maxY; by++) {
                 for (int bz = minZ; bz <= maxZ; bz++) {
@@ -288,24 +323,25 @@ public class Player extends Entity {
         }
         return false;
     }
-    
+
     private boolean isBlockWater(float px, float py, float pz) {
         int blockId = world.getBlock((int) Math.floor(px), (int) Math.floor(py), (int) Math.floor(pz));
         return Blocks.isLiquid(blockId);
     }
-    
+
     private float getImmersionFraction() {
-        float[] offsets = {0.1f, 0.6f, 1.0f, 1.3f, 1.55f};
+        float[] offsets = { 0.1f, 0.6f, 1.0f, 1.3f, 1.55f };
         int count = 0;
         for (float off : offsets) {
-            if (isBlockWater(x, y + off, z)) count++;
+            if (isBlockWater(x, y + off, z))
+                count++;
         }
         return count / (float) offsets.length;
     }
-    
-        /**
-         * Update camera position/rotation
-         */
+
+    /**
+     * Update camera position/rotation
+     */
     private void updateCamera() {
         // 1. aggiorna la camera (posizione e rotazione)
         camera.setPosition(x, y + config.playerEyeHeight, z);
@@ -319,96 +355,121 @@ public class Player extends Entity {
             float[] view = camera.getViewMatrix().toArray();
 
             world.updateCamera(
-                proj,
-                view,
-                camera.getForward()
-            );
+                    proj,
+                    view,
+                    camera.getForward());
         }
     }
-
 
     /**
- * Handle block breaking / placing using mouse buttons.
- */
-public void handleBlockInteraction(InputManager input) {
-    if (world == null) return;
+     * Handle block breaking / placing using mouse buttons.
+     */
+    public void handleBlockInteraction(InputManager input) {
+        if (world == null)
+            return;
 
-    // tasto sinistro = spacca, destro = piazza
-    boolean breakBlock  = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
-    boolean placeBlock  = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_2);
+        // tasto sinistro = spacca, destro = piazza
+        boolean breakBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
+        boolean placeBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_2);
 
-    if (!breakBlock && !placeBlock) {
-        return;
-    }
-
-    // partenza: occhi del player
-    float eyeX = x;
-    float eyeY = y + config.playerEyeHeight;
-    float eyeZ = z;
-
-    // calcola direzione dal yaw/pitch
-    float yawRad   = (float) Math.toRadians(yaw);
-    float pitchRad = (float) Math.toRadians(pitch);
-
-    float dirX = (float) (Math.cos(pitchRad) * Math.cos(yawRad));
-    float dirY = (float) (Math.sin(pitchRad));
-    float dirZ = (float) (Math.cos(pitchRad) * Math.sin(yawRad));
-
-    float maxDist = 6.0f;
-    float step = 0.1f;
-    float dist = 0f;
-
-    // ultima posizione d'aria attraversata (per piazzare)
-    int lastAirX = 0, lastAirY = 0, lastAirZ = 0;
-
-    while (dist <= maxDist) {
-        float cx = eyeX + dirX * dist;
-        float cy = eyeY + dirY * dist;
-        float cz = eyeZ + dirZ * dist;
-
-        int bx = (int) Math.floor(cx);
-        int by = (int) Math.floor(cy);
-        int bz = (int) Math.floor(cz);
-
-        int blockId = world.getBlock(bx, by, bz);
-
-        if (Blocks.isSolid(blockId) || Blocks.isLiquid(blockId)) {
-            // abbiamo colpito un blocco
-
-            if (breakBlock) {
-                // spacca blocco
-                world.setBlock(bx, by, bz, Blocks.AIR().getNumericId());
-            } else if (placeBlock) {
-                int placeId = selectedBlock;
-                if (placeId > 0) {
-                    // piazza sulla faccia più vicina (usiamo l'ultima cella d'aria)
-                    int px = lastAirX;
-                    int py = lastAirY;
-                    int pz = lastAirZ;
-                    world.setBlock(px, py, pz, placeId);
-                }
-            }
-
-            break; // smettiamo appena troviamo il blocco colpito
-        } else {
-            // salva ultima cella d'aria
-            lastAirX = bx;
-            lastAirY = by;
-            lastAirZ = bz;
+        if (!breakBlock && !placeBlock) {
+            return;
         }
 
-        dist += step;
-    }
-}
+        // partenza: occhi del player
+        float eyeX = x;
+        float eyeY = y + config.playerEyeHeight;
+        float eyeZ = z;
 
-    
+        // calcola direzione dal yaw/pitch
+        float yawRad = (float) Math.toRadians(yaw);
+        float pitchRad = (float) Math.toRadians(pitch);
+
+        float dirX = (float) (Math.cos(pitchRad) * Math.cos(yawRad));
+        float dirY = (float) (Math.sin(pitchRad));
+        float dirZ = (float) (Math.cos(pitchRad) * Math.sin(yawRad));
+
+        float maxDist = 6.0f;
+        float step = 0.1f;
+        float dist = 0f;
+
+        // ultima posizione d'aria attraversata (per piazzare)
+        int lastAirX = 0, lastAirY = 0, lastAirZ = 0;
+
+        while (dist <= maxDist) {
+            float cx = eyeX + dirX * dist;
+            float cy = eyeY + dirY * dist;
+            float cz = eyeZ + dirZ * dist;
+
+            int bx = (int) Math.floor(cx);
+            int by = (int) Math.floor(cy);
+            int bz = (int) Math.floor(cz);
+
+            int blockId = world.getBlock(bx, by, bz);
+
+            if (Blocks.isLiquid(blockId)) {
+                // Treat liquid as "air" (replaceable/pass-through)
+                lastAirX = bx;
+                lastAirY = by;
+                lastAirZ = bz;
+            } else if (Blocks.isSolid(blockId)) {
+                // abbiamo colpito un blocco solido
+
+                if (breakBlock) {
+                    // spacca blocco
+                    world.setBlock(bx, by, bz, Blocks.AIR().getNumericId());
+                } else if (placeBlock) {
+                    int placeId = selectedBlock;
+                    if (placeId > 0) {
+                        // piazza sulla faccia più vicina (usiamo l'ultima cella d'aria/acqua
+                        // rimpiazzabile)
+                        int px = lastAirX;
+                        int py = lastAirY;
+                        int pz = lastAirZ;
+                        world.setBlock(px, py, pz, placeId);
+
+                        // If we are placing water (or any fluid), initiate it full
+                        if (Blocks.get(placeId).isLiquid()) {
+                            world.setFluidLevel(px, py, pz, Blocks.get(placeId).getMaxFluidLevel());
+                        }
+                    }
+                }
+
+                break; // smettiamo appena troviamo il blocco colpito
+            } else {
+                // salva ultima cella d'aria
+                lastAirX = bx;
+                lastAirY = by;
+                lastAirZ = bz;
+            }
+
+            dist += step;
+        }
+    }
+
     // ==================== GETTERS ====================
-    
-    public Camera getCamera() { return camera; }
-    public boolean isOnGround() { return onGround; }
-    public boolean isFlying() { return flying; }
-    public boolean isHeadInWater() { return headInWater; }
-    public int getSelectedBlock() { return selectedBlock; }
-    
-    public void setWorld(World world) { this.world = world; }
+
+    public Camera getCamera() {
+        return camera;
+    }
+
+    public boolean isOnGround() {
+        return onGround;
+    }
+
+    public boolean isFlying() {
+        return flying;
+    }
+
+    public boolean isHeadInWater() {
+        return headInWater;
+    }
+
+    public int getSelectedBlock() {
+        return selectedBlock;
+    }
+
+    public void setWorld(World world) {
+        this.world = world;
+    }
 }

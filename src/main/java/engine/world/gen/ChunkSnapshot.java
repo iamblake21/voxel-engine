@@ -20,7 +20,8 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
     private final int chunkSize;
     private final int chunkHeight;
 
-    // Buffer di SCRITTURA per il chunk centrale (modificabili durante il calcolo luce)
+    // Buffer di SCRITTURA per il chunk centrale (modificabili durante il calcolo
+    // luce)
     private final byte[] skyLightWrite;
     private final byte[] blockLightWrite;
 
@@ -29,6 +30,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
     private final int[][] neighborBlocks;
     private final byte[][] neighborSkyLight;
     private final byte[][] neighborBlockLight;
+    private final byte[][] neighborFluidData;
 
     // Flag per sapere quali vicini esistono
     private final boolean[] neighborExists;
@@ -36,10 +38,10 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
     /**
      * Crea uno snapshot di un chunk e dei suoi vicini.
      * 
-     * @param cx Coordinata X del chunk centrale
-     * @param cz Coordinata Z del chunk centrale
-     * @param neighbors Matrice 3x3 di chunk [dz+1][dx+1], può contenere null
-     * @param chunkSize Dimensione del chunk (tipicamente 16)
+     * @param cx          Coordinata X del chunk centrale
+     * @param cz          Coordinata Z del chunk centrale
+     * @param neighbors   Matrice 3x3 di chunk [dz+1][dx+1], può contenere null
+     * @param chunkSize   Dimensione del chunk (tipicamente 16)
      * @param chunkHeight Altezza del chunk (tipicamente 256)
      */
     public ChunkSnapshot(int cx, int cz, Chunk[][] neighbors, int chunkSize, int chunkHeight) {
@@ -58,6 +60,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         this.neighborBlocks = new int[9][];
         this.neighborSkyLight = new byte[9][];
         this.neighborBlockLight = new byte[9][];
+        this.neighborFluidData = new byte[9][];
         this.neighborExists = new boolean[9];
 
         // Copia i dati dai chunk
@@ -72,12 +75,14 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
                     neighborBlocks[idx] = c.getBlockData().clone();
                     neighborSkyLight[idx] = c.getSkyLightData().clone();
                     neighborBlockLight[idx] = c.getBlockLightData().clone();
+                    neighborFluidData[idx] = c.getFluidData().clone();
                 } else {
                     neighborExists[idx] = false;
                     // Chunk non caricato - usa array vuoti (aria, luce 0)
                     neighborBlocks[idx] = new int[arraySize];
                     neighborSkyLight[idx] = new byte[arraySize];
                     neighborBlockLight[idx] = new byte[arraySize];
+                    neighborFluidData[idx] = new byte[arraySize];
                     Arrays.fill(neighborBlocks[idx], 0); // AIR
                 }
             }
@@ -152,9 +157,17 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         blockLightWrite[localIndex(x, y, z)] = (byte) Math.max(0, Math.min(15, level));
     }
 
+    public int getFluidLevel(int x, int y, int z) {
+        if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
+            return 0;
+        }
+        return neighborFluidData[4][localIndex(x, y, z)] & 0xFF;
+    }
+
     // =================================================================================
     // METODI PEEK (per leggere da qualsiasi chunk, coordinate GLOBALI)
-    // Questi leggono dai dati ORIGINALI dei vicini o dal buffer di scrittura per il centro
+    // Questi leggono dai dati ORIGINALI dei vicini o dal buffer di scrittura per il
+    // centro
     // =================================================================================
 
     /**
@@ -183,11 +196,11 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         }
 
         int idx = (dz + 1) * 3 + (dx + 1);
-        
+
         if (!neighborExists[idx]) {
             return 0; // AIR
         }
-        
+
         return neighborBlocks[idx][localIndex(localX, globalY, localZ)];
     }
 
@@ -196,8 +209,10 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
      * Coordinate globali.
      */
     public int peekSkyLight(int globalX, int globalY, int globalZ) {
-        if (globalY < 0) return 0;
-        if (globalY >= chunkHeight) return 15; // Sopra il mondo = cielo pieno
+        if (globalY < 0)
+            return 0;
+        if (globalY >= chunkHeight)
+            return 15; // Sopra il mondo = cielo pieno
 
         int chunkX = Math.floorDiv(globalX, chunkSize);
         int chunkZ = Math.floorDiv(globalZ, chunkSize);
@@ -222,7 +237,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         if (!neighborExists[idx]) {
             return 0;
         }
-        
+
         return neighborSkyLight[idx][localIndex(localX, globalY, localZ)] & 0xFF;
     }
 
@@ -258,8 +273,34 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         if (!neighborExists[idx]) {
             return 0;
         }
-        
+
         return neighborBlockLight[idx][localIndex(localX, globalY, localZ)] & 0xFF;
+    }
+
+    public int peekFluidLevel(int globalX, int globalY, int globalZ) {
+        if (globalY < 0 || globalY >= chunkHeight) {
+            return 0;
+        }
+
+        int chunkX = Math.floorDiv(globalX, chunkSize);
+        int chunkZ = Math.floorDiv(globalZ, chunkSize);
+        int localX = Math.floorMod(globalX, chunkSize);
+        int localZ = Math.floorMod(globalZ, chunkSize);
+
+        int dx = chunkX - centerX;
+        int dz = chunkZ - centerZ;
+
+        if (dx < -1 || dx > 1 || dz < -1 || dz > 1) {
+            return 0;
+        }
+
+        int idx = (dz + 1) * 3 + (dx + 1);
+
+        if (!neighborExists[idx]) {
+            return 0;
+        }
+
+        return neighborFluidData[idx][localIndex(localX, globalY, localZ)] & 0xFF;
     }
 
     // =================================================================================

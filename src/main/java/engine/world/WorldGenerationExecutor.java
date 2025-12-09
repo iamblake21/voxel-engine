@@ -99,39 +99,40 @@ public class WorldGenerationExecutor {
             return;
         int[] blocks = new int[chunkSize * chunkSize * chunkHeight];
         int[] height = new int[chunkSize * chunkSize];
-        worldGenerator.generateTerrain(task.chunkX, task.chunkZ, blocks, height);
+        byte[] fluid = new byte[chunkSize * chunkSize * chunkHeight];
+
+        worldGenerator.generateTerrain(task.chunkX, task.chunkZ, blocks, height, fluid);
+
         task.blockData = blocks;
         task.heightMap = height;
+        task.fluidData = fluid;
         task.complete = true;
         completedTerrain.offer(task);
         activeTasksMap.remove(task.getChunkKey());
     }
 
- private void processMeshTask(ChunkMeshTask task) {
-    MeshBuilder builder = new MeshBuilder(chunkSize, chunkHeight);
+    private void processMeshTask(ChunkMeshTask task) {
+        MeshBuilder builder = new MeshBuilder(chunkSize, chunkHeight);
 
-    // ChunkSnapshot implementa ENTRAMBE le interfacce ChunkData e WorldAccess
-    // quindi lo puoi passare direttamente a entrambi i parametri!
-    task.meshData = builder.buildMesh(task.snapshot, task.snapshot);
-    
-    task.complete = true;
-    completedMesh.offer(task);
-}
+        // ChunkSnapshot implementa ENTRAMBE le interfacce ChunkData e WorldAccess
+        // quindi lo puoi passare direttamente a entrambi i parametri!
+        task.meshData = builder.buildMesh(task.snapshot, task.snapshot);
 
-private void processLightTask(LightPropagationTask task) {
-    // Usa il nuovo metodo che calcola TUTTA la luce (skylight + blocklight)
-    LightPropagator.computeFullLightForSnapshot(
-        task.snapshot, 
-        chunkSize, 
-        chunkHeight, 
-        task.neighborsToPropagate
-    );
-    
-    task.complete = true;
-    completedLight.offer(task);
-}
+        task.complete = true;
+        completedMesh.offer(task);
+    }
 
+    private void processLightTask(LightPropagationTask task) {
+        // Usa il nuovo metodo che calcola TUTTA la luce (skylight + blocklight)
+        LightPropagator.computeFullLightForSnapshot(
+                task.snapshot,
+                chunkSize,
+                chunkHeight,
+                task.neighborsToPropagate);
 
+        task.complete = true;
+        completedLight.offer(task);
+    }
 
     public boolean submit(int cx, int cz, ChunkGenerationTask.Priority p) {
         long key = ((long) cx << 32) | (cz & 0xFFFFFFFFL);

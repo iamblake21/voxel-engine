@@ -17,15 +17,15 @@ import java.util.Map;
  * local coordinate convention, making AO and smooth lighting consistent.
  * 
  * Face vertex order (looking at face from outside):
- *   3 ---- 2
- *   |      |
- *   |      |
- *   0 ---- 1
+ * 3 ---- 2
+ * | |
+ * | |
+ * 0 ---- 1
  * 
- * v0 = bottom-left  (-U, -V)
+ * v0 = bottom-left (-U, -V)
  * v1 = bottom-right (+U, -V)
- * v2 = top-right    (+U, +V)
- * v3 = top-left     (-U, +V)
+ * v2 = top-right (+U, +V)
+ * v3 = top-left (-U, +V)
  */
 public class MeshBuilder {
 
@@ -44,32 +44,32 @@ public class MeshBuilder {
 
     // Face normals [faceIdx] -> {nx, ny, nz}
     private static final int[][] FACE_NORMAL = {
-        { 1, 0, 0},  // +X
-        {-1, 0, 0},  // -X
-        { 0, 1, 0},  // +Y
-        { 0,-1, 0},  // -Y
-        { 0, 0, 1},  // +Z
-        { 0, 0,-1}   // -Z
+            { 1, 0, 0 }, // +X
+            { -1, 0, 0 }, // -X
+            { 0, 1, 0 }, // +Y
+            { 0, -1, 0 }, // -Y
+            { 0, 0, 1 }, // +Z
+            { 0, 0, -1 } // -Z
     };
 
     // Tangent U = "right" direction when looking at face from outside
     private static final int[][] FACE_TANGENT_U = {
-        { 0, 0,-1},  // +X: U points toward -Z
-        { 0, 0, 1},  // -X: U points toward +Z
-        { 1, 0, 0},  // +Y: U points toward +X
-        { 1, 0, 0},  // -Y: U points toward +X
-        { 1, 0, 0},  // +Z: U points toward +X
-        {-1, 0, 0}   // -Z: U points toward -X
+            { 0, 0, -1 }, // +X: U points toward -Z
+            { 0, 0, 1 }, // -X: U points toward +Z
+            { 1, 0, 0 }, // +Y: U points toward +X
+            { 1, 0, 0 }, // -Y: U points toward +X
+            { 1, 0, 0 }, // +Z: U points toward +X
+            { -1, 0, 0 } // -Z: U points toward -X
     };
 
     // Tangent V = "up" direction when looking at face from outside
     private static final int[][] FACE_TANGENT_V = {
-        { 0, 1, 0},  // +X: V points toward +Y
-        { 0, 1, 0},  // -X: V points toward +Y
-        { 0, 0, 1},  // +Y: V points toward +Z
-        { 0, 0,-1},  // -Y: V points toward -Z
-        { 0, 1, 0},  // +Z: V points toward +Y
-        { 0, 1, 0}   // -Z: V points toward +Y
+            { 0, 1, 0 }, // +X: V points toward +Y
+            { 0, 1, 0 }, // -X: V points toward +Y
+            { 0, 0, 1 }, // +Y: V points toward +Z
+            { 0, 0, -1 }, // -Y: V points toward -Z
+            { 0, 1, 0 }, // +Z: V points toward +Y
+            { 0, 1, 0 } // -Z: V points toward +Y
     };
 
     // LOD thresholds (chunk distance squared)
@@ -98,9 +98,12 @@ public class MeshBuilder {
     // ==================== PUBLIC API ====================
 
     public static int calculateLOD(int chunkDistSq) {
-        if (chunkDistSq <= LOD_0_MAX_DIST_SQ) return 0;
-        if (chunkDistSq <= LOD_1_MAX_DIST_SQ) return 1;
-        if (chunkDistSq <= LOD_2_MAX_DIST_SQ) return 2;
+        if (chunkDistSq <= LOD_0_MAX_DIST_SQ)
+            return 0;
+        if (chunkDistSq <= LOD_1_MAX_DIST_SQ)
+            return 1;
+        if (chunkDistSq <= LOD_2_MAX_DIST_SQ)
+            return 2;
         return 3;
     }
 
@@ -123,7 +126,8 @@ public class MeshBuilder {
                     int blockId = chunk.getBlock(x, y, z);
                     Block block = Blocks.get(blockId);
 
-                    if (block.isAir()) continue;
+                    if (block.isAir())
+                        continue;
 
                     if (block.getProperties().hasCustomModel()) {
                         renderCustomModel(solidV, transpV, waterV, chunk, world,
@@ -139,16 +143,26 @@ public class MeshBuilder {
         return new MeshData(
                 toFloatArray(solidV),
                 skipTransparent ? new float[0] : toFloatArray(transpV),
-                toFloatArray(waterV)
-        );
+                toFloatArray(waterV));
     }
 
     // ==================== CUBE RENDERING ====================
 
     private void renderCubeBlock(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
-                                  ChunkData chunk, WorldAccess world,
-                                  int x, int y, int z, Block block,
-                                  boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent) {
+            ChunkData chunk, WorldAccess world,
+            int x, int y, int z, Block block,
+            boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent) {
+
+        float height = 1.0f;
+        if (block.isLiquid()) {
+            int level = getFluidLevelAt(chunk, world, x, y, z);
+
+            // Check if falling (block above is same liquid)
+            int blockAboveId = getBlockAt(chunk, world, x, y + 1, z);
+            boolean isFalling = (blockAboveId == block.getNumericId());
+
+            height = getFluidHeight(level, isFalling);
+        }
 
         for (int faceIdx = 0; faceIdx < 6; faceIdx++) {
             int[] n = FACE_NORMAL[faceIdx];
@@ -166,20 +180,22 @@ public class MeshBuilder {
                 target = solidV;
             }
 
-            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting);
+            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting, height);
         }
     }
 
     private boolean isFaceVisible(ChunkData chunk, WorldAccess world,
-                                   int x, int y, int z, Block self,
-                                   int nx, int ny, int nz, boolean aggressiveCull) {
+            int x, int y, int z, Block self,
+            int nx, int ny, int nz, boolean aggressiveCull) {
         int neighborId = getBlockAt(chunk, world, x + nx, y + ny, z + nz);
         Block neighbor = Blocks.get(neighborId);
 
         // Water special case
         if (self.isLiquid()) {
-            if (neighbor.isLiquid()) return false;
-            if (neighbor.isAir()) return true;
+            if (neighbor.isLiquid())
+                return false;
+            if (neighbor.isAir())
+                return true;
             return false;
         }
 
@@ -206,14 +222,14 @@ public class MeshBuilder {
     // ==================== FACE GENERATION ====================
 
     private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
-                         int bx, int by, int bz, int faceIdx, Block block,
-                         boolean simplifiedLighting) {
+            int bx, int by, int bz, int faceIdx, Block block,
+            boolean simplifiedLighting, float height) {
 
         int[] n = FACE_NORMAL[faceIdx];
         int nx = n[0], ny = n[1], nz = n[2];
 
         // 1. Generate vertices in canonical order
-        float[][] verts = buildFaceVertices(bx, by, bz, faceIdx);
+        float[][] verts = buildFaceVertices(bx, by, bz, faceIdx, height);
 
         // 2. Compute AO and lighting
         float[] ao;
@@ -224,7 +240,7 @@ public class MeshBuilder {
             ao = computeSimplifiedAO(ny);
             skyLight = new float[4];
             blockLight = new float[4];
-            
+
             float sky = getSkyLightAt(chunk, world, bx + nx, by + ny, bz + nz) / 15.0f;
             float blk = getBlockLightAt(chunk, world, bx + nx, by + ny, bz + nz) / 15.0f;
             for (int i = 0; i < 4; i++) {
@@ -244,21 +260,40 @@ public class MeshBuilder {
         int tileIndex = tileY * ATLAS_TILES_X + tileX;
 
         // UV coordinates (standard order matching vertex order)
-        float[][] uv = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
+        float[][] uv = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
 
         // Flip V for grass side texture
         boolean flipV = isGrassSide(block, ny);
-        float[] vCoord = flipV ? new float[]{1, 1, 0, 0} : new float[]{0, 0, 1, 1};
+        float[] vCoord = flipV ? new float[] { 1, 1, 0, 0 } : new float[] { 0, 0, 1, 1 };
 
         // 4. Emit triangles with anisotropic fix
         emitQuad(dst, verts, uv, vCoord, ao, skyLight, blockLight, faceIdx, tileIndex);
+    }
+
+    private int getFluidLevelAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
+        if (y < 0 || y >= chunkHeight)
+            return 0;
+        if (x >= 0 && x < chunkSize && z >= 0 && z < chunkSize) {
+            return chunk.getFluidLevel(x, y, z);
+        }
+        int worldX = chunk.getWorldX() + x;
+        int worldZ = chunk.getWorldZ() + z;
+        return world.peekFluidLevel(worldX, y, worldZ);
+    }
+
+    private float getFluidHeight(int level, boolean isFalling) {
+        if (isFalling)
+            return 1.0f;
+        if (level >= 7)
+            return 0.875f;
+        return (level + 1) / 9.0f;
     }
 
     /**
      * Build 4 vertices for a face in canonical order.
      * v0=(-U,-V), v1=(+U,-V), v2=(+U,+V), v3=(-U,+V)
      */
-    private float[][] buildFaceVertices(int bx, int by, int bz, int faceIdx) {
+    private float[][] buildFaceVertices(int bx, int by, int bz, int faceIdx, float height) {
         int[] n = FACE_NORMAL[faceIdx];
         int[] u = FACE_TANGENT_U[faceIdx];
         int[] v = FACE_TANGENT_V[faceIdx];
@@ -268,19 +303,37 @@ public class MeshBuilder {
         float cy = by + 0.5f + n[1] * 0.5f;
         float cz = bz + 0.5f + n[2] * 0.5f;
 
-        return new float[][] {
-            { cx - u[0]*0.5f - v[0]*0.5f, cy - u[1]*0.5f - v[1]*0.5f, cz - u[2]*0.5f - v[2]*0.5f },
-            { cx + u[0]*0.5f - v[0]*0.5f, cy + u[1]*0.5f - v[1]*0.5f, cz + u[2]*0.5f - v[2]*0.5f },
-            { cx + u[0]*0.5f + v[0]*0.5f, cy + u[1]*0.5f + v[1]*0.5f, cz + u[2]*0.5f + v[2]*0.5f },
-            { cx - u[0]*0.5f + v[0]*0.5f, cy - u[1]*0.5f + v[1]*0.5f, cz - u[2]*0.5f + v[2]*0.5f }
+        // Custom height logic
+        if (height < 1.0f && faceIdx == FACE_POS_Y) {
+            cy = by + height;
+        }
+
+        float[][] verts = {
+                { cx - u[0] * 0.5f - v[0] * 0.5f, cy - u[1] * 0.5f - v[1] * 0.5f, cz - u[2] * 0.5f - v[2] * 0.5f },
+                { cx + u[0] * 0.5f - v[0] * 0.5f, cy + u[1] * 0.5f - v[1] * 0.5f, cz + u[2] * 0.5f - v[2] * 0.5f },
+                { cx + u[0] * 0.5f + v[0] * 0.5f, cy + u[1] * 0.5f + v[1] * 0.5f, cz + u[2] * 0.5f + v[2] * 0.5f },
+                { cx - u[0] * 0.5f + v[0] * 0.5f, cy - u[1] * 0.5f + v[1] * 0.5f, cz - u[2] * 0.5f + v[2] * 0.5f }
         };
+
+        if (height < 1.0f && faceIdx != FACE_POS_Y && faceIdx != FACE_NEG_Y) {
+            float topY = by + 1.0f;
+            float targetY = by + height;
+            for (float[] vert : verts) {
+                if (Math.abs(vert[1] - topY) < 0.01f) {
+                    vert[1] = targetY;
+                }
+            }
+        }
+
+        return verts;
     }
 
     /**
-     * Emit a quad as two triangles, choosing diagonal based on AO to fix anisotropy.
+     * Emit a quad as two triangles, choosing diagonal based on AO to fix
+     * anisotropy.
      */
     private void emitQuad(ArrayList<Float> dst, float[][] v, float[][] uv, float[] vCoord,
-                          float[] ao, float[] sky, float[] blk, int faceIdx, int tileIndex) {
+            float[] ao, float[] sky, float[] blk, int faceIdx, int tileIndex) {
 
         // Choose diagonal that minimizes interpolation artifacts
         if (ao[0] + ao[2] > ao[1] + ao[3]) {
@@ -316,7 +369,7 @@ public class MeshBuilder {
      * Uses the canonical tangent system for consistent sampling.
      */
     private float[] computeSmoothAO(ChunkData chunk, WorldAccess world,
-                                     int bx, int by, int bz, int faceIdx) {
+            int bx, int by, int bz, int faceIdx) {
 
         int[] n = FACE_NORMAL[faceIdx];
         int[] u = FACE_TANGENT_U[faceIdx];
@@ -340,24 +393,27 @@ public class MeshBuilder {
 
         // Compute AO level (0-3) for each vertex
         return new float[] {
-            AO_CURVE[vertexAO(uNeg, vNeg, c00)],  // v0: -U, -V
-            AO_CURVE[vertexAO(uPos, vNeg, c10)],  // v1: +U, -V
-            AO_CURVE[vertexAO(uPos, vPos, c11)],  // v2: +U, +V
-            AO_CURVE[vertexAO(uNeg, vPos, c01)]   // v3: -U, +V
+                AO_CURVE[vertexAO(uNeg, vNeg, c00)], // v0: -U, -V
+                AO_CURVE[vertexAO(uPos, vNeg, c10)], // v1: +U, -V
+                AO_CURVE[vertexAO(uPos, vPos, c11)], // v2: +U, +V
+                AO_CURVE[vertexAO(uNeg, vPos, c01)] // v3: -U, +V
         };
     }
 
-/**
+    /**
      * Calcola il livello di AO (0-3).
-     * CORRETTO: L'angolo contribuisce all'occlusione solo se non è coperto dai lati.
+     * CORRETTO: L'angolo contribuisce all'occlusione solo se non è coperto dai
+     * lati.
      */
-private int vertexAO(boolean side1, boolean side2, boolean corner) {
+    private int vertexAO(boolean side1, boolean side2, boolean corner) {
         if (side1 && side2) {
-            return 0; 
+            return 0;
         }
         int occlusion = 0;
-        if (side1) occlusion++;
-        if (side2) occlusion++;
+        if (side1)
+            occlusion++;
+        if (side2)
+            occlusion++;
 
         if (corner && (side1 || side2)) {
             occlusion++;
@@ -375,7 +431,11 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
     private static class SmoothLight {
         final float[] sky;
         final float[] block;
-        SmoothLight(float[] s, float[] b) { sky = s; block = b; }
+
+        SmoothLight(float[] s, float[] b) {
+            sky = s;
+            block = b;
+        }
     }
 
     /**
@@ -383,7 +443,7 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
      * Averages light from neighboring blocks, respecting occlusion.
      */
     private SmoothLight computeSmoothLight(ChunkData chunk, WorldAccess world,
-                                            int bx, int by, int bz, int faceIdx) {
+            int bx, int by, int bz, int faceIdx) {
 
         int[] n = FACE_NORMAL[faceIdx];
         int[] u = FACE_TANGENT_U[faceIdx];
@@ -453,7 +513,7 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
      * If one side is occluded, don't use corner.
      */
     private float averageLight(int center, int side1, int side2, int corner,
-                                boolean occ1, boolean occ2) {
+            boolean occ1, boolean occ2) {
         int sum;
         int count;
 
@@ -496,9 +556,9 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
     }
 
     private void renderCustomModel(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
-                                    ChunkData chunk, WorldAccess world,
-                                    int bx, int by, int bz, Block block,
-                                    boolean simplifiedLighting, boolean skipTransparent) {
+            ChunkData chunk, WorldAccess world,
+            int bx, int by, int bz, Block block,
+            boolean simplifiedLighting, boolean skipTransparent) {
 
         String modelPath = block.getProperties().getModelPath();
         CompiledModel compiled = getOrCompileModel(modelPath, block);
@@ -524,7 +584,7 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
 
         for (CompiledFace face : compiled.faces) {
             // Cullface check
-            if (face.cullface != null) {
+            if (face.cullface != null || block.isLiquid()) {
                 int[] normal = getCullfaceNormal(face.cullface);
                 if (!isFaceVisible(chunk, world, bx, by, bz, block,
                         normal[0], normal[1], normal[2], false)) {
@@ -603,53 +663,53 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
     }
 
     private CompiledFace compileFace(String faceName, float minX, float minY, float minZ,
-                                      float maxX, float maxY, float maxZ,
-                                      BlockModel.ModelElement.Face face,
-                                      BlockModel.ModelElement elem,
-                                      BlockModel model, Block block) {
+            float maxX, float maxY, float maxZ,
+            BlockModel.ModelElement.Face face,
+            BlockModel.ModelElement elem,
+            BlockModel model, Block block) {
         CompiledFace cf = new CompiledFace();
 
         float[][] baseVertices;
         switch (faceName) {
             case "north":
                 baseVertices = new float[][] {
-                    { minX, minY, minZ }, { maxX, minY, minZ },
-                    { maxX, maxY, minZ }, { minX, maxY, minZ }
+                        { minX, minY, minZ }, { maxX, minY, minZ },
+                        { maxX, maxY, minZ }, { minX, maxY, minZ }
                 };
                 cf.normal = new int[] { 0, 0, -1 };
                 break;
             case "south":
                 baseVertices = new float[][] {
-                    { maxX, minY, maxZ }, { minX, minY, maxZ },
-                    { minX, maxY, maxZ }, { maxX, maxY, maxZ }
+                        { maxX, minY, maxZ }, { minX, minY, maxZ },
+                        { minX, maxY, maxZ }, { maxX, maxY, maxZ }
                 };
                 cf.normal = new int[] { 0, 0, 1 };
                 break;
             case "west":
                 baseVertices = new float[][] {
-                    { minX, minY, maxZ }, { minX, minY, minZ },
-                    { minX, maxY, minZ }, { minX, maxY, maxZ }
+                        { minX, minY, maxZ }, { minX, minY, minZ },
+                        { minX, maxY, minZ }, { minX, maxY, maxZ }
                 };
                 cf.normal = new int[] { -1, 0, 0 };
                 break;
             case "east":
                 baseVertices = new float[][] {
-                    { maxX, minY, minZ }, { maxX, minY, maxZ },
-                    { maxX, maxY, maxZ }, { maxX, maxY, minZ }
+                        { maxX, minY, minZ }, { maxX, minY, maxZ },
+                        { maxX, maxY, maxZ }, { maxX, maxY, minZ }
                 };
                 cf.normal = new int[] { 1, 0, 0 };
                 break;
             case "down":
                 baseVertices = new float[][] {
-                    { minX, minY, minZ }, { minX, minY, maxZ },
-                    { maxX, minY, maxZ }, { maxX, minY, minZ }
+                        { minX, minY, minZ }, { minX, minY, maxZ },
+                        { maxX, minY, maxZ }, { maxX, minY, minZ }
                 };
                 cf.normal = new int[] { 0, -1, 0 };
                 break;
             case "up":
                 baseVertices = new float[][] {
-                    { minX, maxY, minZ }, { maxX, maxY, minZ },
-                    { maxX, maxY, maxZ }, { minX, maxY, maxZ }
+                        { minX, maxY, minZ }, { maxX, maxY, minZ },
+                        { maxX, maxY, maxZ }, { minX, maxY, maxZ }
                 };
                 cf.normal = new int[] { 0, 1, 0 };
                 break;
@@ -677,13 +737,13 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
         // UVs
         if (face.uv != null && face.uv.length == 4) {
             cf.uvs = new float[][] {
-                { face.uv[0] / 16f, face.uv[3] / 16f },
-                { face.uv[2] / 16f, face.uv[3] / 16f },
-                { face.uv[2] / 16f, face.uv[1] / 16f },
-                { face.uv[0] / 16f, face.uv[1] / 16f }
+                    { face.uv[0] / 16f, face.uv[3] / 16f },
+                    { face.uv[2] / 16f, face.uv[3] / 16f },
+                    { face.uv[2] / 16f, face.uv[1] / 16f },
+                    { face.uv[0] / 16f, face.uv[1] / 16f }
             };
         } else {
-            cf.uvs = new float[][] { {0, 1}, {1, 1}, {1, 0}, {0, 0} };
+            cf.uvs = new float[][] { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } };
         }
 
         cf.tileIndex = block.getTextureTileY(0, 0, 0) * ATLAS_TILES_X + block.getTextureTileX(0, 0, 0);
@@ -754,30 +814,44 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
 
     private int[] getCullfaceNormal(String cullface) {
         switch (cullface) {
-            case "east":  return new int[] { 1, 0, 0 };
-            case "west":  return new int[] {-1, 0, 0 };
-            case "up":    return new int[] { 0, 1, 0 };
-            case "down":  return new int[] { 0,-1, 0 };
-            case "south": return new int[] { 0, 0, 1 };
-            case "north": return new int[] { 0, 0,-1 };
-            default:      return new int[] { 0, 0, 0 };
+            case "east":
+                return new int[] { 1, 0, 0 };
+            case "west":
+                return new int[] { -1, 0, 0 };
+            case "up":
+                return new int[] { 0, 1, 0 };
+            case "down":
+                return new int[] { 0, -1, 0 };
+            case "south":
+                return new int[] { 0, 0, 1 };
+            case "north":
+                return new int[] { 0, 0, -1 };
+            default:
+                return new int[] { 0, 0, 0 };
         }
     }
 
     private int normalToFaceIndex(int[] normal) {
-        if (normal[0] ==  1) return FACE_POS_X;
-        if (normal[0] == -1) return FACE_NEG_X;
-        if (normal[1] ==  1) return FACE_POS_Y;
-        if (normal[1] == -1) return FACE_NEG_Y;
-        if (normal[2] ==  1) return FACE_POS_Z;
+        if (normal[0] == 1)
+            return FACE_POS_X;
+        if (normal[0] == -1)
+            return FACE_NEG_X;
+        if (normal[1] == 1)
+            return FACE_POS_Y;
+        if (normal[1] == -1)
+            return FACE_NEG_Y;
+        if (normal[2] == 1)
+            return FACE_POS_Z;
         return FACE_NEG_Z;
     }
 
     // ==================== HELPERS ====================
 
     private boolean isGrassSide(Block block, int ny) {
-        if (ny != 0) return false;
-        if (block.getRegistryId() == null) return false;
+        if (ny != 0)
+            return false;
+        if (block.getRegistryId() == null)
+            return false;
         return block.getRegistryId().getPath().equals("grass");
     }
 
@@ -796,7 +870,8 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
     }
 
     private int getSkyLightAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
-        if (y < 0 || y >= chunkHeight) return 0;
+        if (y < 0 || y >= chunkHeight)
+            return 0;
 
         if (x >= 0 && x < chunkSize && z >= 0 && z < chunkSize) {
             return chunk.getSkyLight(x, y, z);
@@ -808,7 +883,8 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
     }
 
     private int getBlockLightAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
-        if (y < 0 || y >= chunkHeight) return 0;
+        if (y < 0 || y >= chunkHeight)
+            return 0;
 
         if (x >= 0 && x < chunkSize && z >= 0 && z < chunkSize) {
             return chunk.getBlockLight(x, y, z);
@@ -820,8 +896,8 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
     }
 
     private void pushVertex(ArrayList<Float> dst, float[] pos, float u, float v,
-                             float ao, int faceIdx, int tileIndex,
-                             float skyLight, float blockLight) {
+            float ao, int faceIdx, int tileIndex,
+            float skyLight, float blockLight) {
         dst.add(pos[0]);
         dst.add(pos[1]);
         dst.add(pos[2]);
@@ -846,16 +922,34 @@ private int vertexAO(boolean side1, boolean side2, boolean corner) {
 
     public interface ChunkData {
         int getBlock(int x, int y, int z);
+
         int getWorldX();
+
         int getWorldZ();
-        default int getBlockLight(int x, int y, int z) { return 0; }
-        default int getSkyLight(int x, int y, int z) { return 0; }
+
+        default int getBlockLight(int x, int y, int z) {
+            return 0;
+        }
+
+        default int getSkyLight(int x, int y, int z) {
+            return 0;
+        }
+
+        default int getFluidLevel(int x, int y, int z) {
+            return 0;
+        }
     }
 
     public interface WorldAccess {
         int peekBlock(int worldX, int worldY, int worldZ);
+
         int peekSkyLight(int worldX, int worldY, int worldZ);
+
         int peekBlockLight(int worldX, int worldY, int worldZ);
+
+        default int peekFluidLevel(int worldX, int worldY, int worldZ) {
+            return 0;
+        }
     }
 
     public static class MeshData {

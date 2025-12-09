@@ -5,124 +5,142 @@ package engine.world.block;
  * Use the builder pattern for clean configuration.
  */
 public class BlockProperties {
-    
+
     // Physical properties
-    boolean solid = true;      // Blocks movement
-    boolean opaque = true;     // Blocks light, hides faces
-    boolean hard = true;       // Can't be replaced by features (trees, etc.)
+    boolean solid = true; // Blocks movement
+    boolean opaque = true; // Blocks light, hides faces
+    boolean hard = true; // Can't be replaced by features (trees, etc.)
     boolean transparent = false; // Renders with alpha blending
-    boolean liquid = false;    // Is a liquid (water, lava)
-    boolean air = false;       // Is air (special case)
+    boolean liquid = false; // Is a liquid (water, lava)
+    boolean air = false; // Is air (special case)
     boolean replaceable = false; // Can be replaced when placing blocks
-    
+
     // Rendering
-    int tileX = 0;             // Texture atlas tile X
-    int tileY = 0;             // Texture atlas tile Y
+    int tileX = 0; // Texture atlas tile X
+    int tileY = 0; // Texture atlas tile Y
     boolean tintGrass = false; // Apply grass tint
     boolean tintFoliage = false; // Apply foliage tint
-    
+
     // Physics
-    float friction = 0.6f;     // Surface friction
+    float friction = 0.6f; // Surface friction
     float slipperiness = 0.6f; // Ice-like sliding
     int lightLevel = 0;
 
-    String modelPath = null;  
+    // Fluid Properties
+    int viscosity = 1; // Fluid level drop per block
+    int fluidTickRate = 5; // Ticks between fluid updates
+    int maxFluidLevel = 7; // Max fluid level (0-15 usually)
+
+    String modelPath = null;
 
     public BlockProperties model(String path) {
         this.modelPath = path;
         return this;
     }
 
-    
-    private BlockProperties() {}
-    
+    private BlockProperties() {
+    }
+
     /**
      * Create a new properties builder
      */
     public static BlockProperties create() {
         return new BlockProperties();
     }
-    
+
     // ==================== BUILDER METHODS ====================
 
     public BlockProperties lightLevel(int level) {
         this.lightLevel = Math.max(0, Math.min(15, level));
         return this;
     }
-    
+
     public BlockProperties solid(boolean solid) {
         this.solid = solid;
         return this;
     }
-    
+
     public BlockProperties opaque(boolean opaque) {
         this.opaque = opaque;
         return this;
     }
-    
+
     public BlockProperties hard(boolean hard) {
         this.hard = hard;
         return this;
     }
-    
+
     public BlockProperties transparent(boolean transparent) {
         this.transparent = transparent;
         return this;
     }
 
-
-    public String getModelPath() { 
-        return modelPath; 
+    public String getModelPath() {
+        return modelPath;
     }
 
     public boolean hasCustomModel() {
         return modelPath != null;
     }
 
-    
     public BlockProperties liquid(boolean liquid) {
         this.liquid = liquid;
         return this;
     }
-    
+
     public BlockProperties air(boolean air) {
         this.air = air;
         return this;
     }
-    
+
     public BlockProperties replaceable(boolean replaceable) {
         this.replaceable = replaceable;
         return this;
     }
-    
+
     public BlockProperties tile(int x, int y) {
         this.tileX = x;
         this.tileY = y;
         return this;
     }
-    
+
     public BlockProperties tintGrass() {
         this.tintGrass = true;
         return this;
     }
-    
+
     public BlockProperties tintFoliage() {
         this.tintFoliage = true;
         return this;
     }
-    
+
     public BlockProperties friction(float friction) {
         this.friction = friction;
         return this;
     }
-    
+
     public BlockProperties slipperiness(float slipperiness) {
         this.slipperiness = slipperiness;
         return this;
     }
-    
+
+    public BlockProperties viscosity(int viscosity) {
+        this.viscosity = viscosity;
+        return this;
+    }
+
+    public BlockProperties fluidTickRate(int fluidTickRate) {
+        this.fluidTickRate = fluidTickRate;
+        return this;
+    }
+
+    public BlockProperties maxFluidLevel(int maxFluidLevel) {
+        this.maxFluidLevel = maxFluidLevel;
+        return this;
+    }
+
     // ==================== PRESETS ====================
-    
+
     /**
      * Preset for air-like blocks
      */
@@ -134,7 +152,7 @@ public class BlockProperties {
         this.replaceable = true;
         return this;
     }
-    
+
     /**
      * Preset for liquid blocks (water, lava)
      */
@@ -147,7 +165,7 @@ public class BlockProperties {
         this.replaceable = true;
         return this;
     }
-    
+
     /**
      * Preset for transparent solid blocks (leaves, glass)
      */
@@ -158,7 +176,7 @@ public class BlockProperties {
         this.transparent = true;
         return this;
     }
-    
+
     /**
      * Preset for standard solid blocks (stone, dirt)
      */
@@ -169,27 +187,81 @@ public class BlockProperties {
         this.transparent = false;
         return this;
     }
-    
+
     // ==================== GETTERS ====================
-    
-    public boolean isSolid() { return solid; }
-    public boolean isOpaque() { return opaque; }
-    public boolean isHard() { return hard; }
-    public boolean isTransparent() { return transparent; }
-    public boolean isLiquid() { return liquid; }
-    public boolean isAir() { return air; }
-    public boolean isReplaceable() { return replaceable; }
-    public int getTileX() { return tileX; }
-    public int getTileY() { return tileY; }
-    public boolean hasTintGrass() { return tintGrass; }
-    public boolean hasTintFoliage() { return tintFoliage; }
-    public float getFriction() { return friction; }
-    public float getSlipperiness() { return slipperiness; }
-    public int getLightLevel() { return lightLevel; }
-    public boolean isLightSource() { return lightLevel > 0; }
 
+    public boolean isSolid() {
+        return solid;
+    }
 
-    
+    public boolean isOpaque() {
+        return opaque;
+    }
+
+    public boolean isHard() {
+        return hard;
+    }
+
+    public boolean isTransparent() {
+        return transparent;
+    }
+
+    public boolean isLiquid() {
+        return liquid;
+    }
+
+    public boolean isAir() {
+        return air;
+    }
+
+    public boolean isReplaceable() {
+        return replaceable;
+    }
+
+    public int getTileX() {
+        return tileX;
+    }
+
+    public int getTileY() {
+        return tileY;
+    }
+
+    public boolean hasTintGrass() {
+        return tintGrass;
+    }
+
+    public boolean hasTintFoliage() {
+        return tintFoliage;
+    }
+
+    public float getFriction() {
+        return friction;
+    }
+
+    public float getSlipperiness() {
+        return slipperiness;
+    }
+
+    public int getLightLevel() {
+        return lightLevel;
+    }
+
+    public boolean isLightSource() {
+        return lightLevel > 0;
+    }
+
+    public int getViscosity() {
+        return viscosity;
+    }
+
+    public int getFluidTickRate() {
+        return fluidTickRate;
+    }
+
+    public int getMaxFluidLevel() {
+        return maxFluidLevel;
+    }
+
     /**
      * Copy properties from another BlockProperties
      */
@@ -208,6 +280,9 @@ public class BlockProperties {
         this.friction = other.friction;
         this.slipperiness = other.slipperiness;
         this.lightLevel = other.lightLevel;
+        this.viscosity = other.viscosity;
+        this.fluidTickRate = other.fluidTickRate;
+        this.maxFluidLevel = other.maxFluidLevel;
         return this;
     }
 }

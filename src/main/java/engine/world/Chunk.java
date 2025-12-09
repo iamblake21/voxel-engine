@@ -43,15 +43,15 @@ public class Chunk {
     private final Mesh[] waterLOD = new Mesh[MAX_LOD_LEVELS];
     private final byte[] blockLight; // 0..15
     private final byte[] skyLight;
+    private final byte[] fluidData; // 0..15 (fluid level)
 
     public enum Phase {
-        EMPTY,           // Chunk non generato
-        TERRAIN,         // Terreno generato
-        FEATURES,        // Features (alberi, etc.) aggiunte
-        LIGHT_DONE,      // Luce calcolata
-        MESH_DONE;       // Mesh generata
+        EMPTY, // Chunk non generato
+        TERRAIN, // Terreno generato
+        FEATURES, // Features (alberi, etc.) aggiunte
+        LIGHT_DONE, // Luce calcolata
+        MESH_DONE; // Mesh generata
     }
-
 
     private Phase phase = Phase.EMPTY;
 
@@ -66,6 +66,7 @@ public class Chunk {
         this.heightMap = new int[SIZE * SIZE];
         this.blockLight = new byte[SIZE * HEIGHT * SIZE];
         this.skyLight = new byte[SIZE * HEIGHT * SIZE];
+        this.fluidData = new byte[SIZE * HEIGHT * SIZE];
 
         // Initialize with air
         int airId = Blocks.AIR().getNumericId();
@@ -73,6 +74,7 @@ public class Chunk {
         Arrays.fill(heightMap, -1);
         Arrays.fill(blockLight, (byte) 0);
         Arrays.fill(skyLight, (byte) 0);
+        Arrays.fill(fluidData, (byte) 0);
 
         // Initialize empty meshes for all LODs
         for (int i = 0; i < MAX_LOD_LEVELS; i++) {
@@ -159,6 +161,33 @@ public class Chunk {
 
     public byte[] getBlockLightData() {
         return blockLight;
+    }
+
+    // ==================== FLUID DATA ====================
+    public int getFluidLevel(int x, int y, int z) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
+            return 0;
+        return fluidData[index(x, y, z)] & 0xFF;
+    }
+
+    public void setFluidLevel(int x, int y, int z, int level) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
+            return;
+        byte newLevel = (byte) Math.max(0, Math.min(15, level));
+        if (fluidData[index(x, y, z)] != newLevel) {
+            fluidData[index(x, y, z)] = newLevel;
+            this.dirty = true;
+        }
+    }
+
+    public byte[] getFluidData() {
+        return fluidData;
+    }
+
+    public void setFluidData(byte[] data) {
+        if (data.length == fluidData.length) {
+            System.arraycopy(data, 0, fluidData, 0, fluidData.length);
+        }
     }
 
     // ==================== HEIGHT MAP ====================
@@ -307,7 +336,6 @@ public class Chunk {
     public void setPhase(Phase phase) {
         this.phase = phase;
     }
-
 
     // ==================== CLEANUP ====================
 

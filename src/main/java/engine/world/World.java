@@ -7,6 +7,7 @@ import engine.world.gen.*;
 import engine.rendering.Frustum;
 import engine.utils.Math3D.Vec3;
 import engine.world.light.LightPropagator;
+import engine.world.fluid.FluidManager;
 
 import java.util.*;
 
@@ -20,7 +21,11 @@ public class World implements MeshBuilder.WorldAccess {
 
     // Async generation
     private final WorldGenerationExecutor genExecutor;
+    private final FluidManager fluidManager;
     private final Set<Long> pendingChunks = new HashSet<>();
+
+    private float fluidTickAccumulator = 0;
+    private static final float FLUID_TICK_INTERVAL = 0.05f; // 20 TPS
 
     // Frustum for view-dependent chunk loading
     private final Frustum loadingFrustum = new Frustum();
@@ -57,6 +62,7 @@ public class World implements MeshBuilder.WorldAccess {
                 config.worldHeight,
                 config.waterLevel);
         this.meshBuilder = new MeshBuilder(config.chunkSize, config.worldHeight);
+        this.fluidManager = new FluidManager(this);
 
         int numWorkers = Math.max(2, Runtime.getRuntime().availableProcessors());
         this.genExecutor = new WorldGenerationExecutor(
@@ -79,6 +85,13 @@ public class World implements MeshBuilder.WorldAccess {
         timeOfDay = timeOfDay - (float) Math.floor(timeOfDay);
 
         pollCompletedChunks();
+
+        // Fluid Tick (20 TPS)
+        fluidTickAccumulator += deltaTime;
+        while (fluidTickAccumulator >= FLUID_TICK_INTERVAL) {
+            fluidTickAccumulator -= FLUID_TICK_INTERVAL;
+            fluidManager.tick();
+        }
     }
 
     /**
@@ -117,70 +130,73 @@ public class World implements MeshBuilder.WorldAccess {
     /**
      * Integra i dati del terreno grezzo. NON lancia la mesh qui.
      */
-private void integrateCompletedTerrain(ChunkGenerationTask task) {
-    long key = chunkKey(task.chunkX, task.chunkZ);
-    pendingChunks.remove(key);
+    private void integrateCompletedTerrain(ChunkGenerationTask task) {
+        long key = chunkKey(task.chunkX, task.chunkZ);
+        pendingChunks.remove(key);
 
-    Chunk chunk = chunks.get(key);
-    if (chunk == null) {
-        chunk = new Chunk(task.chunkX, task.chunkZ);
-        chunks.put(key, chunk);
+        Chunk chunk = chunks.get(key);
+        if (chunk == null) {
+            chunk = new Chunk(task.chunkX, task.chunkZ);
+            chunks.put(key, chunk);
+        }
+
+        System.arraycopy(task.blockData, 0, chunk.getBlockData(), 0, task.blockData.length);
+        System.arraycopy(task.heightMap, 0, chunk.getHeightMapData(), 0, task.heightMap.length);
+        if (task.fluidData != null) {
+            chunk.setFluidData(task.fluidData);
+        }
+
+        chunk.setPhase(Chunk.Phase.TERRAIN);
     }
 
-    System.arraycopy(task.blockData, 0, chunk.getBlockData(), 0, task.blockData.length);
-    System.arraycopy(task.heightMap, 0, chunk.getHeightMapData(), 0, task.heightMap.length);
-    
-    
-    chunk.setPhase(Chunk.Phase.TERRAIN);
-}
+    private void integrateCompletedLight(LightPropagationTask task) {
+        Chunk chunk = getChunkIfLoaded(task.chunkX, task.chunkZ);
+        if (chunk == null)
+            return;
 
+        // Se il chunk non è più in pending light, ignora (task obsoleto)
+        if (!chunk.isLightPending()) {
+            return;
+        }
 
-private void integrateCompletedLight(LightPropagationTask task) {
-    Chunk chunk = getChunkIfLoaded(task.chunkX, task.chunkZ);
-    if (chunk == null) return;
-    
-    // Se il chunk non è più in pending light, ignora (task obsoleto)
-    if (!chunk.isLightPending()) {
-        return;
-    }
+        // Applica i buffer di luce calcolati dal worker
+        chunk.applySkyLightData(task.snapshot.getSkyLightWriteBuffer());
+        chunk.applyBlockLightData(task.snapshot.getBlockLightWriteBuffer());
 
-    // Applica i buffer di luce calcolati dal worker
-    chunk.applySkyLightData(task.snapshot.getSkyLightWriteBuffer());
-    chunk.applyBlockLightData(task.snapshot.getBlockLightWriteBuffer());
-    
-    chunk.setLightPending(false);
-    
-    // Promuovi a LIGHT_DONE
-    if (chunk.getPhase() == Chunk.Phase.FEATURES) {
-        chunk.setPhase(Chunk.Phase.LIGHT_DONE);
-    }
-    
-    // Se ci sono vicini che devono ripropagare, segnalali
-    if (!task.neighborsToPropagate.isEmpty()) {
-        Set<Long> uniqueNeighbors = new HashSet<>(task.neighborsToPropagate);
-        for (long neighborKey : uniqueNeighbors) {
-            int ncx = (int) (neighborKey >> 32);
-            int ncz = (int) (neighborKey);
-            
-            Chunk nChunk = getChunkIfLoaded(ncx, ncz);
-            if (nChunk != null) {
-                // Se il vicino ha già la mesh, deve rigenerarla con la nuova luce
-                if (nChunk.getPhase() == Chunk.Phase.MESH_DONE) {
-                    nChunk.setPhase(Chunk.Phase.LIGHT_DONE);
-                    nChunk.setMeshPending(false);
-                }
-                // Se il vicino è in FEATURES, deve ricalcolare la luce
-                else if (nChunk.getPhase() == Chunk.Phase.FEATURES && !nChunk.isLightPending()) {
-                    // Verrà ripreso dalla pipeline normale
+        chunk.setLightPending(false);
+
+        // Promuovi a LIGHT_DONE
+        if (chunk.getPhase() == Chunk.Phase.FEATURES) {
+            chunk.setPhase(Chunk.Phase.LIGHT_DONE);
+        }
+
+        // Se ci sono vicini che devono ripropagare, segnalali
+        if (!task.neighborsToPropagate.isEmpty()) {
+            Set<Long> uniqueNeighbors = new HashSet<>(task.neighborsToPropagate);
+            for (long neighborKey : uniqueNeighbors) {
+                int ncx = (int) (neighborKey >> 32);
+                int ncz = (int) (neighborKey);
+
+                Chunk nChunk = getChunkIfLoaded(ncx, ncz);
+                if (nChunk != null) {
+                    // Se il vicino ha già la mesh, deve rigenerarla con la nuova luce
+                    if (nChunk.getPhase() == Chunk.Phase.MESH_DONE) {
+                        nChunk.setPhase(Chunk.Phase.LIGHT_DONE);
+                        nChunk.setMeshPending(false);
+                    }
+                    // Se il vicino è in FEATURES, deve ricalcolare la luce
+                    else if (nChunk.getPhase() == Chunk.Phase.FEATURES && !nChunk.isLightPending()) {
+                        // Verrà ripreso dalla pipeline normale
+                    }
                 }
             }
         }
     }
-}
 
     private void integrateCompletedMesh(ChunkMeshTask task) {
         Chunk chunk = getChunkIfLoaded(task.chunkX, task.chunkZ);
-        if (chunk == null) return;
+        if (chunk == null)
+            return;
 
         chunk.uploadMesh(
                 task.meshData.solidVertices,
@@ -198,134 +214,135 @@ private void integrateCompletedLight(LightPropagationTask task) {
     /**
      * Gestisce il caricamento chunk e l'avvio dei task di mesh.
      */
-        public void maintainChunks(float playerX, float playerZ) {
-            int pcx = floorDiv((int) playerX, config.chunkSize);
-            int pcz = floorDiv((int) playerZ, config.chunkSize);
+    public void maintainChunks(float playerX, float playerZ) {
+        int pcx = floorDiv((int) playerX, config.chunkSize);
+        int pcz = floorDiv((int) playerZ, config.chunkSize);
 
-            // ========== FASE 1: CARICAMENTO TERRENO ==========
-            int maxSubmitPerFrame = 8;
-            int submitted = 0;
+        // ========== FASE 1: CARICAMENTO TERRENO ==========
+        int maxSubmitPerFrame = 8;
+        int submitted = 0;
 
-            // 1a. Safe radius
-            for (int dz = -safeRadius; dz <= safeRadius && submitted < maxSubmitPerFrame; dz++) {
-                for (int dx = -safeRadius; dx <= safeRadius && submitted < maxSubmitPerFrame; dx++) {
-                    if (submitChunkIfNeeded(pcx + dx, pcz + dz, ChunkGenerationTask.Priority.CRITICAL)) {
+        // 1a. Safe radius
+        for (int dz = -safeRadius; dz <= safeRadius && submitted < maxSubmitPerFrame; dz++) {
+            for (int dx = -safeRadius; dx <= safeRadius && submitted < maxSubmitPerFrame; dx++) {
+                if (submitChunkIfNeeded(pcx + dx, pcz + dz, ChunkGenerationTask.Priority.CRITICAL)) {
+                    submitted++;
+                }
+            }
+        }
+
+        // 1b. Frustum loading
+        if (cameraUpdated) {
+            int R = maxLoadDistance;
+            for (int dx = -R; dx <= R && submitted < maxSubmitPerFrame; dx++) {
+                for (int dz = -R; dz <= R && submitted < maxSubmitPerFrame; dz++) {
+                    if (Math.abs(dx) <= safeRadius && Math.abs(dz) <= safeRadius)
+                        continue;
+                    int cx = pcx + dx;
+                    int cz = pcz + dz;
+                    if (!isChunkInFrustum(cx, cz))
+                        continue;
+                    int distSq = dx * dx + dz * dz;
+                    ChunkGenerationTask.Priority p = (distSq <= 64) ? ChunkGenerationTask.Priority.HIGH
+                            : ChunkGenerationTask.Priority.NORMAL;
+                    if (submitChunkIfNeeded(cx, cz, p))
                         submitted++;
-                    }
                 }
             }
-
-            // 1b. Frustum loading
-            if (cameraUpdated) {
-                int R = maxLoadDistance;
-                for (int dx = -R; dx <= R && submitted < maxSubmitPerFrame; dx++) {
-                    for (int dz = -R; dz <= R && submitted < maxSubmitPerFrame; dz++) {
-                        if (Math.abs(dx) <= safeRadius && Math.abs(dz) <= safeRadius)
-                            continue;
-                        int cx = pcx + dx;
-                        int cz = pcz + dz;
-                        if (!isChunkInFrustum(cx, cz))
-                            continue;
-                        int distSq = dx * dx + dz * dz;
-                        ChunkGenerationTask.Priority p = (distSq <= 64) ? 
-                            ChunkGenerationTask.Priority.HIGH : ChunkGenerationTask.Priority.NORMAL;
-                        if (submitChunkIfNeeded(cx, cz, p))
-                            submitted++;
-                    }
-                }
-                submitted = preGenerateAhead(pcx, pcz, submitted, maxSubmitPerFrame);
-            }
-
-            // ========== FASE 2: PIPELINE ==========
-            int tasksSubmitted = 0;
-            final int MAX_TASKS_PER_FRAME = 16;
-
-            for (Chunk chunk : chunks.values()) {
-                if (tasksSubmitted >= MAX_TASKS_PER_FRAME) break;
-                
-                // Skip se task in corso
-                if (chunk.isLightPending() || chunk.isMeshPending()) {
-                    continue;
-                }
-
-                // STEP 1: TERRAIN → FEATURES
-                if (chunk.getPhase() == Chunk.Phase.TERRAIN) {
-                    if (areNeighborsAtLeast(chunk, Chunk.Phase.TERRAIN)) {
-                        ensureFeatures(chunk);
-                    }
-                }
-                
-                // STEP 2: FEATURES → LIGHT_DONE
-                else if (chunk.getPhase() == Chunk.Phase.FEATURES) {
-                    if (areNeighborsAtLeast(chunk, Chunk.Phase.FEATURES)) {
-                        submitLightTask(chunk);
-                        tasksSubmitted++;
-                    }
-                }
-                
-                // STEP 3: LIGHT_DONE → MESH_DONE
-                else if (chunk.getPhase() == Chunk.Phase.LIGHT_DONE) {
-                    if (areNeighborsAtLeast(chunk, Chunk.Phase.LIGHT_DONE)) {
-                        submitMeshTask(chunk);
-                        tasksSubmitted++;
-                    }
-                }
-            }
-
-            unloadChunksOutsideView(pcx, pcz);
+            submitted = preGenerateAhead(pcx, pcz, submitted, maxSubmitPerFrame);
         }
 
-        private boolean areNeighborsAtLeast(Chunk center, Chunk.Phase minPhase) {
-            int minOrdinal = minPhase.ordinal();
-            for (int dz = -1; dz <= 1; dz++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    Chunk n = getChunkIfLoaded(center.getX() + dx, center.getZ() + dz);
-                    if (n == null || n.getPhase().ordinal() < minOrdinal) {
-                        return false;
-                    }
+        // ========== FASE 2: PIPELINE ==========
+        int tasksSubmitted = 0;
+        final int MAX_TASKS_PER_FRAME = 16;
+
+        for (Chunk chunk : chunks.values()) {
+            if (tasksSubmitted >= MAX_TASKS_PER_FRAME)
+                break;
+
+            // Skip se task in corso
+            if (chunk.isLightPending() || chunk.isMeshPending()) {
+                continue;
+            }
+
+            // STEP 1: TERRAIN → FEATURES
+            if (chunk.getPhase() == Chunk.Phase.TERRAIN) {
+                if (areNeighborsAtLeast(chunk, Chunk.Phase.TERRAIN)) {
+                    ensureFeatures(chunk);
                 }
             }
-            return true;
+
+            // STEP 2: FEATURES → LIGHT_DONE
+            else if (chunk.getPhase() == Chunk.Phase.FEATURES) {
+                if (areNeighborsAtLeast(chunk, Chunk.Phase.FEATURES)) {
+                    submitLightTask(chunk);
+                    tasksSubmitted++;
+                }
+            }
+
+            // STEP 3: LIGHT_DONE → MESH_DONE
+            else if (chunk.getPhase() == Chunk.Phase.LIGHT_DONE) {
+                if (areNeighborsAtLeast(chunk, Chunk.Phase.LIGHT_DONE)) {
+                    submitMeshTask(chunk);
+                    tasksSubmitted++;
+                }
+            }
         }
 
-private void ensureFeatures(Chunk chunk) {
-    if (chunk.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
-        return;
+        unloadChunksOutsideView(pcx, pcz);
     }
 
-    if (!areNeighborsTerrainReady(chunk.getX(), chunk.getZ())) {
-        return;
+    private boolean areNeighborsAtLeast(Chunk center, Chunk.Phase minPhase) {
+        int minOrdinal = minPhase.ordinal();
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                Chunk n = getChunkIfLoaded(center.getX() + dx, center.getZ() + dz);
+                if (n == null || n.getPhase().ordinal() < minOrdinal) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
-    
-    worldGenerator.generateFeatures(
-            chunk.getX(), chunk.getZ(),
-            chunk.getBlockData(),
-            chunk.getHeightMapData(),
-            new FeatureGenerator.BlockPlacer() {
-                @Override
-                public void setBlock(int cx, int cz, int lx, int ly, int lz, int blockId) {
-                    Chunk target = getChunkIfLoaded(cx, cz);
-                    if (target != null) {
-                        target.setBlock(lx, ly, lz, blockId);
+
+    private void ensureFeatures(Chunk chunk) {
+        if (chunk.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
+            return;
+        }
+
+        if (!areNeighborsTerrainReady(chunk.getX(), chunk.getZ())) {
+            return;
+        }
+
+        worldGenerator.generateFeatures(
+                chunk.getX(), chunk.getZ(),
+                chunk.getBlockData(),
+                chunk.getHeightMapData(),
+                new FeatureGenerator.BlockPlacer() {
+                    @Override
+                    public void setBlock(int cx, int cz, int lx, int ly, int lz, int blockId) {
+                        Chunk target = getChunkIfLoaded(cx, cz);
+                        if (target != null) {
+                            target.setBlock(lx, ly, lz, blockId);
+                        }
                     }
-                }
 
-                @Override
-                public int getBlock(int cx, int cz, int lx, int ly, int lz) {
-                    Chunk target = getChunkIfLoaded(cx, cz);
-                    return (target != null) ? target.getBlock(lx, ly, lz) : 0;
-                }
+                    @Override
+                    public int getBlock(int cx, int cz, int lx, int ly, int lz) {
+                        Chunk target = getChunkIfLoaded(cx, cz);
+                        return (target != null) ? target.getBlock(lx, ly, lz) : 0;
+                    }
 
-                @Override
-                public boolean canPlace(int cx, int cz) {
-                    return true;
-                }
-            });
+                    @Override
+                    public boolean canPlace(int cx, int cz) {
+                        return true;
+                    }
+                });
 
-    // ❌ RIMOSSO: LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
+        // RIMOSSO: LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
 
-    chunk.setPhase(Chunk.Phase.FEATURES);
-}
+        chunk.setPhase(Chunk.Phase.FEATURES);
+    }
 
     /**
      * Verifica che i 8 vicini (+ centro) abbiano almeno la fase TERRAIN.
@@ -376,7 +393,6 @@ private void ensureFeatures(Chunk chunk) {
         genExecutor.submitLightTask(chunk.getX(), chunk.getZ(), snapshot);
     }
 
-
     private int preGenerateAhead(int pcx, int pcz, int currentSubmitted, int maxSubmit) {
         int submitted = currentSubmitted;
         for (int dist = safeRadius + 1; dist <= preGenRadius && submitted < maxSubmit; dist++) {
@@ -396,166 +412,197 @@ private void ensureFeatures(Chunk chunk) {
 
     // ==================== BLOCK ACCESS ====================
 
-/**
- * Imposta un blocco nel mondo e gestisce CORRETTAMENTE la propagazione della luce.
- * 
- * Casi gestiti:
- * 1. Piazzamento torcia (nuova sorgente blocklight)
- * 2. Rimozione torcia (rimuovi sorgente blocklight)
- * 3. Piazzamento blocco opaco (blocca luce)
- * 4. Rimozione blocco opaco (luce può entrare)
- */
-public void setBlock(int x, int y, int z, int blockId) {
-    if (y < 0 || y >= config.worldHeight) return;
+    /**
+     * Imposta un blocco nel mondo e gestisce CORRETTAMENTE la propagazione della
+     * luce.
+     * 
+     * Casi gestiti:
+     * 1. Piazzamento torcia (nuova sorgente blocklight)
+     * 2. Rimozione torcia (rimuovi sorgente blocklight)
+     * 3. Piazzamento blocco opaco (blocca luce)
+     * 4. Rimozione blocco opaco (luce può entrare)
+     */
+    public void setBlock(int x, int y, int z, int blockId) {
+        if (y < 0 || y >= config.worldHeight)
+            return;
 
-    int cx = floorDiv(x, config.chunkSize);
-    int cz = floorDiv(z, config.chunkSize);
-    int lx = mod(x, config.chunkSize);
-    int lz = mod(z, config.chunkSize);
+        int cx = floorDiv(x, config.chunkSize);
+        int cz = floorDiv(z, config.chunkSize);
+        int lx = mod(x, config.chunkSize);
+        int lz = mod(z, config.chunkSize);
 
-    Chunk chunk = getChunkIfLoaded(cx, cz);
-    if (chunk == null || chunk.getPhase().ordinal() < Chunk.Phase.FEATURES.ordinal()) {
-        return;
-    }
+        Chunk chunk = getChunkIfLoaded(cx, cz);
+        if (chunk == null || chunk.getPhase().ordinal() < Chunk.Phase.FEATURES.ordinal()) {
+            return;
+        }
 
-    int oldBlockId = chunk.getBlock(lx, y, lz);
-    if (oldBlockId == blockId) return;
+        int oldBlockId = chunk.getBlock(lx, y, lz);
+        if (oldBlockId == blockId)
+            return;
 
-    Block oldBlock = Blocks.get(oldBlockId);
-    Block newBlock = Blocks.get(blockId);
+        Block oldBlock = Blocks.get(oldBlockId);
+        Block newBlock = Blocks.get(blockId);
 
-    boolean oldIsOpaque = oldBlock.isOpaque();
-    boolean newIsOpaque = newBlock.isOpaque();
-    int oldEmission = oldBlock.getLightLevel();
-    int newEmission = newBlock.getLightLevel();
+        boolean oldIsOpaque = oldBlock.isOpaque();
+        boolean newIsOpaque = newBlock.isOpaque();
+        int oldEmission = oldBlock.getLightLevel();
+        int newEmission = newBlock.getLightLevel();
 
-    int oldBlockLight = chunk.getBlockLight(lx, y, lz);
-    int oldSkyLight = chunk.getSkyLight(lx, y, lz);
+        int oldBlockLight = chunk.getBlockLight(lx, y, lz);
+        int oldSkyLight = chunk.getSkyLight(lx, y, lz);
 
-    // Modifica il blocco
-    chunk.setBlock(lx, y, lz, blockId);
+        // Modifica il blocco
+        chunk.setBlock(lx, y, lz, blockId);
 
-    // === GESTIONE BLOCKLIGHT ===
-    
-    if (newEmission > 0 && newEmission > oldEmission) {
-        // Nuova sorgente o sorgente più forte
-        LightPropagator.addBlockLight(this, x, y, z, newEmission);
-    } else if (oldEmission > 0 && newEmission < oldEmission) {
-        // Rimozione sorgente
-        chunk.setBlockLight(lx, y, lz, 0);
-        LightPropagator.removeLightAt(this, x, y, z, oldEmission, false);
-    } else if (newIsOpaque && !oldIsOpaque && oldBlockLight > 0) {
-        // Blocco opaco piazzato dove c'era luce
-        chunk.setBlockLight(lx, y, lz, 0);
-        LightPropagator.removeLightAt(this, x, y, z, oldBlockLight, false);
-    } else if (oldIsOpaque && !newIsOpaque) {
-        // Rimosso blocco opaco - la luce può entrare
-        LightPropagator.fillLightFromNeighbors(this, x, y, z);
-    }
-
-    // === GESTIONE SKYLIGHT ===
-    
-    if (oldIsOpaque != newIsOpaque) {
-        if (newIsOpaque) {
-            // Piazzato blocco opaco dove prima passava luce
-            if (oldSkyLight > 0) {
-                // Rimuovi la luce che era qui E tutta quella propagata DA qui
-                chunk.setSkyLight(lx, y, lz, 0);
-                LightPropagator.removeSkyLightFrom(this, x, y, z, oldSkyLight);
+        // Fluid Level Init/Reset
+        if (newBlock.isLiquid()) {
+            // If we place water manually, give it max level (source)
+            if (oldBlock.isLiquid() && chunk.getFluidLevel(lx, y, lz) > 0) {
+                // Already liquid, maybe keep level?
+                // If the user places "Water" bucket, it should become Source (max level).
+                // So we force max level.
+                chunk.setFluidLevel(lx, y, lz, newBlock.getMaxFluidLevel());
+            } else {
+                chunk.setFluidLevel(lx, y, lz, newBlock.getMaxFluidLevel());
             }
-            // Se questo blocco era in una colonna aperta al cielo,
-            // ricalcola anche la colonna sotto
-            LightPropagator.recalculateSkyColumn(this, x, z);
         } else {
+            // Replaced block (maybe air or solid) -> reset fluid level
+            // Unless we didn't mean to destroy fluid?
+            // But setBlock is authoritative.
+            chunk.setFluidLevel(lx, y, lz, 0);
+        }
+
+        // Fluid updates
+        fluidManager.scheduleUpdate(x, y, z);
+        fluidManager.scheduleUpdate(x + 1, y, z);
+        fluidManager.scheduleUpdate(x - 1, y, z);
+        fluidManager.scheduleUpdate(x, y + 1, z);
+        fluidManager.scheduleUpdate(x, y - 1, z);
+        fluidManager.scheduleUpdate(x, y, z + 1);
+        fluidManager.scheduleUpdate(x, y, z - 1);
+
+        // === GESTIONE BLOCKLIGHT ===
+
+        if (newEmission > 0 && newEmission > oldEmission) {
+            // Nuova sorgente o sorgente più forte
+            LightPropagator.addBlockLight(this, x, y, z, newEmission);
+        } else if (oldEmission > 0 && newEmission < oldEmission) {
+            // Rimozione sorgente
+            chunk.setBlockLight(lx, y, lz, 0);
+            LightPropagator.removeLightAt(this, x, y, z, oldEmission, false);
+        } else if (newIsOpaque && !oldIsOpaque && oldBlockLight > 0) {
+            // Blocco opaco piazzato dove c'era luce
+            chunk.setBlockLight(lx, y, lz, 0);
+            LightPropagator.removeLightAt(this, x, y, z, oldBlockLight, false);
+        } else if (oldIsOpaque && !newIsOpaque) {
             // Rimosso blocco opaco - la luce può entrare
-            // Prima ricalcola la colonna (potrebbe aprirsi al cielo)
-            LightPropagator.recalculateSkyColumn(this, x, z);
-            // Poi cerca luce dai vicini (luce orizzontale)
             LightPropagator.fillLightFromNeighbors(this, x, y, z);
         }
-    }
-    // === INVALIDAZIONE MESH ===
-    invalidateChunkLight(cx, cz);
-    
-    if (lx == 0) invalidateChunkLight(cx - 1, cz);
-    if (lx == config.chunkSize - 1) invalidateChunkLight(cx + 1, cz);
-    if (lz == 0) invalidateChunkLight(cx, cz - 1);
-    if (lz == config.chunkSize - 1) invalidateChunkLight(cx, cz + 1);
-}
 
-/**
- * Ricalcola la skylight per i blocchi sotto una certa Y nella colonna.
- * Usato quando si piazza un blocco opaco che blocca il cielo.
- */
-private void recalculateSkyColumnBelow(Chunk chunk, int lx, int startY, int lz) {
-    // Trova se c'è ancora cielo visibile sopra startY
-    boolean hasSkyAbove = false;
-    for (int y = startY + 1; y < config.worldHeight; y++) {
-        if (Blocks.get(chunk.getBlock(lx, y, lz)).isOpaque()) {
-            break;
+        // === GESTIONE SKYLIGHT ===
+
+        if (oldIsOpaque != newIsOpaque) {
+            if (newIsOpaque) {
+                // Piazzato blocco opaco dove prima passava luce
+                if (oldSkyLight > 0) {
+                    // Rimuovi la luce che era qui E tutta quella propagata DA qui
+                    chunk.setSkyLight(lx, y, lz, 0);
+                    LightPropagator.removeSkyLightFrom(this, x, y, z, oldSkyLight);
+                }
+                // Se questo blocco era in una colonna aperta al cielo,
+                // ricalcola anche la colonna sotto
+                LightPropagator.recalculateSkyColumn(this, x, z);
+            } else {
+                // Rimosso blocco opaco - la luce può entrare
+                // Prima ricalcola la colonna (potrebbe aprirsi al cielo)
+                LightPropagator.recalculateSkyColumn(this, x, z);
+                // Poi cerca luce dai vicini (luce orizzontale)
+                LightPropagator.fillLightFromNeighbors(this, x, y, z);
+            }
         }
-        if (chunk.getSkyLight(lx, y, lz) == 15) {
-            hasSkyAbove = true;
-            break;
-        }
+        // === INVALIDAZIONE MESH ===
+        invalidateChunkLight(cx, cz);
+
+        if (lx == 0)
+            invalidateChunkLight(cx - 1, cz);
+        if (lx == config.chunkSize - 1)
+            invalidateChunkLight(cx + 1, cz);
+        if (lz == 0)
+            invalidateChunkLight(cx, cz - 1);
+        if (lz == config.chunkSize - 1)
+            invalidateChunkLight(cx, cz + 1);
     }
 
-    if (!hasSkyAbove) {
-        // Nessun cielo sopra, azzera tutta la skylight diretta sotto
-        for (int y = startY; y >= 0; y--) {
+    /**
+     * Ricalcola la skylight per i blocchi sotto una certa Y nella colonna.
+     * Usato quando si piazza un blocco opaco che blocca il cielo.
+     */
+    private void recalculateSkyColumnBelow(Chunk chunk, int lx, int startY, int lz) {
+        // Trova se c'è ancora cielo visibile sopra startY
+        boolean hasSkyAbove = false;
+        for (int y = startY + 1; y < config.worldHeight; y++) {
             if (Blocks.get(chunk.getBlock(lx, y, lz)).isOpaque()) {
                 break;
             }
-            int currentSky = chunk.getSkyLight(lx, y, lz);
-            if (currentSky == 15) {
-                chunk.setSkyLight(lx, y, lz, 0);
-                // La luce potrebbe comunque arrivare dai lati
-                int wx = chunk.getWorldX() + lx;
-                int wz = chunk.getWorldZ() + lz;
-                LightPropagator.fillLightFromNeighbors(this, wx, y, wz);
+            if (chunk.getSkyLight(lx, y, lz) == 15) {
+                hasSkyAbove = true;
+                break;
+            }
+        }
+
+        if (!hasSkyAbove) {
+            // Nessun cielo sopra, azzera tutta la skylight diretta sotto
+            for (int y = startY; y >= 0; y--) {
+                if (Blocks.get(chunk.getBlock(lx, y, lz)).isOpaque()) {
+                    break;
+                }
+                int currentSky = chunk.getSkyLight(lx, y, lz);
+                if (currentSky == 15) {
+                    chunk.setSkyLight(lx, y, lz, 0);
+                    // La luce potrebbe comunque arrivare dai lati
+                    int wx = chunk.getWorldX() + lx;
+                    int wz = chunk.getWorldZ() + lz;
+                    LightPropagator.fillLightFromNeighbors(this, wx, y, wz);
+                }
             }
         }
     }
-}
 
-/**
- * Invalida un chunk per rigenerare la mesh (ma non la luce).
- * Il chunk passerà da MESH_DONE → LIGHT_DONE nella prossima manutenzione.
- */
-private void invalidateChunkForRemesh(int cx, int cz) {
-    Chunk c = getChunkIfLoaded(cx, cz);
-    if (c == null) return;
+    /**
+     * Invalida un chunk per rigenerare la mesh (ma non la luce).
+     * Il chunk passerà da MESH_DONE → LIGHT_DONE nella prossima manutenzione.
+     */
+    private void invalidateChunkForRemesh(int cx, int cz) {
+        Chunk c = getChunkIfLoaded(cx, cz);
+        if (c == null)
+            return;
 
-    if (c.getPhase() == Chunk.Phase.MESH_DONE) {
-        c.setPhase(Chunk.Phase.LIGHT_DONE);
-        c.setMeshPending(false);
+        if (c.getPhase() == Chunk.Phase.MESH_DONE) {
+            c.setPhase(Chunk.Phase.LIGHT_DONE);
+            c.setMeshPending(false);
+        }
     }
-}
 
+    // =================================================================================
+    // SOSTITUISCI invalidateChunkLight CON QUESTO (se serve invalidazione completa)
+    // =================================================================================
 
-// =================================================================================
-// SOSTITUISCI invalidateChunkLight CON QUESTO (se serve invalidazione completa)
-// =================================================================================
+    /**
+     * Invalida completamente la luce di un chunk.
+     * Il chunk tornerà a FEATURES e ricalcolerà luce + mesh.
+     */
+    private void invalidateChunkLight(int cx, int cz) {
+        Chunk c = getChunkIfLoaded(cx, cz);
+        if (c == null)
+            return;
 
-/**
- * Invalida completamente la luce di un chunk.
- * Il chunk tornerà a FEATURES e ricalcolerà luce + mesh.
- */
-private void invalidateChunkLight(int cx, int cz) {
-    Chunk c = getChunkIfLoaded(cx, cz);
-    if (c == null) return;
-    
-    // Per forzare ricalcolo completo della luce:
-    if (c.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
-        c.setPhase(Chunk.Phase.FEATURES);
-        c.setLightPending(false);
-        c.setMeshPending(false);
+        // Per forzare ricalcolo completo della luce:
+        if (c.getPhase().ordinal() >= Chunk.Phase.FEATURES.ordinal()) {
+            c.setPhase(Chunk.Phase.FEATURES);
+            c.setLightPending(false);
+            c.setMeshPending(false);
+        }
     }
-}
-
-
-
-
 
     // ==================== UTILS & GETTERS ====================
 
@@ -623,7 +670,7 @@ private void invalidateChunkLight(int cx, int cz) {
     }
 
     // Wrapper helpers
-    private long chunkKey(int cx, int cz) {
+    public long chunkKey(int cx, int cz) {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
@@ -658,9 +705,51 @@ private void invalidateChunkLight(int cx, int cz) {
         return (c != null) ? c.getBlock(mod(x, config.chunkSize), y, mod(z, config.chunkSize)) : 0;
     }
 
+    public Block getBlockType(int x, int y, int z) {
+        return Blocks.get(getBlock(x, y, z));
+    }
+
     @Override
     public int peekBlock(int x, int y, int z) {
         return getBlock(x, y, z);
+    }
+
+    public int getFluidLevel(int x, int y, int z) {
+        Chunk chunk = getChunkIfLoaded(x >> 4, z >> 4);
+        if (chunk == null)
+            return 0;
+        int lx = x & 15;
+        int ly = y;
+        int lz = z & 15;
+        if (ly < 0 || ly >= Chunk.HEIGHT)
+            return 0;
+        return chunk.getFluidLevel(lx, ly, lz);
+    }
+
+    public void setFluidLevel(int x, int y, int z, int level) {
+        Chunk chunk = getChunkIfLoaded(x >> 4, z >> 4);
+        if (chunk == null)
+            return;
+        int lx = x & 15;
+        int ly = y;
+        int lz = z & 15;
+        if (ly < 0 || ly >= Chunk.HEIGHT)
+            return;
+        chunk.setFluidLevel(lx, ly, lz, level);
+
+        // Invalidate mesh for visual update
+        int cx = x >> 4;
+        int cz = z >> 4;
+        invalidateChunkForRemesh(cx, cz);
+
+        if (lx == 0)
+            invalidateChunkForRemesh(cx - 1, cz);
+        if (lx == 15)
+            invalidateChunkForRemesh(cx + 1, cz);
+        if (lz == 0)
+            invalidateChunkForRemesh(cx, cz - 1);
+        if (lz == 15)
+            invalidateChunkForRemesh(cx, cz + 1);
     }
 
     @Override
@@ -758,24 +847,25 @@ private void invalidateChunkLight(int cx, int cz) {
         return new Vec3(0, 100, 0); // Fallback
     }
 
-private void generateChunkSync(int cx, int cz) {
-    long key = chunkKey(cx, cz);
-    if (chunks.containsKey(key)) return;
+    private void generateChunkSync(int cx, int cz) {
+        long key = chunkKey(cx, cz);
+        if (chunks.containsKey(key))
+            return;
 
-    Chunk chunk = new Chunk(cx, cz);
-    int[] blocks = new int[config.chunkSize * config.chunkSize * config.worldHeight];
-    int[] height = new int[config.chunkSize * config.chunkSize];
+        Chunk chunk = new Chunk(cx, cz);
+        int[] blocks = new int[config.chunkSize * config.chunkSize * config.worldHeight];
+        int[] height = new int[config.chunkSize * config.chunkSize];
+        byte[] fluid = new byte[config.chunkSize * config.chunkSize * config.worldHeight];
 
-    worldGenerator.generateTerrain(cx, cz, blocks, height);
-    
-    System.arraycopy(blocks, 0, chunk.getBlockData(), 0, blocks.length);
-    System.arraycopy(height, 0, chunk.getHeightMapData(), 0, height.length);
-        
-    chunk.setPhase(Chunk.Phase.TERRAIN);
-    chunks.put(key, chunk);
-}
+        worldGenerator.generateTerrain(cx, cz, blocks, height, fluid);
 
+        System.arraycopy(blocks, 0, chunk.getBlockData(), 0, blocks.length);
+        System.arraycopy(height, 0, chunk.getHeightMapData(), 0, height.length);
+        chunk.setFluidData(fluid);
 
+        chunk.setPhase(Chunk.Phase.TERRAIN);
+        chunks.put(key, chunk);
+    }
 
     private int getSurfaceHeight(int x, int z) {
         int cx = floorDiv(x, config.chunkSize);
