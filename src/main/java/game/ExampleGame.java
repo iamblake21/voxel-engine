@@ -3,8 +3,8 @@ package game;
 import engine.api.IGame;
 import engine.core.Config;
 import engine.core.Engine;
-import engine.core.RenderInputHandler;  // <-- Aggiungi import
-import engine.rendering.RenderSettings;  // <-- Aggiungi import
+import engine.core.RenderInputHandler; // <-- Aggiungi import
+import engine.rendering.RenderSettings; // <-- Aggiungi import
 import engine.entity.EntityType;
 import engine.entity.EntityTypes;
 import engine.entity.Player;
@@ -21,8 +21,8 @@ public class ExampleGame implements IGame {
     private World world;
     private Player player;
     private EntityType<Player> playerType;
-    
-    private RenderInputHandler renderInputHandler;  
+
+    private RenderInputHandler renderInputHandler;
 
     public ExampleGame(Config config) {
         this.config = config;
@@ -31,7 +31,7 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(12)  
+                .viewDistance(12)
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
                 .vsync(true)
@@ -54,8 +54,7 @@ public class ExampleGame implements IGame {
                         .size(config.playerWidth, config.playerHeight)
                         .persistent(true)
                         .summonable(true)
-                        .build()
-        );
+                        .build());
 
         System.out.println("[Game] Entity types registered (player)");
     }
@@ -73,9 +72,17 @@ public class ExampleGame implements IGame {
         this.player.init(engine);
         engine.getEntities().addEntity(player);
 
+        // Add starting items to player inventory for testing
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.DIRT, 64));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOOD, 64));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.TORCH, 16));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
+        System.out.println("[Game] Player inventory initialized with starting items");
+
         // Setup render input handler
         RenderSettings settings = new RenderSettings();
-        settings.setViewDistance(config.viewDistance);  // Sync con config
+        settings.setViewDistance(config.viewDistance); // Sync con config
         this.renderInputHandler = new RenderInputHandler(settings, world);
 
         System.out.println("[Game] Init complete");
@@ -83,10 +90,11 @@ public class ExampleGame implements IGame {
 
     @Override
     public void update(float deltaTime) {
-        if (world == null || player == null) return;
+        if (world == null || player == null)
+            return;
 
         // Process render settings input (view distance, frustum toggle, etc.)
-        renderInputHandler.processInput(engine.getWindow().getHandle());  // <-- Aggiungi
+        renderInputHandler.processInput(engine.getWindow().getHandle()); // <-- Aggiungi
 
         player.update(deltaTime, engine.getInput());
         player.handleBlockInteraction(engine.getInput());

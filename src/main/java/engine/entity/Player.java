@@ -2,10 +2,12 @@ package engine.entity;
 
 import engine.core.Config;
 import engine.core.Engine;
+import engine.entity.inventory.PlayerInventory;
 import engine.rendering.Camera;
 import engine.world.World;
 import engine.world.block.Blocks;
-import engine.physics.AABB;
+import engine.world.item.IUsableItem;
+import engine.world.item.ItemStack;
 import engine.physics.PhysicsEngine;
 import engine.window.InputManager;
 import engine.utils.Math3D.Vec3;
@@ -21,6 +23,7 @@ public class Player extends Entity {
 
     private final Config config;
     private final Camera camera;
+    private final PlayerInventory inventory;
     private World world;
     private PhysicsEngine physics;
 
@@ -35,13 +38,14 @@ public class Player extends Entity {
     private boolean bodyWasInWater = false;
     private boolean headWasInWater = false;
 
-    // Selected block for placement
-    private int selectedBlock = 1; // Stone by default
+    // Selected block for placement - NO LONGER USED, using inventory instead
+    // private int selectedBlock = 1;
 
     public Player(EntityType<?> type, Config config) {
         super(type);
         this.config = config;
         this.camera = new Camera(config);
+        this.inventory = new PlayerInventory();
     }
 
     /**
@@ -163,23 +167,12 @@ public class Player extends Entity {
         if (!fDown)
             flyKeyLatch = false;
 
-        // Block selection (1-5)
-        if (input.isKeyDown(GLFW_KEY_1))
-            selectedBlock = Blocks.get("game:water").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_2))
-            selectedBlock = Blocks.get("game:dirt").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_3))
-            selectedBlock = Blocks.get("game:wood").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_4))
-            selectedBlock = Blocks.get("game:leaves").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_5))
-            selectedBlock = Blocks.get("game:snow").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_6))
-            selectedBlock = Blocks.get("game:light").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_7))
-            selectedBlock = Blocks.get("game:poppy").getNumericId();
-        if (input.isKeyDown(GLFW_KEY_8))
-            selectedBlock = Blocks.get("game:torch").getNumericId();
+        // Hotbar selection (1-9)
+        for (int i = 0; i < 9; i++) {
+            if (input.isKeyDown(GLFW_KEY_1 + i)) {
+                inventory.setSelectedSlot(i);
+            }
+        }
 
     }
 
@@ -362,13 +355,12 @@ public class Player extends Entity {
     }
 
     /**
-     * Handle block breaking / placing using mouse buttons.
+     * Handle block breaking / placing using mouse buttons with inventory items.
      */
     public void handleBlockInteraction(InputManager input) {
         if (world == null)
             return;
 
-        // tasto sinistro = spacca, destro = piazza
         boolean breakBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
         boolean placeBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_2);
 
@@ -376,12 +368,14 @@ public class Player extends Entity {
             return;
         }
 
-        // partenza: occhi del player
+        // Get selected item from inventory
+        ItemStack selectedStack = inventory.getSelectedStack();
+
+        // Raycast to find target block
         float eyeX = x;
         float eyeY = y + config.playerEyeHeight;
         float eyeZ = z;
 
-        // calcola direzione dal yaw/pitch
         float yawRad = (float) Math.toRadians(yaw);
         float pitchRad = (float) Math.toRadians(pitch);
 
@@ -393,8 +387,13 @@ public class Player extends Entity {
         float step = 0.1f;
         float dist = 0f;
 
-        // ultima posizione d'aria attraversata (per piazzare)
+        // Last air position for placement
         int lastAirX = 0, lastAirY = 0, lastAirZ = 0;
+
+        // Target block position (hit position)
+        float hitX = Float.NaN;
+        float hitY = Float.NaN;
+        float hitZ = Float.NaN;
 
         while (dist <= maxDist) {
             float cx = eyeX + dirX * dist;
@@ -408,36 +407,46 @@ public class Player extends Entity {
             int blockId = world.getBlock(bx, by, bz);
 
             if (Blocks.isLiquid(blockId)) {
-                // Treat liquid as "air" (replaceable/pass-through)
+                // Treat liquid as replaceable
                 lastAirX = bx;
                 lastAirY = by;
                 lastAirZ = bz;
             } else if (Blocks.isSolid(blockId)) {
-                // abbiamo colpito un blocco solido
+                // Hit a solid block
+                hitX = bx;
+                hitY = by;
+                hitZ = bz;
 
                 if (breakBlock) {
-                    // spacca blocco
+                    // Break block
                     world.setBlock(bx, by, bz, Blocks.AIR().getNumericId());
-                } else if (placeBlock) {
-                    int placeId = selectedBlock;
-                    if (placeId > 0) {
-                        // piazza sulla faccia più vicina (usiamo l'ultima cella d'aria/acqua
-                        // rimpiazzabile)
-                        int px = lastAirX;
-                        int py = lastAirY;
-                        int pz = lastAirZ;
-                        world.setBlock(px, py, pz, placeId);
 
-                        // If we are placing water (or any fluid), initiate it full
-                        if (Blocks.get(placeId).isLiquid()) {
-                            world.setFluidLevel(px, py, pz, Blocks.get(placeId).getMaxFluidLevel());
+                    // Damage tool if holding one
+                    if (!selectedStack.isEmpty() && selectedStack.isDamageable()) {
+                        if (selectedStack.damageItem(1)) {
+                            // Tool broke
+                            System.out.println("[Player] Tool broke!");
+                        }
+                    }
+                } else if (placeBlock) {
+                    // Try to use selected item
+                    if (!selectedStack.isEmpty() && selectedStack.getItem() instanceof IUsableItem) {
+                        IUsableItem usableItem = (IUsableItem) selectedStack.getItem();
+                        boolean used = usableItem.use(world, this, selectedStack,
+                                hitX, hitY, hitZ,
+                                lastAirX, lastAirY, lastAirZ);
+
+                        if (used) {
+                            // Item was used successfully, shrink stack
+                            selectedStack.shrink(1);
+                            System.out.println("[Player] Used " + selectedStack.getItem().getRegistryId());
                         }
                     }
                 }
 
-                break; // smettiamo appena troviamo il blocco colpito
+                break; // Stop raycast
             } else {
-                // salva ultima cella d'aria
+                // Air block
                 lastAirX = bx;
                 lastAirY = by;
                 lastAirZ = bz;
@@ -465,8 +474,8 @@ public class Player extends Entity {
         return headInWater;
     }
 
-    public int getSelectedBlock() {
-        return selectedBlock;
+    public PlayerInventory getInventory() {
+        return inventory;
     }
 
     public void setWorld(World world) {

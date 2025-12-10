@@ -1,12 +1,14 @@
 package engine.world.item;
 
+import engine.entity.Player;
+import engine.world.World;
 import engine.world.block.Block;
 
 /**
  * A tool item with mining level, speed, and durability.
  * Used for pickaxes, axes, shovels, swords, etc.
  */
-public class ToolItem extends Item {
+public class ToolItem extends Item implements IUsableItem {
 
     private final ToolTier tier;
     private final ToolType type;
@@ -116,6 +118,18 @@ public class ToolItem extends Item {
         // For now, just check if it's a hard block
         // In a full game, you'd check block.getHarvestLevel() vs getMiningLevel()
         return block.isHard();
+    }
+
+    /**
+     * Tools don't have a "use" action (right-click), they're used for breaking
+     * blocks
+     */
+    @Override
+    public boolean use(World world, Player player, ItemStack stack,
+            float hitX, float hitY, float hitZ,
+            int lastAirX, int lastAirY, int lastAirZ) {
+        // Tools don't have a right-click action
+        return false;
     }
 
     @Override
