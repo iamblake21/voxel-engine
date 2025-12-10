@@ -18,6 +18,9 @@ public class ItemProperties {
     // Rarity/quality
     Rarity rarity = Rarity.COMMON;
 
+    // Icon texture
+    String iconTexture = null;
+
     private ItemProperties() {
     }
 
@@ -54,6 +57,14 @@ public class ItemProperties {
         return this;
     }
 
+    /**
+     * Set the icon texture path
+     */
+    public ItemProperties icon(String iconPath) {
+        this.iconTexture = iconPath;
+        return this;
+    }
+
     // ==================== PRESETS ====================
 
     /**
@@ -63,6 +74,8 @@ public class ItemProperties {
         this.maxStackSize = 64;
         this.maxDurability = 0;
         this.consumable = false;
+        this.rarity = Rarity.COMMON;
+        this.iconTexture = null;
         return this;
     }
 
@@ -85,7 +98,7 @@ public class ItemProperties {
     }
 
     // ==================== GETTERS ====================
-
+    // Getters
     public int getMaxStackSize() {
         return maxStackSize;
     }
@@ -100,6 +113,10 @@ public class ItemProperties {
 
     public Rarity getRarity() {
         return rarity;
+    }
+
+    public String getIconTexture() {
+        return iconTexture;
     }
 
     public boolean isDamageable() {

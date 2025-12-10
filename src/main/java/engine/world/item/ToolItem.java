@@ -75,6 +75,16 @@ public class ToolItem extends Item implements IUsableItem {
         this(type, tier, getDefaultSpeed(tier));
     }
 
+    /**
+     * Create a tool with custom properties (for setting icon, etc.)
+     */
+    public ToolItem(ToolType type, ToolTier tier, ItemProperties properties) {
+        super(properties.durability(tier.getDurability()));
+        this.tier = tier;
+        this.type = type;
+        this.miningSpeed = getDefaultSpeed(tier);
+    }
+
     private static float getDefaultSpeed(ToolTier tier) {
         switch (tier) {
             case WOOD:

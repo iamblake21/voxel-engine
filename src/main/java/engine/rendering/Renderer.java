@@ -15,9 +15,9 @@ import java.util.Comparator;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.*;
-import static org.lwjgl.opengl.GL15.*;  // VBO, glBufferData, GL_ARRAY_BUFFER, GL_STATIC_DRAW
-import static org.lwjgl.opengl.GL20.*;  // glEnableVertexAttribArray, glVertexAttribPointer
-import static org.lwjgl.opengl.GL30.*;  // VAO: glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays
+import static org.lwjgl.opengl.GL15.*; // VBO, glBufferData, GL_ARRAY_BUFFER, GL_STATIC_DRAW
+import static org.lwjgl.opengl.GL20.*; // glEnableVertexAttribArray, glVertexAttribPointer
+import static org.lwjgl.opengl.GL30.*; // VAO: glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays
 
 /**
  * Main renderer - coordinates all rendering with LOD and Fog support.
@@ -29,33 +29,33 @@ import static org.lwjgl.opengl.GL30.*;  // VAO: glGenVertexArrays, glBindVertexA
  * - Front-to-back rendering for better depth performance
  */
 public class Renderer {
-    
+
     private final Config config;
     private Camera camera;
     private Shader voxelShader;
     private TextureArray atlasTexture;
     private WireframeRenderer wireframeRenderer;
-    
+
     // Frustum culling - the key to infinite view distance!
     private final Frustum frustum = new Frustum();
     private boolean frustumCullingEnabled = true;
-    
+
     // LOD system
     private boolean lodEnabled = true;
     private int currentPlayerChunkX = 0;
     private int currentPlayerChunkZ = 0;
-    
+
     // Fog settings
     private boolean fogEnabled = true;
-    private float fogStart = 0.85f;       // Start fog at 60% of view distance
-    private float fogEnd = 0.95f;        // Full fog at 95% of view distance
-    
+    private float fogStart = 0.85f; // Start fog at 60% of view distance
+    private float fogEnd = 0.95f; // Full fog at 95% of view distance
+
     // Stats
     private int lastChunksTotal = 0;
     private int lastChunksRendered = 0;
     private int lastChunksCulled = 0;
     private int[] lodCounts = new int[4]; // Chunks rendered per LOD level
-    
+
     // Shader uniform locations
     private int uProj, uView, uModel, uTex, uTint;
     private int uTime, uCameraPos, uWaterPass, uUnderwater, uWaterLevel;
@@ -73,55 +73,52 @@ public class Renderer {
     private int skyVAO;
     private int skyVBO;
 
-
-    
     // Fog uniforms
     private int uFogEnabled, uFogColor, uFogStart, uFogEnd;
-    
+
     private float clearR = 0.6f, clearG = 0.8f, clearB = 1.0f;
     private World currentWorld;
-    
+
     public Renderer(Config config) {
         this.config = config;
     }
 
-
     private void initSkyboxMesh() {
-    float[] vertices = {
-        //   pos (cube -1..1)
-        -1,  1, -1,  -1, -1, -1,   1, -1, -1,
-         1, -1, -1,   1,  1, -1,  -1,  1, -1,
+        float[] vertices = {
+                // pos (cube -1..1)
+                -1, 1, -1, -1, -1, -1, 1, -1, -1,
+                1, -1, -1, 1, 1, -1, -1, 1, -1,
 
-        -1, -1,  1,  -1, -1, -1,  -1,  1, -1,
-        -1,  1, -1,  -1,  1,  1,  -1, -1,  1,
+                -1, -1, 1, -1, -1, -1, -1, 1, -1,
+                -1, 1, -1, -1, 1, 1, -1, -1, 1,
 
-         1, -1, -1,   1, -1,  1,   1,  1,  1,
-         1,  1,  1,   1,  1, -1,   1, -1, -1,
+                1, -1, -1, 1, -1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1, -1, 1, -1, -1,
 
-        -1, -1,  1,  -1,  1,  1,   1,  1,  1,
-         1,  1,  1,   1, -1,  1,  -1, -1,  1,
+                -1, -1, 1, -1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, -1, 1, -1, -1, 1,
 
-        -1,  1, -1,   1,  1, -1,   1,  1,  1,
-         1,  1,  1,  -1,  1,  1,  -1,  1, -1,
+                -1, 1, -1, 1, 1, -1, 1, 1, 1,
+                1, 1, 1, -1, 1, 1, -1, 1, -1,
 
-        -1, -1, -1,  -1, -1,  1,   1, -1, -1,
-         1, -1, -1,  -1, -1,  1,   1, -1,  1
-    };
+                -1, -1, -1, -1, -1, 1, 1, -1, -1,
+                1, -1, -1, -1, -1, 1, 1, -1, 1
+        };
 
-    skyVAO = glGenVertexArrays();
-    skyVBO = glGenBuffers();
+        skyVAO = glGenVertexArrays();
+        skyVBO = glGenBuffers();
 
-    glBindVertexArray(skyVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, skyVBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices, GL_STATIC_DRAW);
+        glBindVertexArray(skyVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, skyVBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices, GL_STATIC_DRAW);
 
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * Float.BYTES, 0L);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * Float.BYTES, 0L);
 
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-}
-    
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+    }
+
     public void init() {
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
@@ -138,7 +135,7 @@ public class Renderer {
 
         System.out.println("Renderer initialized with LOD and Fog support");
     }
-    
+
     private void cacheUniformLocations() {
         uProj = voxelShader.getUniformLocation("uProj");
         uView = voxelShader.getUniformLocation("uView");
@@ -155,7 +152,7 @@ public class Renderer {
 
         // invece di uTileGrassTop/uTileLeaves come ivec2:
         uTileGrassTopIndex = voxelShader.getUniformLocation("uTileGrassTopIndex");
-        uTileLeavesIndex   = voxelShader.getUniformLocation("uTileLeavesIndex");
+        uTileLeavesIndex = voxelShader.getUniformLocation("uTileLeavesIndex");
 
         uGrassTint = voxelShader.getUniformLocation("uGrassTint");
         uFoliageTint = voxelShader.getUniformLocation("uFoliageTint");
@@ -165,50 +162,53 @@ public class Renderer {
         uFogColor = voxelShader.getUniformLocation("uFogColor");
         uFogStart = voxelShader.getUniformLocation("uFogStart");
         uFogEnd = voxelShader.getUniformLocation("uFogEnd");
-        
 
         uTimeOfDay = voxelShader.getUniformLocation("uTimeOfDay");
         uSunDir = voxelShader.getUniformLocation("uSunDir");
         uSunColor = voxelShader.getUniformLocation("uSunColor");
         uAmbientColor = voxelShader.getUniformLocation("uAmbientColor");
 
-
     }
-    
+
     public void beginFrame() {
         beginFrame(currentWorld);
     }
-    
+
     public void beginFrame(World world) {
         this.currentWorld = world;
-        
+
         boolean underwater = isHeadUnderwater(world);
         if (underwater) {
-            clearR = 0.10f; clearG = 0.32f; clearB = 0.70f;
+            clearR = 0.10f;
+            clearG = 0.32f;
+            clearB = 0.70f;
         } else {
-            clearR = 0.6f; clearG = 0.8f; clearB = 1.0f;
+            clearR = 0.6f;
+            clearG = 0.8f;
+            clearB = 1.0f;
         }
-        
+
         glClearColor(clearR, clearG, clearB, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glViewport(0, 0, config.windowWidth, config.windowHeight);
-        
+
         // Update player chunk position for LOD calculations
         if (camera != null) {
             currentPlayerChunkX = (int) Math.floor(camera.getPosition().x / config.chunkSize);
             currentPlayerChunkZ = (int) Math.floor(camera.getPosition().z / config.chunkSize);
         }
     }
-    
+
     private boolean isHeadUnderwater(World world) {
-        if (camera == null || world == null) return false;
+        if (camera == null || world == null)
+            return false;
         int bx = (int) Math.floor(camera.getPosition().x);
         int by = (int) Math.floor(camera.getPosition().y);
         int bz = (int) Math.floor(camera.getPosition().z);
         int blockId = world.getBlock(bx, by, bz);
         return Blocks.isLiquid(blockId);
     }
-    
+
     /**
      * Calculate LOD level for a chunk based on distance.
      * Currently returns 0 always until LOD system is fully working.
@@ -216,346 +216,329 @@ public class Renderer {
     private int calculateChunkLOD(Chunk chunk) {
         // DISABLED FOR NOW - always use full detail until LOD is stable
         return 0;
-        
-        /*
-        if (!lodEnabled) return 0;
-        
-        int dx = chunk.getX() - currentPlayerChunkX;
-        int dz = chunk.getZ() - currentPlayerChunkZ;
-        int distSq = dx * dx + dz * dz;
-        
-        return MeshBuilder.calculateLOD(distSq);
-        */
-    }
 
+        /*
+         * if (!lodEnabled) return 0;
+         * 
+         * int dx = chunk.getX() - currentPlayerChunkX;
+         * int dz = chunk.getZ() - currentPlayerChunkZ;
+         * int distSq = dx * dx + dz * dz;
+         * 
+         * return MeshBuilder.calculateLOD(distSq);
+         */
+    }
 
     private String getSkyVertexShader() {
-    return "#version 330 core\n" +
-           "layout(location=0) in vec3 aPos;\n" +
-           "out vec3 vDir;\n" +
-           "uniform mat4 uProj;\n" +
-           "uniform mat4 uView;\n" +
-           "void main(){\n" +
-           "  vDir = aPos;\n" +
-           "  vec4 pos = uProj * uView * vec4(aPos, 1.0);\n" +
-           "  gl_Position = pos.xyww; // z = w per stare sempre in fondo\n" +
-           "}\n";
-}
-
-
-
-private String getSkyFragmentShader() {
-    return "#version 330 core\n" +
-           "in vec3 vDir;\n" +
-           "out vec4 FragColor;\n" +
-           "\n" +
-           "uniform float uTime;       // se vuoi usalo per stelline ecc.\n" +
-           "uniform float uTimeOfDay;  // 0..1 dal World\n" +
-           "uniform vec3  uSunDir;     // direzione del sole dal World\n" +
-           "uniform vec3  uSunColor;   // colore sole dal World\n" +
-           "uniform vec3  uAmbientColor; // ambient dal World\n" +
-           "\n" +
-           "// Colore cielo in base a direzione e altezza del sole\n" +
-           "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
-           "  dir = normalize(dir);\n" +
-           "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0); // -1..1 -> 0..1\n" +
-           "\n" +
-           "  vec3 dayHorizon   = vec3(0.55, 0.75, 0.95);\n" +
-           "  vec3 dayZenith    = vec3(0.10, 0.45, 0.90);\n" +
-           "  vec3 nightHorizon = vec3(0.02, 0.05, 0.10);\n" +
-           "  vec3 nightZenith  = vec3(0.00, 0.02, 0.05);\n" +
-           "\n" +
-           "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0);\n" +
-           "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
-           "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
-           "  vec3 col = mix(nightCol, dayCol, 1.0 - night);\n" +
-           "\n" +
-           "  // alone del sole\n" +
-           "  float sunAmt = pow(max(dot(dir, -sunDir), 0.0), 512.0);\n" +
-           "  col += uSunColor * sunAmt * 1.5;\n" +
-           "\n" +
-           "  return col;\n" +
-           "}\n" +
-           "\n" +
-           "void main(){\n" +
-           "  vec3 sunDir = normalize(uSunDir);\n" +
-           "  float sunStrength = clamp(sunDir.y, 0.0, 1.0);\n" +
-           "\n" +
-           "  vec3 sky = computeSkyColor(vDir, sunDir, sunStrength);\n" +
-           "  FragColor = vec4(sky, 1.0);\n" +
-           "}\n";
-}
-
-
-
-
-private void renderSkybox(World world) {
-    if (camera == null || world == null) return;
-
-    // Se sei sott'acqua, niente skybox
-    if (isHeadUnderwater(world)) {
-        return;
+        return "#version 330 core\n" +
+                "layout(location=0) in vec3 aPos;\n" +
+                "out vec3 vDir;\n" +
+                "uniform mat4 uProj;\n" +
+                "uniform mat4 uView;\n" +
+                "void main(){\n" +
+                "  vDir = aPos;\n" +
+                "  vec4 pos = uProj * uView * vec4(aPos, 1.0);\n" +
+                "  gl_Position = pos.xyww; // z = w per stare sempre in fondo\n" +
+                "}\n";
     }
 
-    glDepthFunc(GL_LEQUAL);
-    glDepthMask(false);
+    private String getSkyFragmentShader() {
+        return "#version 330 core\n" +
+                "in vec3 vDir;\n" +
+                "out vec4 FragColor;\n" +
+                "\n" +
+                "uniform float uTime;       // se vuoi usalo per stelline ecc.\n" +
+                "uniform float uTimeOfDay;  // 0..1 dal World\n" +
+                "uniform vec3  uSunDir;     // direzione del sole dal World\n" +
+                "uniform vec3  uSunColor;   // colore sole dal World\n" +
+                "uniform vec3  uAmbientColor; // ambient dal World\n" +
+                "\n" +
+                "// Colore cielo in base a direzione e altezza del sole\n" +
+                "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
+                "  dir = normalize(dir);\n" +
+                "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0); // -1..1 -> 0..1\n" +
+                "\n" +
+                "  vec3 dayHorizon   = vec3(0.55, 0.75, 0.95);\n" +
+                "  vec3 dayZenith    = vec3(0.10, 0.45, 0.90);\n" +
+                "  vec3 nightHorizon = vec3(0.02, 0.05, 0.10);\n" +
+                "  vec3 nightZenith  = vec3(0.00, 0.02, 0.05);\n" +
+                "\n" +
+                "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0);\n" +
+                "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
+                "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
+                "  vec3 col = mix(nightCol, dayCol, 1.0 - night);\n" +
+                "\n" +
+                "  // alone del sole\n" +
+                "  float sunAmt = pow(max(dot(dir, -sunDir), 0.0), 512.0);\n" +
+                "  col += uSunColor * sunAmt * 1.5;\n" +
+                "\n" +
+                "  return col;\n" +
+                "}\n" +
+                "\n" +
+                "void main(){\n" +
+                "  vec3 sunDir = normalize(uSunDir);\n" +
+                "  float sunStrength = clamp(sunDir.y, 0.0, 1.0);\n" +
+                "\n" +
+                "  vec3 sky = computeSkyColor(vDir, sunDir, sunStrength);\n" +
+                "  FragColor = vec4(sky, 1.0);\n" +
+                "}\n";
+    }
 
-    skyShader.bind();
-    skyShader.setUniform("uProj", camera.getProjectionMatrix());
+    private void renderSkybox(World world) {
+        if (camera == null || world == null)
+            return;
 
-    // View senza traslazione
-    Mat4 view = camera.getViewMatrix();
-    Mat4 viewNoTrans = new Mat4();
-    System.arraycopy(view.m, 0, viewNoTrans.m, 0, 16);
-    viewNoTrans.m[12] = 0f;
-    viewNoTrans.m[13] = 0f;
-    viewNoTrans.m[14] = 0f;
-    skyShader.setUniform("uView", viewNoTrans);
+        // Se sei sott'acqua, niente skybox
+        if (isHeadUnderwater(world)) {
+            return;
+        }
 
-    // --- QUI sincronizziamo col World / Renderer --- 
-    float timeOfDay = world.getTimeOfDay(); // 0..1
-    skyShader.setUniform("uTimeOfDay", timeOfDay);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(false);
 
-    // Direzione del sole dal World
-    Vec3 sunDir = world.getSunDirection();
-    skyShader.setUniform("uSunDir", sunDir);
+        skyShader.bind();
+        skyShader.setUniform("uProj", camera.getProjectionMatrix());
 
-    // Stessa logica che ti ho proposto per il Renderer dei blocchi
-    float sunHeight = Math.max(0f, sunDir.y);
-    float sunStrength = (float)Math.pow(sunHeight, 1.2f);
+        // View senza traslazione
+        Mat4 view = camera.getViewMatrix();
+        Mat4 viewNoTrans = new Mat4();
+        System.arraycopy(view.m, 0, viewNoTrans.m, 0, 16);
+        viewNoTrans.m[12] = 0f;
+        viewNoTrans.m[13] = 0f;
+        viewNoTrans.m[14] = 0f;
+        skyShader.setUniform("uView", viewNoTrans);
 
-    Vec3 sunColor = new Vec3(
-        1.0f * sunStrength,
-        0.95f * sunStrength,
-        0.85f * sunStrength
-    );
-    skyShader.setUniform("uSunColor", sunColor);
+        // --- QUI sincronizziamo col World / Renderer ---
+        float timeOfDay = world.getTimeOfDay(); // 0..1
+        skyShader.setUniform("uTimeOfDay", timeOfDay);
 
-    float ambientStrength = 0.35f + 0.35f * sunHeight;
-    Vec3 ambientColor = new Vec3(
-        0.6f * ambientStrength,
-        0.7f * ambientStrength,
-        0.9f * ambientStrength
-    );
-    skyShader.setUniform("uAmbientColor", ambientColor);
+        // Direzione del sole dal World
+        Vec3 sunDir = world.getSunDirection();
+        skyShader.setUniform("uSunDir", sunDir);
 
-    // Se vuoi ancora usare uTime per effetti extra
-    skyShader.setUniform("uTime", world.getGameTime());
+        // Stessa logica che ti ho proposto per il Renderer dei blocchi
+        float sunHeight = Math.max(0f, sunDir.y);
+        float sunStrength = (float) Math.pow(sunHeight, 1.2f);
 
-    glBindVertexArray(skyVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-    glBindVertexArray(0);
+        Vec3 sunColor = new Vec3(
+                1.0f * sunStrength,
+                0.95f * sunStrength,
+                0.85f * sunStrength);
+        skyShader.setUniform("uSunColor", sunColor);
 
-    skyShader.unbind();
+        float ambientStrength = 0.35f + 0.35f * sunHeight;
+        Vec3 ambientColor = new Vec3(
+                0.6f * ambientStrength,
+                0.7f * ambientStrength,
+                0.9f * ambientStrength);
+        skyShader.setUniform("uAmbientColor", ambientColor);
 
-    glDepthMask(true);
-    glDepthFunc(GL_LESS);
-}
+        // Se vuoi ancora usare uTime per effetti extra
+        skyShader.setUniform("uTime", world.getGameTime());
 
+        glBindVertexArray(skyVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
 
+        skyShader.unbind();
 
+        glDepthMask(true);
+        glDepthFunc(GL_LESS);
+    }
 
-    
     /**
      * Render world - uses Frustum culling, LOD, and Fog!
      */
-public void renderWorld(World world) {
-    if (camera == null) {
-        System.err.println("Warning: No camera set");
-        return;
-    }
-    
-    this.currentWorld = world;
-    boolean underwater = isHeadUnderwater(world);
-    
-    // Update frustum from camera matrices
-    if (frustumCullingEnabled) {
-        updateFrustum();
-    }
-
-    // --- SKYBOX ---
-    renderSkybox(world);
-    // --- FINE SKYBOX ---
-
-    
-    voxelShader.bind();
-    atlasTexture.bind(0); // TextureArray o Texture classica, il bind non cambia
-    
-    // Calculate view distance in world units for fog
-    float viewDistanceWorld = config.viewDistance * config.chunkSize;
-    
-    // Set uniforms base
-    voxelShader.setUniform(uProj, camera.getProjectionMatrix());
-    voxelShader.setUniform(uView, camera.getViewMatrix());
-    voxelShader.setUniform(uTex, 0);
-    voxelShader.setUniform(uTime, world.getGameTime());
-    voxelShader.setUniform(uCameraPos, camera.getPosition());
-    voxelShader.setUniform(uWaterLevel, config.waterLevel);
-    voxelShader.setUniform(uUnderwater, underwater ? 1 : 0);
-
-    // Rimangono se ti servono nello shader (per l'acqua usi ancora uTilesX/uTilesY)
-    voxelShader.setUniform(uTilesX, 8);
-    voxelShader.setUniform(uTilesY, 8);
-
-    voxelShader.setUniform(uGrassTint, 0.54f, 0.78f, 0.38f);
-    voxelShader.setUniform(uFoliageTint, 0.52f, 0.75f, 0.35f);
-
-    // --- QUI È IL CAMBIO IMPORTANTE ---
-
-    // Prima avevi:
-    // voxelShader.setUniform2i(uTileGrassTop, 0, 0);
-    // voxelShader.setUniform2i(uTileLeaves, 5, 0);
-    // voxelShader.setUniform2i(uTileWater, 6, 0);
-
-    // Ora calcoliamo gli INDICI layer per l'atlas 8x8:
-    // layerIndex = tileY * tilesX + tileX;
-    int tilesX = 8;
-
-    int grassTopIndex = 0 * tilesX + 0;  // (tileX=0, tileY=0)
-    int leavesIndex   = 0 * tilesX + 5;  // (tileX=5, tileY=0)
-    // se ti serve uTileWaterIndex puoi farlo allo stesso modo: int waterIndex = 0 * tilesX + 6;
-
-    voxelShader.setUniform(uTileGrassTopIndex, grassTopIndex); // <<< nuovo
-    voxelShader.setUniform(uTileLeavesIndex,   leavesIndex);   // <<< nuovo
-    // niente più setUniform2i(uTileWater,...) perché nel tuo fragment non lo usi
-
-    // --- FINE CAMBIO IMPORTANTE ---
-
-    // Fog uniforms
-    float fogColorR = underwater ? 0.10f : clearR;
-    float fogColorG = underwater ? 0.32f : clearG;
-    float fogColorB = underwater ? 0.70f : clearB;
-    voxelShader.setUniform(uFogEnabled, fogEnabled ? 1 : 0);
-    voxelShader.setUniform(uFogColor, fogColorR, fogColorG, fogColorB);
-    voxelShader.setUniform(uFogStart, fogStart * viewDistanceWorld);
-    voxelShader.setUniform(uFogEnd, fogEnd * viewDistanceWorld);
-    
-    // Get ALL loaded chunks, then filter by frustum
-    ArrayList<Chunk> allChunks = world.getVisibleChunks(camera.getPosition());
-    ArrayList<Chunk> visibleChunks = filterByFrustum(allChunks);
-    
-    // Sort by distance (front-to-back for better early-z rejection)
-    Vec3 camPos = camera.getPosition();
-    visibleChunks.sort((a, b) -> {
-        float distA = chunkDistanceSq(a, camPos);
-        float distB = chunkDistanceSq(b, camPos);
-        return Float.compare(distA, distB);
-    });
-    
-    // Update stats
-    lastChunksTotal = allChunks.size();
-    lastChunksRendered = visibleChunks.size();
-    lastChunksCulled = lastChunksTotal - lastChunksRendered;
-    
-    // Reset LOD counts
-    for (int i = 0; i < 4; i++) lodCounts[i] = 0;
-    
-    // Render solid (front-to-back)
-    glDisable(GL_BLEND);
-    glDepthMask(true);
-    voxelShader.setUniform(uWaterPass, 0);
-    voxelShader.setUniform(uTint, 1f, 1f, 1f, 1f);
-
-
-// Time of day 0..1, se ti serve in altri effetti
-float timeOfDay = world.getTimeOfDay();
-voxelShader.setUniform(uTimeOfDay, timeOfDay);
-
-// Direzione del sole calcolata dal World
-Vec3 sunDir = world.getSunDirection();
-voxelShader.setUniform(uSunDir, sunDir);
-
-// Altezza del sole sopra l'orizzonte (0 = sotto, 1 = molto alto)
-float sunHeight = Math.max(0f, sunDir.y);
-
-// Curva un po' morbida: vicino a mezzogiorno più forte, ma non istantaneo
-float sunStrength = (float) Math.pow(sunHeight, 1.2f);
-
-// Colore base del sole (giallo caldo), poi scalato per intensità
-float sunR = 1.0f * sunStrength;
-float sunG = 0.95f * sunStrength;
-float sunB = 0.85f * sunStrength;
-Vec3 sunColor = new Vec3(sunR, sunG, sunB);
-voxelShader.setUniform(uSunColor, sunColor);
-
-// Ambient: non deve andare a zero totale, altrimenti è pitch black
-float ambientStrength = 0.35f + 0.35f * sunHeight; // 0.35 notte, ~0.7 giorno
-Vec3 ambientColor = new Vec3(
-    0.6f * ambientStrength,
-    0.7f * ambientStrength,
-    0.9f * ambientStrength
-);
-voxelShader.setUniform(uAmbientColor, ambientColor);
-
-
-    
-    for (Chunk chunk : visibleChunks) {
-        int lod = calculateChunkLOD(chunk);
-        lodCounts[lod]++;
-        
-        // Get mesh for this LOD level
-        Mesh solidMesh = chunk.getSolidMesh(lod);
-        if (solidMesh != null && !solidMesh.isEmpty()) {
-            Mat4 model = Mat4.translate(
-                chunk.getX() * config.chunkSize, 0,
-                chunk.getZ() * config.chunkSize
-            );
-            voxelShader.setUniform(uModel, model);
-            solidMesh.draw();
+    public void renderWorld(World world) {
+        if (camera == null) {
+            System.err.println("Warning: No camera set");
+            return;
         }
-    }
-    
-    // Block selection
-    voxelShader.unbind();
-    renderBlockSelection(world);
-    voxelShader.bind();
-    
-    // Transparent (back-to-front for correct alpha blending)
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDisable(GL_CULL_FACE);
-    glDepthMask(false);
-    voxelShader.setUniform(uWaterPass, 0);
-    
-    // Iterate back-to-front
-    for (int i = visibleChunks.size() - 1; i >= 0; i--) {
-        Chunk chunk = visibleChunks.get(i);
-        int lod = calculateChunkLOD(chunk);
-        
-        // At high LOD, transparent mesh is empty (merged into solid)
-        Mesh transpMesh = chunk.getTransparentMesh(lod);
-        if (transpMesh != null && !transpMesh.isEmpty()) {
-            Mat4 model = Mat4.translate(
-                chunk.getX() * config.chunkSize, 0,
-                chunk.getZ() * config.chunkSize
-            );
-            voxelShader.setUniform(uModel, model);
-            transpMesh.draw();
+
+        this.currentWorld = world;
+        boolean underwater = isHeadUnderwater(world);
+
+        // Update frustum from camera matrices
+        if (frustumCullingEnabled) {
+            updateFrustum();
         }
-    }
-    
-    // Water (back-to-front)
-    glDepthMask(true);
-    voxelShader.setUniform(uWaterPass, 1);
-    
-    for (int i = visibleChunks.size() - 1; i >= 0; i--) {
-        Chunk chunk = visibleChunks.get(i);
-        int lod = calculateChunkLOD(chunk);
-        
-        Mesh waterMesh = chunk.getWaterMesh(lod);
-        if (waterMesh != null && !waterMesh.isEmpty()) {
-            Mat4 model = Mat4.translate(
-                chunk.getX() * config.chunkSize, 0,
-                chunk.getZ() * config.chunkSize
-            );
-            voxelShader.setUniform(uModel, model);
-            waterMesh.draw();
+
+        // --- SKYBOX ---
+        renderSkybox(world);
+        // --- FINE SKYBOX ---
+
+        voxelShader.bind();
+        atlasTexture.bind(0); // TextureArray o Texture classica, il bind non cambia
+
+        // Calculate view distance in world units for fog
+        float viewDistanceWorld = config.viewDistance * config.chunkSize;
+
+        // Set uniforms base
+        voxelShader.setUniform(uProj, camera.getProjectionMatrix());
+        voxelShader.setUniform(uView, camera.getViewMatrix());
+        voxelShader.setUniform(uTex, 0);
+        voxelShader.setUniform(uTime, world.getGameTime());
+        voxelShader.setUniform(uCameraPos, camera.getPosition());
+        voxelShader.setUniform(uWaterLevel, config.waterLevel);
+        voxelShader.setUniform(uUnderwater, underwater ? 1 : 0);
+
+        // Rimangono se ti servono nello shader (per l'acqua usi ancora uTilesX/uTilesY)
+        voxelShader.setUniform(uTilesX, 8);
+        voxelShader.setUniform(uTilesY, 8);
+
+        voxelShader.setUniform(uGrassTint, 0.54f, 0.78f, 0.38f);
+        voxelShader.setUniform(uFoliageTint, 0.52f, 0.75f, 0.35f);
+
+        // --- QUI È IL CAMBIO IMPORTANTE ---
+
+        // Prima avevi:
+        // voxelShader.setUniform2i(uTileGrassTop, 0, 0);
+        // voxelShader.setUniform2i(uTileLeaves, 5, 0);
+        // voxelShader.setUniform2i(uTileWater, 6, 0);
+
+        // Ora calcoliamo gli INDICI layer per l'atlas 8x8:
+        // layerIndex = tileY * tilesX + tileX;
+        int tilesX = 8;
+
+        int grassTopIndex = 0 * tilesX + 0; // (tileX=0, tileY=0)
+        int leavesIndex = 0 * tilesX + 5; // (tileX=5, tileY=0)
+        // se ti serve uTileWaterIndex puoi farlo allo stesso modo: int waterIndex = 0 *
+        // tilesX + 6;
+
+        voxelShader.setUniform(uTileGrassTopIndex, grassTopIndex); // <<< nuovo
+        voxelShader.setUniform(uTileLeavesIndex, leavesIndex); // <<< nuovo
+        // niente più setUniform2i(uTileWater,...) perché nel tuo fragment non lo usi
+
+        // --- FINE CAMBIO IMPORTANTE ---
+
+        // Fog uniforms
+        float fogColorR = underwater ? 0.10f : clearR;
+        float fogColorG = underwater ? 0.32f : clearG;
+        float fogColorB = underwater ? 0.70f : clearB;
+        voxelShader.setUniform(uFogEnabled, fogEnabled ? 1 : 0);
+        voxelShader.setUniform(uFogColor, fogColorR, fogColorG, fogColorB);
+        voxelShader.setUniform(uFogStart, fogStart * viewDistanceWorld);
+        voxelShader.setUniform(uFogEnd, fogEnd * viewDistanceWorld);
+
+        // Get ALL loaded chunks, then filter by frustum
+        ArrayList<Chunk> allChunks = world.getVisibleChunks(camera.getPosition());
+        ArrayList<Chunk> visibleChunks = filterByFrustum(allChunks);
+
+        // Sort by distance (front-to-back for better early-z rejection)
+        Vec3 camPos = camera.getPosition();
+        visibleChunks.sort((a, b) -> {
+            float distA = chunkDistanceSq(a, camPos);
+            float distB = chunkDistanceSq(b, camPos);
+            return Float.compare(distA, distB);
+        });
+
+        // Update stats
+        lastChunksTotal = allChunks.size();
+        lastChunksRendered = visibleChunks.size();
+        lastChunksCulled = lastChunksTotal - lastChunksRendered;
+
+        // Reset LOD counts
+        for (int i = 0; i < 4; i++)
+            lodCounts[i] = 0;
+
+        // Render solid (front-to-back)
+        glDisable(GL_BLEND);
+        glDepthMask(true);
+        voxelShader.setUniform(uWaterPass, 0);
+        voxelShader.setUniform(uTint, 1f, 1f, 1f, 1f);
+
+        // Time of day 0..1, se ti serve in altri effetti
+        float timeOfDay = world.getTimeOfDay();
+        voxelShader.setUniform(uTimeOfDay, timeOfDay);
+
+        // Direzione del sole calcolata dal World
+        Vec3 sunDir = world.getSunDirection();
+        voxelShader.setUniform(uSunDir, sunDir);
+
+        // Altezza del sole sopra l'orizzonte (0 = sotto, 1 = molto alto)
+        float sunHeight = Math.max(0f, sunDir.y);
+
+        // Curva un po' morbida: vicino a mezzogiorno più forte, ma non istantaneo
+        float sunStrength = (float) Math.pow(sunHeight, 1.2f);
+
+        // Colore base del sole (giallo caldo), poi scalato per intensità
+        float sunR = 1.0f * sunStrength;
+        float sunG = 0.95f * sunStrength;
+        float sunB = 0.85f * sunStrength;
+        Vec3 sunColor = new Vec3(sunR, sunG, sunB);
+        voxelShader.setUniform(uSunColor, sunColor);
+
+        // Ambient: non deve andare a zero totale, altrimenti è pitch black
+        float ambientStrength = 0.35f + 0.35f * sunHeight; // 0.35 notte, ~0.7 giorno
+        Vec3 ambientColor = new Vec3(
+                0.6f * ambientStrength,
+                0.7f * ambientStrength,
+                0.9f * ambientStrength);
+        voxelShader.setUniform(uAmbientColor, ambientColor);
+
+        for (Chunk chunk : visibleChunks) {
+            int lod = calculateChunkLOD(chunk);
+            lodCounts[lod]++;
+
+            // Get mesh for this LOD level
+            Mesh solidMesh = chunk.getSolidMesh(lod);
+            if (solidMesh != null && !solidMesh.isEmpty()) {
+                Mat4 model = Mat4.translate(
+                        chunk.getX() * config.chunkSize, 0,
+                        chunk.getZ() * config.chunkSize);
+                voxelShader.setUniform(uModel, model);
+                solidMesh.draw();
+            }
         }
+
+        // Block selection
+        voxelShader.unbind();
+        renderBlockSelection(world);
+        voxelShader.bind();
+
+        // Transparent (back-to-front for correct alpha blending)
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDisable(GL_CULL_FACE);
+        glDepthMask(false);
+        voxelShader.setUniform(uWaterPass, 0);
+
+        // Iterate back-to-front
+        for (int i = visibleChunks.size() - 1; i >= 0; i--) {
+            Chunk chunk = visibleChunks.get(i);
+            int lod = calculateChunkLOD(chunk);
+
+            // At high LOD, transparent mesh is empty (merged into solid)
+            Mesh transpMesh = chunk.getTransparentMesh(lod);
+            if (transpMesh != null && !transpMesh.isEmpty()) {
+                Mat4 model = Mat4.translate(
+                        chunk.getX() * config.chunkSize, 0,
+                        chunk.getZ() * config.chunkSize);
+                voxelShader.setUniform(uModel, model);
+                transpMesh.draw();
+            }
+        }
+
+        // Water (back-to-front)
+        glDepthMask(true);
+        voxelShader.setUniform(uWaterPass, 1);
+
+        for (int i = visibleChunks.size() - 1; i >= 0; i--) {
+            Chunk chunk = visibleChunks.get(i);
+            int lod = calculateChunkLOD(chunk);
+
+            Mesh waterMesh = chunk.getWaterMesh(lod);
+            if (waterMesh != null && !waterMesh.isEmpty()) {
+                Mat4 model = Mat4.translate(
+                        chunk.getX() * config.chunkSize, 0,
+                        chunk.getZ() * config.chunkSize);
+                voxelShader.setUniform(uModel, model);
+                waterMesh.draw();
+            }
+        }
+
+        glDepthMask(true);
+        voxelShader.unbind();
     }
-    
-    glDepthMask(true);
-    voxelShader.unbind();
-}
 
     private float chunkDistanceSq(Chunk chunk, Vec3 camPos) {
         float cx = (chunk.getX() + 0.5f) * config.chunkSize;
@@ -564,29 +547,28 @@ voxelShader.setUniform(uAmbientColor, ambientColor);
         float dz = cz - camPos.z;
         return dx * dx + dz * dz;
     }
-    
+
     /**
      * Update frustum planes from camera.
      */
     private void updateFrustum() {
         float[] p = camera.getProjectionMatrix().m;
         float[] v = camera.getViewMatrix().m;
-        
+
         // Compute VP = P * V (column-major)
         float[] vp = new float[16];
         for (int col = 0; col < 4; col++) {
             for (int row = 0; row < 4; row++) {
-                vp[col * 4 + row] = 
-                    p[0 * 4 + row] * v[col * 4 + 0] +
-                    p[1 * 4 + row] * v[col * 4 + 1] +
-                    p[2 * 4 + row] * v[col * 4 + 2] +
-                    p[3 * 4 + row] * v[col * 4 + 3];
+                vp[col * 4 + row] = p[0 * 4 + row] * v[col * 4 + 0] +
+                        p[1 * 4 + row] * v[col * 4 + 1] +
+                        p[2 * 4 + row] * v[col * 4 + 2] +
+                        p[3 * 4 + row] * v[col * 4 + 3];
             }
         }
-        
+
         frustum.update(vp);
     }
-    
+
     /**
      * Filter chunks by frustum - only keep visible ones!
      */
@@ -594,287 +576,344 @@ voxelShader.setUniform(uAmbientColor, ambientColor);
         if (!frustumCullingEnabled) {
             return chunks;
         }
-        
+
         ArrayList<Chunk> visible = new ArrayList<>();
         for (Chunk chunk : chunks) {
             float minX = chunk.getX() * config.chunkSize;
             float minZ = chunk.getZ() * config.chunkSize;
             float maxX = minX + config.chunkSize;
             float maxZ = minZ + config.chunkSize;
-            
+
             // Test chunk bounding box against frustum
             if (frustum.testAABB(minX, 0, minZ, maxX, config.worldHeight, maxZ)) {
                 visible.add(chunk);
             }
         }
-        
+
         return visible;
     }
-    
-    public void endFrame() {}
-    
-    public void cleanup() {
-        if (voxelShader != null) voxelShader.cleanup();
-        if (atlasTexture != null) atlasTexture.cleanup();
-        if (wireframeRenderer != null) wireframeRenderer.cleanup();
 
-        if (skyShader != null) skyShader.cleanup();
-        if (skyVAO != 0) glDeleteVertexArrays(skyVAO);
-        if (skyVBO != 0) glDeleteBuffers(skyVBO);
+    public void endFrame() {
     }
 
-    
+    public void cleanup() {
+        if (voxelShader != null)
+            voxelShader.cleanup();
+        if (atlasTexture != null)
+            atlasTexture.cleanup();
+        if (wireframeRenderer != null)
+            wireframeRenderer.cleanup();
+
+        if (skyShader != null)
+            skyShader.cleanup();
+        if (skyVAO != 0)
+            glDeleteVertexArrays(skyVAO);
+        if (skyVBO != 0)
+            glDeleteBuffers(skyVBO);
+    }
+
     private void renderBlockSelection(World world) {
-        if (camera == null || world == null) return;
-        
+        if (camera == null || world == null)
+            return;
+
         Raycast.RayHit hit = Raycast.cast(
-            world,
-            camera.getPosition().x, camera.getPosition().y, camera.getPosition().z,
-            camera.getForward().x, camera.getForward().y, camera.getForward().z,
-            6.0f
-        );
-        
+                world,
+                camera.getPosition().x, camera.getPosition().y, camera.getPosition().z,
+                camera.getForward().x, camera.getForward().y, camera.getForward().z,
+                6.0f);
+
         if (hit.hit) {
             glDisable(GL_BLEND);
             glEnable(GL_DEPTH_TEST);
             wireframeRenderer.draw(
-                camera.getProjectionMatrix(), camera.getViewMatrix(),
-                hit.blockX, hit.blockY, hit.blockZ,
-                0.0f, 0.0f, 0.0f, 1.0f
-            );
+                    camera.getProjectionMatrix(), camera.getViewMatrix(),
+                    hit.blockX, hit.blockY, hit.blockZ,
+                    0.0f, 0.0f, 0.0f, 1.0f);
         }
     }
-    
+
     // === FRUSTUM CONTROLS ===
-    
-    public void setFrustumCullingEnabled(boolean enabled) { this.frustumCullingEnabled = enabled; }
-    public boolean isFrustumCullingEnabled() { return frustumCullingEnabled; }
-    public void toggleFrustumCulling() { 
+
+    public void setFrustumCullingEnabled(boolean enabled) {
+        this.frustumCullingEnabled = enabled;
+    }
+
+    public boolean isFrustumCullingEnabled() {
+        return frustumCullingEnabled;
+    }
+
+    public void toggleFrustumCulling() {
         frustumCullingEnabled = !frustumCullingEnabled;
         System.out.println("Frustum culling: " + (frustumCullingEnabled ? "ON" : "OFF"));
     }
-    
+
     // === LOD CONTROLS ===
-    
-    public void setLODEnabled(boolean enabled) { this.lodEnabled = enabled; }
-    public boolean isLODEnabled() { return lodEnabled; }
+
+    public void setLODEnabled(boolean enabled) {
+        this.lodEnabled = enabled;
+    }
+
+    public boolean isLODEnabled() {
+        return lodEnabled;
+    }
+
     public void toggleLOD() {
         lodEnabled = !lodEnabled;
         System.out.println("LOD system: " + (lodEnabled ? "ON" : "OFF"));
     }
-    
+
     // === FOG CONTROLS ===
-    
-    public void setFogEnabled(boolean enabled) { this.fogEnabled = enabled; }
-    public boolean isFogEnabled() { return fogEnabled; }
+
+    public void setFogEnabled(boolean enabled) {
+        this.fogEnabled = enabled;
+    }
+
+    public boolean isFogEnabled() {
+        return fogEnabled;
+    }
+
     public void toggleFog() {
         fogEnabled = !fogEnabled;
         System.out.println("Fog: " + (fogEnabled ? "ON" : "OFF"));
     }
-    
-    public void setFogStart(float start) { this.fogStart = Math.max(0, Math.min(1, start)); }
-    public void setFogEnd(float end) { this.fogEnd = Math.max(0, Math.min(1, end)); }
-    public float getFogStart() { return fogStart; }
-    public float getFogEnd() { return fogEnd; }
-    
-    // === STATS ===
-    
-    public String getCullingStats() {
-        return String.format("Rendered: %d / %d chunks (culled %d)", 
-            lastChunksRendered, lastChunksTotal, lastChunksCulled);
+
+    public void setFogStart(float start) {
+        this.fogStart = Math.max(0, Math.min(1, start));
     }
-    
+
+    public void setFogEnd(float end) {
+        this.fogEnd = Math.max(0, Math.min(1, end));
+    }
+
+    public float getFogStart() {
+        return fogStart;
+    }
+
+    public float getFogEnd() {
+        return fogEnd;
+    }
+
+    // === STATS ===
+
+    public String getCullingStats() {
+        return String.format("Rendered: %d / %d chunks (culled %d)",
+                lastChunksRendered, lastChunksTotal, lastChunksCulled);
+    }
+
     public String getLODStats() {
         return String.format("LOD: L0=%d L1=%d L2=%d L3=%d",
-            lodCounts[0], lodCounts[1], lodCounts[2], lodCounts[3]);
+                lodCounts[0], lodCounts[1], lodCounts[2], lodCounts[3]);
     }
-    
-    public int getChunksRendered() { return lastChunksRendered; }
-    public int getChunksTotal() { return lastChunksTotal; }
-    public int getChunksCulled() { return lastChunksCulled; }
-    public int[] getLODCounts() { return lodCounts.clone(); }
-    
-    public void setCamera(Camera camera) { this.camera = camera; }
-    public Camera getCamera() { return camera; }
-    
+
+    public int getChunksRendered() {
+        return lastChunksRendered;
+    }
+
+    public int getChunksTotal() {
+        return lastChunksTotal;
+    }
+
+    public int getChunksCulled() {
+        return lastChunksCulled;
+    }
+
+    public int[] getLODCounts() {
+        return lodCounts.clone();
+    }
+
+    public TextureArray getAtlasTexture() {
+        return atlasTexture;
+    }
+
+    public void setCamera(Camera camera) {
+        this.camera = camera;
+    }
+
+    public Camera getCamera() {
+        return camera;
+    }
+
     // === SHADERS WITH FOG SUPPORT ===
-    
-private String getVertexShader() {
-    return "#version 330 core\n" +
-        "layout(location=0) in vec3 aPos;\n" +
-        "layout(location=1) in vec2 aUV;\n" +
-        "layout(location=2) in float aAO;\n" +
-        "layout(location=3) in float aFaceIdx;\n" +
-        "layout(location=4) in float aTileIndex;\n" +
-        "layout(location=5) in float aSkyLight;\n" +     // ✅ NEW
-        "layout(location=6) in float aBlockLight;\n" +   // ✅ NEW
-        "\n" +
-        "uniform mat4 uProj, uView, uModel;\n" +
-        "uniform float uTime;\n" +
-        "uniform int uWaterPass;\n" +
-        "uniform float uWaterLevel;\n" +
-        "uniform vec3 uCameraPos;\n" +
-        "\n" +
-        "out vec2 vUV;\n" +
-        "out float vAO;\n" +
-        "out float vSkyLight;\n" +      // ✅ NEW
-        "out float vBlockLight;\n" +    // ✅ NEW
-        "out vec2 vWorldXZ;\n" +
-        "out vec3 vWP;\n" +
-        "out float vDistFromCamera;\n" +
-        "out float vTileIndex;\n" +
-        "out vec3 vNormal;\n" +
-        "\n" +
-        "float noise2D(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n" +
-        "float smoothNoise2D(vec2 p){ vec2 i=floor(p), f=fract(p); float a=noise2D(i); float b=noise2D(i+vec2(1,0)); float c=noise2D(i+vec2(0,1)); float d=noise2D(i+vec2(1,1)); vec2 u=f*f*(3.0-2.0*f); return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y; }\n" +
-        "float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*smoothNoise2D(p); p*=2.0; a*=0.5; } return v; }\n" +
-        "float heightWater(vec2 xz, float t){ vec2 p = xz*0.18 + vec2(t*0.30, -t*0.26); float h = fbm(p)*2.0-1.0; return 0.06*h; }\n" +
-        "\n" +
-        "vec3 faceNormal(float idx){\n" +
-        "  if (idx < 0.5) return vec3( 1.0, 0.0, 0.0);\n" +
-        "  else if (idx < 1.5) return vec3(-1.0, 0.0, 0.0);\n" +
-        "  else if (idx < 2.5) return vec3(0.0, 1.0, 0.0);\n" +
-        "  else if (idx < 3.5) return vec3(0.0,-1.0, 0.0);\n" +
-        "  else if (idx < 4.5) return vec3(0.0, 0.0, 1.0);\n" +
-        "  else               return vec3(0.0, 0.0,-1.0);\n" +
-        "}\n" +
-        "\n" +
-        "void main(){\n" +
-        "  vUV = aUV;\n" +
-        "  vAO = aAO;\n" +
-        "  vSkyLight = aSkyLight;\n" +      // ✅ Pass through
-        "  vBlockLight = aBlockLight;\n" +  // ✅ Pass through
-        "  vTileIndex = aTileIndex;\n" +
-        "\n" +
-        "  vec4 wp4 = uModel * vec4(aPos, 1.0);\n" +
-        "  vec3 wp  = wp4.xyz;\n" +
-        "  vec3 wpO = wp;\n" +
-        "\n" +
-        "  vec3 localN = faceNormal(aFaceIdx);\n" +
-        "  vNormal = mat3(uModel) * localN;\n" +
-        "\n" +
-        "  if(uWaterPass==1){\n" +
-        "    float surfY = uWaterLevel + 1.0;\n" +
-        "    float d = abs(wpO.y - surfY);\n" +
-        "    float w = 1.0 - min(d, 1.0);\n" +
-        "    w = w*w*(3.0 - 2.0*w);\n" +
-        "    float dh = heightWater(wpO.xz, uTime);\n" +
-        "    wp.y += dh*w;\n" +
-        "    wp4.xyz = wp;\n" +
-        "    vNormal = vec3(0.0,1.0,0.0);\n" +
-        "  }\n" +
-        "\n" +
-        "  vWorldXZ = (uWaterPass==1) ? wpO.xz : wp.xz;\n" +
-        "  vWP = wp;\n" +
-        "  vDistFromCamera = length(wp - uCameraPos);\n" +
-        "  gl_Position = uProj * uView * wp4;\n" +
-        "}\n";
-}
 
+    private String getVertexShader() {
+        return "#version 330 core\n" +
+                "layout(location=0) in vec3 aPos;\n" +
+                "layout(location=1) in vec2 aUV;\n" +
+                "layout(location=2) in float aAO;\n" +
+                "layout(location=3) in float aFaceIdx;\n" +
+                "layout(location=4) in float aTileIndex;\n" +
+                "layout(location=5) in float aSkyLight;\n" + // ✅ NEW
+                "layout(location=6) in float aBlockLight;\n" + // ✅ NEW
+                "\n" +
+                "uniform mat4 uProj, uView, uModel;\n" +
+                "uniform float uTime;\n" +
+                "uniform int uWaterPass;\n" +
+                "uniform float uWaterLevel;\n" +
+                "uniform vec3 uCameraPos;\n" +
+                "\n" +
+                "out vec2 vUV;\n" +
+                "out float vAO;\n" +
+                "out float vSkyLight;\n" + // ✅ NEW
+                "out float vBlockLight;\n" + // ✅ NEW
+                "out vec2 vWorldXZ;\n" +
+                "out vec3 vWP;\n" +
+                "out float vDistFromCamera;\n" +
+                "out float vTileIndex;\n" +
+                "out vec3 vNormal;\n" +
+                "\n" +
+                "float noise2D(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n" +
+                "float smoothNoise2D(vec2 p){ vec2 i=floor(p), f=fract(p); float a=noise2D(i); float b=noise2D(i+vec2(1,0)); float c=noise2D(i+vec2(0,1)); float d=noise2D(i+vec2(1,1)); vec2 u=f*f*(3.0-2.0*f); return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y; }\n"
+                +
+                "float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*smoothNoise2D(p); p*=2.0; a*=0.5; } return v; }\n"
+                +
+                "float heightWater(vec2 xz, float t){ vec2 p = xz*0.18 + vec2(t*0.30, -t*0.26); float h = fbm(p)*2.0-1.0; return 0.06*h; }\n"
+                +
+                "\n" +
+                "vec3 faceNormal(float idx){\n" +
+                "  if (idx < 0.5) return vec3( 1.0, 0.0, 0.0);\n" +
+                "  else if (idx < 1.5) return vec3(-1.0, 0.0, 0.0);\n" +
+                "  else if (idx < 2.5) return vec3(0.0, 1.0, 0.0);\n" +
+                "  else if (idx < 3.5) return vec3(0.0,-1.0, 0.0);\n" +
+                "  else if (idx < 4.5) return vec3(0.0, 0.0, 1.0);\n" +
+                "  else               return vec3(0.0, 0.0,-1.0);\n" +
+                "}\n" +
+                "\n" +
+                "void main(){\n" +
+                "  vUV = aUV;\n" +
+                "  vAO = aAO;\n" +
+                "  vSkyLight = aSkyLight;\n" + // ✅ Pass through
+                "  vBlockLight = aBlockLight;\n" + // ✅ Pass through
+                "  vTileIndex = aTileIndex;\n" +
+                "\n" +
+                "  vec4 wp4 = uModel * vec4(aPos, 1.0);\n" +
+                "  vec3 wp  = wp4.xyz;\n" +
+                "  vec3 wpO = wp;\n" +
+                "\n" +
+                "  vec3 localN = faceNormal(aFaceIdx);\n" +
+                "  vNormal = mat3(uModel) * localN;\n" +
+                "\n" +
+                "  if(uWaterPass==1){\n" +
+                "    float surfY = uWaterLevel + 1.0;\n" +
+                "    float d = abs(wpO.y - surfY);\n" +
+                "    float w = 1.0 - min(d, 1.0);\n" +
+                "    w = w*w*(3.0 - 2.0*w);\n" +
+                "    float dh = heightWater(wpO.xz, uTime);\n" +
+                "    wp.y += dh*w;\n" +
+                "    wp4.xyz = wp;\n" +
+                "    vNormal = vec3(0.0,1.0,0.0);\n" +
+                "  }\n" +
+                "\n" +
+                "  vWorldXZ = (uWaterPass==1) ? wpO.xz : wp.xz;\n" +
+                "  vWP = wp;\n" +
+                "  vDistFromCamera = length(wp - uCameraPos);\n" +
+                "  gl_Position = uProj * uView * wp4;\n" +
+                "}\n";
+    }
 
-private String getFragmentShader() {
-    return "#version 330 core\n" +
-        "in vec2 vUV;\n" +
-        "in float vAO;\n" +
-        "in float vSkyLight;\n" +
-        "in float vBlockLight;\n" +
-        "in vec2 vWorldXZ;\n" +
-        "in vec3 vWP;\n" +
-        "in float vDistFromCamera;\n" +
-        "in float vTileIndex;\n" + 
-        
-        "in vec3 vNormal;\n" +
-        "\n" +
-        "uniform sampler2DArray uTex;\n" +
-        "uniform vec4 uTint;\n" +
-        "uniform int uTileGrassTopIndex;\n" +
-        "uniform int uTileLeavesIndex;\n" +
-        "uniform vec3 uGrassTint;\n" +
-        "uniform vec3 uFoliageTint;\n" +
-        "uniform vec3 uCameraPos;\n" +
-        "uniform int uUnderwater;\n" +
-        "uniform float uWaterLevel;\n" +
-        "uniform int uWaterPass;\n" +
-        "uniform int uFogEnabled;\n" +
-        "uniform float uFogStart;\n" +
-        "uniform float uFogEnd;\n" +
-        "uniform vec3 uSunDir;\n" +
-        "\n" +
-        "out vec4 FragColor;\n" +
-        "\n" +
-        "float calculateFog(float dist) {\n" +
-        "  if (uFogEnabled == 0) return 0.0;\n" +
-        "  float fogFactor = (dist - uFogStart) / (uFogEnd - uFogStart);\n" +
-        "  return clamp(fogFactor, 0.0, 1.0);\n" +
-        "}\n" +
-        "\n" +
-        "vec3 getSkyLightColor(vec3 sunDir) {\n" +
-        "  float sunHeight = sunDir.y;\n" +
-        "  vec3 dayColor   = vec3(1.00, 1.00, 1.00);\n" +
-        "  vec3 nightColor = vec3(0.15, 0.20, 0.35); // Notte un po' più luminosa\n" +
-        "  float t = clamp(sunHeight * 2.0 + 0.2, 0.0, 1.0);\n" +
-        "  return mix(nightColor, dayColor, t);\n" +
-        "}\n" +
-        "\n" +
-"void main(){\n" +
-        "  int tileIndex = int(vTileIndex + 0.5);\n" +
-        "  float dist = length(vWP - uCameraPos);\n" +
-        "  float fogAmount = calculateFog(dist);\n" +
-        "\n" +
-        "  // 1. LUCE (Teniamo valori 'vivi')\n" +
-        "  // uSunDir.y varia da -1 a 1. Lo mappiamo per avere luce piena (1.0) di giorno e minima (0.2) di notte\n" +
-        "  float sunHeight = uSunDir.y;\n" +
-        "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" + 
-        "  \n" +
-        "  float skyLum = vSkyLight * skyIntensity;\n" +
-        "  float blockLum = vBlockLight;\n" +
-        "  float lightLevel = max(skyLum, blockLum);\n" +
-        "\n" +
-        "  // 2. COLORE TEXTURE (Senza alterazioni gamma)\n" +
-        "  vec4 texColor;\n" +
-        "  vec3 finalColor;\n" +
-        "\n" +
-        "  if (uWaterPass == 0) { // BLOCCHI SOLIDI\n" +
-        "     texColor = texture(uTex, vec3(vUV, tileIndex));\n" +
-        "     if(texColor.a < 0.1) discard;\n" +
-        "\n" +
-        "     // Tinting (Erba/Foglie)\n" +
-        "     vec3 terrainTint = uTint.rgb;\n" +
-        "     if(tileIndex == uTileGrassTopIndex) terrainTint *= uGrassTint;\n" +
-        "     else if(tileIndex == uTileLeavesIndex) terrainTint *= uFoliageTint;\n" +
-        "     \n" +
-        "     finalColor = texColor.rgb * terrainTint;\n" +
-        "     \n" +
-        "     // --- FIX ARTEFATTI E COLORE ---\n" +
-        "     // 1. Non scuriamo mai oltre il 10% per evitare il nero assoluto\n" +
-        "     lightLevel = max(lightLevel, 0.1);\n" +
-        "     \n" +
-        "     \n" +
-        "     // 2. Applichiamo l'AO in modo non lineare per evitare scuri troppo forti\n" +
-        "     finalColor *= vAO;\n" +
-        "     // 3. Moltiplichiamo per la luce\n" +
-        "     finalColor *= lightLevel;\n" +
-        "\n" +
-        "  } else { // ACQUA\n" +
-        "     texColor = vec4(0.2, 0.5, 0.9, 0.6);\n" +
-        "     finalColor = texColor.rgb * lightLevel * vAO;\n" +
-        "  }\n" +
-        "\n" +
-        "  // 3. FOG (Nebbia)\n" +
-        "  vec3 skyColor = getSkyLightColor(uSunDir);\n" +
-        "  // La nebbia deve corrispondere al colore del cielo per fondersi bene\n" +
-        "  vec3 fogColor = skyColor;\n" +
-        "\n" +
-        "  if(uUnderwater == 1){\n" +
-        "      fogColor = vec3(0.1, 0.3, 0.7);\n" +
-        "      fogAmount = 1.0 - exp(-dist * 0.15);\n" +
-        "  }\n" +
-        "\n" +
-        "  finalColor = mix(finalColor, fogColor, fogAmount);\n" +
-        "\n" +
-        "  // 4. NESSUNA GAMMA CORRECTION QUI!\n" +
-        "  // Usciamo direttamente con il colore calcolato.\n" +
-        "  FragColor = vec4(finalColor, texColor.a * uTint.a);\n" +
-        "}\n";
-}
+    private String getFragmentShader() {
+        return "#version 330 core\n" +
+                "in vec2 vUV;\n" +
+                "in float vAO;\n" +
+                "in float vSkyLight;\n" +
+                "in float vBlockLight;\n" +
+                "in vec2 vWorldXZ;\n" +
+                "in vec3 vWP;\n" +
+                "in float vDistFromCamera;\n" +
+                "in float vTileIndex;\n" +
+
+                "in vec3 vNormal;\n" +
+                "\n" +
+                "uniform sampler2DArray uTex;\n" +
+                "uniform vec4 uTint;\n" +
+                "uniform int uTileGrassTopIndex;\n" +
+                "uniform int uTileLeavesIndex;\n" +
+                "uniform vec3 uGrassTint;\n" +
+                "uniform vec3 uFoliageTint;\n" +
+                "uniform vec3 uCameraPos;\n" +
+                "uniform int uUnderwater;\n" +
+                "uniform float uWaterLevel;\n" +
+                "uniform int uWaterPass;\n" +
+                "uniform int uFogEnabled;\n" +
+                "uniform float uFogStart;\n" +
+                "uniform float uFogEnd;\n" +
+                "uniform vec3 uSunDir;\n" +
+                "\n" +
+                "out vec4 FragColor;\n" +
+                "\n" +
+                "float calculateFog(float dist) {\n" +
+                "  if (uFogEnabled == 0) return 0.0;\n" +
+                "  float fogFactor = (dist - uFogStart) / (uFogEnd - uFogStart);\n" +
+                "  return clamp(fogFactor, 0.0, 1.0);\n" +
+                "}\n" +
+                "\n" +
+                "vec3 getSkyLightColor(vec3 sunDir) {\n" +
+                "  float sunHeight = sunDir.y;\n" +
+                "  vec3 dayColor   = vec3(1.00, 1.00, 1.00);\n" +
+                "  vec3 nightColor = vec3(0.15, 0.20, 0.35); // Notte un po' più luminosa\n" +
+                "  float t = clamp(sunHeight * 2.0 + 0.2, 0.0, 1.0);\n" +
+                "  return mix(nightColor, dayColor, t);\n" +
+                "}\n" +
+                "\n" +
+                "void main(){\n" +
+                "  int tileIndex = int(vTileIndex + 0.5);\n" +
+                "  float dist = length(vWP - uCameraPos);\n" +
+                "  float fogAmount = calculateFog(dist);\n" +
+                "\n" +
+                "  // 1. LUCE (Teniamo valori 'vivi')\n" +
+                "  // uSunDir.y varia da -1 a 1. Lo mappiamo per avere luce piena (1.0) di giorno e minima (0.2) di notte\n"
+                +
+                "  float sunHeight = uSunDir.y;\n" +
+                "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" +
+                "  \n" +
+                "  float skyLum = vSkyLight * skyIntensity;\n" +
+                "  float blockLum = vBlockLight;\n" +
+                "  float lightLevel = max(skyLum, blockLum);\n" +
+                "\n" +
+                "  // 2. COLORE TEXTURE (Senza alterazioni gamma)\n" +
+                "  vec4 texColor;\n" +
+                "  vec3 finalColor;\n" +
+                "\n" +
+                "  if (uWaterPass == 0) { // BLOCCHI SOLIDI\n" +
+                "     texColor = texture(uTex, vec3(vUV, tileIndex));\n" +
+                "     if(texColor.a < 0.1) discard;\n" +
+                "\n" +
+                "     // Tinting (Erba/Foglie)\n" +
+                "     vec3 terrainTint = uTint.rgb;\n" +
+                "     if(tileIndex == uTileGrassTopIndex) terrainTint *= uGrassTint;\n" +
+                "     else if(tileIndex == uTileLeavesIndex) terrainTint *= uFoliageTint;\n" +
+                "     \n" +
+                "     finalColor = texColor.rgb * terrainTint;\n" +
+                "     \n" +
+                "     // --- FIX ARTEFATTI E COLORE ---\n" +
+                "     // 1. Non scuriamo mai oltre il 10% per evitare il nero assoluto\n" +
+                "     lightLevel = max(lightLevel, 0.1);\n" +
+                "     \n" +
+                "     \n" +
+                "     // 2. Applichiamo l'AO in modo non lineare per evitare scuri troppo forti\n" +
+                "     finalColor *= vAO;\n" +
+                "     // 3. Moltiplichiamo per la luce\n" +
+                "     finalColor *= lightLevel;\n" +
+                "\n" +
+                "  } else { // ACQUA\n" +
+                "     texColor = vec4(0.2, 0.5, 0.9, 0.6);\n" +
+                "     finalColor = texColor.rgb * lightLevel * vAO;\n" +
+                "  }\n" +
+                "\n" +
+                "  // 3. FOG (Nebbia)\n" +
+                "  vec3 skyColor = getSkyLightColor(uSunDir);\n" +
+                "  // La nebbia deve corrispondere al colore del cielo per fondersi bene\n" +
+                "  vec3 fogColor = skyColor;\n" +
+                "\n" +
+                "  if(uUnderwater == 1){\n" +
+                "      fogColor = vec3(0.1, 0.3, 0.7);\n" +
+                "      fogAmount = 1.0 - exp(-dist * 0.15);\n" +
+                "  }\n" +
+                "\n" +
+                "  finalColor = mix(finalColor, fogColor, fogAmount);\n" +
+                "\n" +
+                "  // 4. NESSUNA GAMMA CORRECTION QUI!\n" +
+                "  // Usciamo direttamente con il colore calcolato.\n" +
+                "  FragColor = vec4(finalColor, texColor.a * uTint.a);\n" +
+                "}\n";
+    }
 }

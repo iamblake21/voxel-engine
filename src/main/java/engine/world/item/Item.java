@@ -57,6 +57,13 @@ public class Item {
         return properties;
     }
 
+    /**
+     * Get the icon texture path for this item
+     */
+    public String getIconTexture() {
+        return properties.getIconTexture();
+    }
+
     // ==================== REGISTRY INFO ====================
 
     /**
