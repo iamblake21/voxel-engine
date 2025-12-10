@@ -92,6 +92,7 @@ public class ExampleGame implements IGame {
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOOD, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.TORCH, 16));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_SHOVEL, 1));
         System.out.println("[Game] Player inventory initialized with starting items");
 
         // Setup render input handler
