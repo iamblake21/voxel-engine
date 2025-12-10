@@ -12,11 +12,19 @@ public class InventorySlot extends GuiComponent {
 
     private ItemStack stack;
     private boolean selected;
+    private boolean hovered;
+    private int slotIndex; // Absolute slot index in inventory (0-35)
 
     public InventorySlot(int x, int y) {
+        this(x, y, -1);
+    }
+
+    public InventorySlot(int x, int y, int slotIndex) {
         super(x, y, SLOT_SIZE, SLOT_SIZE);
         this.stack = ItemStack.EMPTY;
         this.selected = false;
+        this.hovered = false;
+        this.slotIndex = slotIndex;
     }
 
     public InventorySlot(int x, int y, ItemStack stack) {
@@ -42,7 +50,12 @@ public class InventorySlot extends GuiComponent {
             }
         }
 
-        // 3. Render selection highlight if selected
+        // 3. Render hover highlight
+        if (hovered && !selected) {
+            renderHoverHighlight(renderer);
+        }
+
+        // 4. Render selection highlight if selected
         if (selected) {
             renderSelectionHighlight(renderer);
         }
@@ -127,6 +140,11 @@ public class InventorySlot extends GuiComponent {
         renderer.renderRect(x + 2, y + height - 4, barWidth, 2, r, g, 0, 1.0f);
     }
 
+    private void renderHoverHighlight(GuiRenderer renderer) {
+        // Semi-transparent white overlay when hovered
+        renderer.renderRect(x + 1, y + 1, width - 2, height - 2, 1, 1, 1, 0.3f);
+    }
+
     private void renderSelectionHighlight(GuiRenderer renderer) {
         // White border around slot
         int thickness = 2;
@@ -189,5 +207,21 @@ public class InventorySlot extends GuiComponent {
 
     public void setSelected(boolean selected) {
         this.selected = selected;
+    }
+
+    public boolean isHovered() {
+        return hovered;
+    }
+
+    public void setHovered(boolean hovered) {
+        this.hovered = hovered;
+    }
+
+    public int getSlotIndex() {
+        return slotIndex;
+    }
+
+    public void setSlotIndex(int slotIndex) {
+        this.slotIndex = slotIndex;
     }
 }

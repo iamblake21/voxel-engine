@@ -75,11 +75,24 @@ public class Player extends Entity {
     /**
      * Update player with input
      */
+    /**
+     * Update player with input
+     */
     public void update(float deltaTime, InputManager input) {
+        update(deltaTime, input, true);
+    }
+
+    /**
+     * Update player with input, optionally disabling controls
+     */
+    public void update(float deltaTime, InputManager input, boolean inputEnabled) {
         if (world == null)
             return;
 
-        handleInput(input, deltaTime);
+        if (inputEnabled) {
+            handleInput(input, deltaTime);
+        }
+
         applyPhysics(deltaTime);
         updateCamera();
         world.maintainChunks(x, z);

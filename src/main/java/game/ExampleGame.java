@@ -12,6 +12,7 @@ import engine.rendering.Renderer;
 import engine.ui.GuiRenderer;
 import engine.ui.HotbarGui;
 import engine.ui.InventoryGui;
+import engine.ui.InventoryInteractionManager;
 import engine.world.World;
 import game.init.GameInit;
 import static org.lwjgl.glfw.GLFW.*;
@@ -31,6 +32,7 @@ public class ExampleGame implements IGame {
     private GuiRenderer guiRenderer;
     private HotbarGui hotbarGui;
     private InventoryGui inventoryGui;
+    private InventoryInteractionManager inventoryInteraction;
     private boolean inventoryOpen = false;
     private boolean eKeyLatch = false; // Latch for E key to prevent flickering
 
@@ -109,12 +111,19 @@ public class ExampleGame implements IGame {
         this.inventoryGui = new InventoryGui(player.getInventory(), config.windowWidth / scale,
                 config.windowHeight / scale);
 
+        // Setup the inventory interaction manager
+        this.inventoryInteraction = new InventoryInteractionManager(player.getInventory());
+
+        // Pass GUI scale to inventory GUI for mouse coordinate conversion
+        inventoryGui.setGuiScale(scale);
+
         System.out.println("[Game] GUI initialized:");
         System.out.println("  - GuiRenderer created (Scale=" + scale + ")");
         System.out.println("  - HotbarGui created using scaled sizes: " + (config.windowWidth / scale) + "x"
                 + (config.windowHeight / scale));
         System.out.println("  - InventoryGui created using scaled sizes: " + (config.windowWidth / scale) + "x"
                 + (config.windowHeight / scale));
+        System.out.println("  - InventoryInteractionManager created");
         System.out.println("  - Atlas texture: " + (engine.getRenderer().getAtlasTexture() != null ? "OK" : "NULL"));
 
         System.out.println("[Game] Init complete");
@@ -140,21 +149,47 @@ public class ExampleGame implements IGame {
         // Toggle inventory with E key (with latch to prevent flickering)
         boolean eDown = engine.getInput().isKeyDown(GLFW_KEY_E);
         if (eDown && !eKeyLatch) {
+            boolean wasOpen = inventoryOpen;
             inventoryOpen = !inventoryOpen;
             eKeyLatch = true;
-            // System.out.println("[Game] Inventory " + (inventoryOpen ? "OPENED" :
-            // "CLOSED"));
+
             if (inventoryOpen) {
                 engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
             } else {
                 engine.getWindow().setCursorMode(GLFW_CURSOR_DISABLED);
+                // Reset mouse delta to prevent camera jump when re-entering game
+                engine.getInput().resetMouseDelta();
+
+                // Drop cursor item back to inventory when closing
+                if (wasOpen) {
+                    inventoryInteraction.dropCursorToInventory();
+                }
             }
         }
         if (!eDown) {
             eKeyLatch = false;
         }
 
-        player.update(deltaTime, engine.getInput());
+        // Handle mouse wheel for hotbar selection (only when inventory closed)
+        if (!inventoryOpen) {
+            double scrollY = engine.getInput().getScrollY();
+            if (scrollY != 0) {
+                inventoryInteraction.handleMouseWheel(scrollY);
+            }
+        }
+
+        // Handle inventory interaction when open
+        if (inventoryOpen) {
+            inventoryGui.handleInput(
+                    engine.getInput(),
+                    inventoryInteraction,
+                    engine.getInput().getMouseX(),
+                    engine.getInput().getMouseY(),
+                    config.windowHeight);
+        }
+
+        // Pass false to disable player input if inventory is open
+        player.update(deltaTime, engine.getInput(), !inventoryOpen);
 
         // Don't handle block interaction if inventory is open
         if (!inventoryOpen) {
@@ -173,6 +208,16 @@ public class ExampleGame implements IGame {
         // Render full inventory if open
         if (inventoryOpen) {
             inventoryGui.render(guiRenderer);
+
+            // Render cursor item if holding one
+            if (inventoryInteraction.hasCursorItem()) {
+                int[] mousePos = inventoryGui.getMousePosition(
+                        engine.getInput().getMouseX(),
+                        engine.getInput().getMouseY(),
+                        config.windowHeight);
+                inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
+                        mousePos[0], mousePos[1]);
+            }
         }
 
         // TODO: Render crosshair if inventory not open
