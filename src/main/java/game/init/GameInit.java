@@ -6,11 +6,12 @@ package game.init;
  * Called by Engine during initialization.
  */
 public final class GameInit {
-    
+
     private static boolean registered = false;
-    
-    private GameInit() {}
-    
+
+    private GameInit() {
+    }
+
     /**
      * Register all game content.
      * Called by Engine before registries are frozen.
@@ -20,20 +21,21 @@ public final class GameInit {
             System.out.println("[Game] Content already registered, skipping");
             return;
         }
-        
+
         System.out.println("[Game] Registering game content...");
-        
+
         // Register in dependency order
-        // (blocks first, then biomes which reference blocks, then entities)
+        // (blocks first, then items which reference blocks, then biomes, then entities)
         GameBlocks.register();
+        GameItems.register();
         GameBiomes.register();
-        // GameEntities.register();  // When entities are implemented
-        
+        // GameEntities.register(); // When entities are implemented
+
         registered = true;
-        
+
         System.out.println("[Game] Content registration complete");
     }
-    
+
     /**
      * Check if content is registered
      */

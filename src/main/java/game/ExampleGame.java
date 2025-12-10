@@ -31,7 +31,7 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(12)  // <-- Cambia da 6 a 12 o quanto vuoi
+                .viewDistance(12)  
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
                 .vsync(true)
