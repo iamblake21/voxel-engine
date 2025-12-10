@@ -24,6 +24,7 @@ public class Player extends Entity {
     private final Config config;
     private final Camera camera;
     private final PlayerInventory inventory;
+    private final engine.mechanics.MiningManager miningManager = new engine.mechanics.MiningManager(); // Init directly
     private World world;
     private PhysicsEngine physics;
 
@@ -370,14 +371,15 @@ public class Player extends Entity {
     /**
      * Handle block breaking / placing using mouse buttons with inventory items.
      */
-    public void handleBlockInteraction(InputManager input) {
+    public void handleBlockInteraction(InputManager input, float deltaTime) {
         if (world == null)
             return;
 
-        boolean breakBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
+        boolean breakBlock = input.isMouseButtonDown(GLFW_MOUSE_BUTTON_1);
         boolean placeBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_2);
 
         if (!breakBlock && !placeBlock) {
+            miningManager.resetBreaking(); // Reset if not holding button
             return;
         }
 
@@ -408,6 +410,8 @@ public class Player extends Entity {
         float hitY = Float.NaN;
         float hitZ = Float.NaN;
 
+        boolean hitSolid = false;
+
         while (dist <= maxDist) {
             float cx = eyeX + dirX * dist;
             float cy = eyeY + dirY * dist;
@@ -429,19 +433,20 @@ public class Player extends Entity {
                 hitX = bx;
                 hitY = by;
                 hitZ = bz;
+                hitSolid = true;
 
                 if (breakBlock) {
-                    // Break block
-                    world.setBlock(bx, by, bz, Blocks.AIR().getNumericId());
-
-                    // Damage tool if holding one
-                    if (!selectedStack.isEmpty() && selectedStack.isDamageable()) {
-                        if (selectedStack.damageItem(1)) {
-                            // Tool broke
-                            System.out.println("[Player] Tool broke!");
-                        }
-                    }
+                    // Mining logic
+                    miningManager.processMining(this, world, bx, by, bz, deltaTime); // Assuming dt is available
+                                                                                     // or loopPeriod
+                    // NOTE: The original method didn't pass DeltaTime to handleBlockInteraction.
+                    // I will need to update the method signature or use a field.
+                    // Temporarily using 0.05f (20TPS) until signature update.
+                    // Actually, I can pass input from update().
                 } else if (placeBlock) {
+                    // Reset mining if placing
+                    miningManager.resetBreaking();
+
                     // Try to use selected item
                     if (!selectedStack.isEmpty() && selectedStack.getItem() instanceof IUsableItem) {
                         IUsableItem usableItem = (IUsableItem) selectedStack.getItem();
@@ -466,6 +471,10 @@ public class Player extends Entity {
             }
 
             dist += step;
+        }
+
+        if (!hitSolid) {
+            miningManager.resetBreaking(); // Reset if looking at air
         }
     }
 
@@ -493,5 +502,9 @@ public class Player extends Entity {
 
     public void setWorld(World world) {
         this.world = world;
+    }
+
+    public engine.mechanics.MiningManager getMiningManager() {
+        return miningManager;
     }
 }

@@ -3,6 +3,7 @@ package game.init;
 import engine.world.block.Block;
 import engine.world.block.BlockProperties;
 import engine.world.block.Blocks;
+import engine.world.item.ToolItem.ToolType;
 import engine.world.block.MultiTextureBlock;
 
 /**
@@ -13,110 +14,124 @@ import engine.world.block.MultiTextureBlock;
  */
 public final class GameBlocks {
 
-    // Basic terrain
-    public static Block STONE;
-    public static Block DIRT;
-    public static Block GRASS;
-    public static Block SAND;
-    public static Block SNOW;
+        // Basic terrain
+        public static Block STONE;
+        public static Block DIRT;
+        public static Block GRASS;
+        public static Block SAND;
+        public static Block SNOW;
 
-    // Nature
-    public static Block WOOD;
-    public static Block LEAVES;
+        // Nature
+        public static Block WOOD;
+        public static Block LEAVES;
 
-    // Liquids
-    public static Block WATER;
+        // Liquids
+        public static Block WATER;
 
-    // Debug
-    public static Block LIGHTDEUG;
-    public static Block FLOWERDEBUG; 
-    public static Block TORCHDEBUG;   
+        // Debug
+        public static Block LIGHTDEUG;
+        public static Block FLOWERDEBUG;
+        public static Block TORCHDEBUG;
 
+        private GameBlocks() {
+        }
 
-    private GameBlocks() {
-    }
+        /**
+         * Register all game blocks.
+         * Called by game during init, BEFORE registries are frozen.
+         */
+        public static void register() {
+                System.out.println("[GameBlocks] Registering blocks...");
 
-    /**
-     * Register all game blocks.
-     * Called by game during init, BEFORE registries are frozen.
-     */
-    public static void register() {
-        System.out.println("[GameBlocks] Registering blocks...");
+                // Stone - basic underground block
+                STONE = Blocks.register("game:stone",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(1.5f)
+                                                .requiredTool(ToolType.PICKAXE)
+                                                .minTier(0) // Wood or better
+                                                .tile(1, 0)));
 
-        // Stone - basic underground block
-        STONE = Blocks.register("game:stone",
-                new Block(BlockProperties.create()
-                        .standardSolid()
-                        .tile(1, 0)));
+                // Dirt - under grass
+                DIRT = Blocks.register("game:dirt",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.5f)
+                                                .requiredTool(ToolType.SHOVEL)
+                                                .tile(2, 0)));
 
-        // Dirt - under grass
-        DIRT = Blocks.register("game:dirt",
-                new Block(BlockProperties.create()
-                        .standardSolid()
-                        .tile(2, 0)));
+                // Grass - top of terrain, multi-texture
+                GRASS = Blocks.register("game:grass",
+                                MultiTextureBlock.builder(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.6f)
+                                                .requiredTool(ToolType.SHOVEL)
+                                                .tintGrass())
+                                                .top(0, 0) // Grass top
+                                                .bottom(2, 0) // Dirt bottom
+                                                .side(3, 0) // Grass side
+                                                .build());
 
-        // Grass - top of terrain, multi-texture
-        GRASS = Blocks.register("game:grass",
-                MultiTextureBlock.builder(BlockProperties.create()
-                        .standardSolid()
-                        .tintGrass())
-                        .top(0, 0) // Grass top
-                        .bottom(2, 0) // Dirt bottom
-                        .side(3, 0) // Grass side
-                        .build());
+                // Sand - beaches and deserts
+                SAND = Blocks.register("game:sand",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.5f)
+                                                .requiredTool(ToolType.SHOVEL)
+                                                .tile(7, 0)));
 
-        // Sand - beaches and deserts
-        SAND = Blocks.register("game:sand",
-                new Block(BlockProperties.create()
-                        .standardSolid()
-                        .tile(7, 0)));
+                // Wood - tree trunks
+                WOOD = Blocks.register("game:wood",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(2.0f)
+                                                .requiredTool(ToolType.AXE)
+                                                .tile(4, 0)));
 
-        // Wood - tree trunks
-        WOOD = Blocks.register("game:wood",
-                new Block(BlockProperties.create()
-                        .standardSolid()
-                        .tile(4, 0)));
+                // Leaves - tree foliage
+                LEAVES = Blocks.register("game:leaves",
+                                new Block(BlockProperties.create()
+                                                .transparentSolid()
+                                                .hardness(0.2f)
+                                                .tintFoliage()
+                                                .tile(5, 0)));
 
-        // Leaves - tree foliage
-        LEAVES = Blocks.register("game:leaves",
-                new Block(BlockProperties.create()
-                        .transparentSolid()
-                        .tintFoliage()
-                        .tile(5, 0)));
+                // Water - the liquid
+                WATER = Blocks.register("game:water",
+                                new Block(BlockProperties.create()
+                                                .liquidLike()
+                                                .hardness(100.0f) // Not minable normally
+                                                .tile(6, 0)));
+                SNOW = Blocks.register("game:snow",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.1f)
+                                                .requiredTool(ToolType.SHOVEL)
+                                                .tile(0, 1)));
+                LIGHTDEUG = Blocks.register("game:light",
+                                new Block(
+                                                BlockProperties.create()
+                                                                .standardSolid()
+                                                                .hardness(0.3f)
+                                                                .tile(1, 1)
+                                                                .lightLevel(15)));
+                FLOWERDEBUG = Blocks.register("game:poppy", new Block(
+                                BlockProperties.create()
+                                                .solid(false)
+                                                .opaque(false)
+                                                .hardness(0.0f) // Instant
+                                                .model("block/poppy")
+                                                .tile(0, 2)));
+                TORCHDEBUG = Blocks.register("game:torch", new Block(
+                                BlockProperties.create()
+                                                .solid(false)
+                                                .opaque(false)
+                                                .hardness(0.0f) // Instant
+                                                .model("block/torch")
+                                                .tile(1, 2)
+                                                .lightLevel(15)));
 
-        // Water - the liquid
-        WATER = Blocks.register("game:water",
-                new Block(BlockProperties.create()
-                        .liquidLike()
-                        .tile(6, 0)));
-        SNOW = Blocks.register("game:snow",
-                new Block(BlockProperties.create()
-                        .standardSolid()
-                        .tile(0, 1)));
-        LIGHTDEUG = Blocks.register("game:light",
-                new Block(
-                        BlockProperties.create()
-                        .standardSolid()
-                        .tile(1, 1)
-                        .lightLevel(15)
-                ));
-        FLOWERDEBUG = Blocks.register("game:poppy", new Block(
-                BlockProperties.create()
-                .solid(false)
-                .opaque(false)
-                .model("block/poppy")
-                .tile(0, 2)
-        ));
-        TORCHDEBUG = Blocks.register("game:torch", new Block(
-                BlockProperties.create()
-                .solid(false)
-                .opaque(false)
-                .model("block/torch")
-                .tile(1, 2)
-                .lightLevel(15)
-        ));
-        
-        System.out.println("[GameBlocks] Registered " +
-                engine.registry.Registries.BLOCKS.size() + " blocks total");
-    }
+                System.out.println("[GameBlocks] Registered " +
+                                engine.registry.Registries.BLOCKS.size() + " blocks total");
+        }
 }

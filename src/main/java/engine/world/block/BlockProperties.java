@@ -33,6 +33,11 @@ public class BlockProperties {
 
     String modelPath = null;
 
+    // Mining Properties
+    float hardness = 1.0f; // Seconds to break with correct tool
+    engine.world.item.ToolItem.ToolType requiredToolType = null; // Null means any tool (or hand)
+    int minToolTier = 0; // 0=Hand/Wood, 1=Stone, 2=Iron, 3=Diamond
+
     public BlockProperties model(String path) {
         this.modelPath = path;
         return this;
@@ -136,6 +141,21 @@ public class BlockProperties {
 
     public BlockProperties maxFluidLevel(int maxFluidLevel) {
         this.maxFluidLevel = maxFluidLevel;
+        return this;
+    }
+
+    public BlockProperties hardness(float hardness) {
+        this.hardness = hardness;
+        return this;
+    }
+
+    public BlockProperties requiredTool(engine.world.item.ToolItem.ToolType type) {
+        this.requiredToolType = type;
+        return this;
+    }
+
+    public BlockProperties minTier(int tier) {
+        this.minToolTier = tier;
         return this;
     }
 
@@ -283,6 +303,9 @@ public class BlockProperties {
         this.viscosity = other.viscosity;
         this.fluidTickRate = other.fluidTickRate;
         this.maxFluidLevel = other.maxFluidLevel;
+        this.hardness = other.hardness;
+        this.requiredToolType = other.requiredToolType;
+        this.minToolTier = other.minToolTier;
         return this;
     }
 }

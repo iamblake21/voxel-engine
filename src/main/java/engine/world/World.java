@@ -879,4 +879,15 @@ public class World implements MeshBuilder.WorldAccess {
     private boolean isHeadroomClear(int x, int y, int z) {
         return getBlock(x, y + 1, z) == 0 && getBlock(x, y + 2, z) == 0;
     }
+
+    public boolean isBlockTransparent(int x, int y, int z) {
+        int blockId = getBlock(x, y, z);
+        // ID 0 è Aria (trasparente). Se hai vetro o acqua, controlla
+        // Blocks.get(blockId).isTransparent()
+        if (blockId == 0)
+            return true;
+
+        Block b = Blocks.get(blockId);
+        return b != null && !b.isOpaque();
+    }
 }

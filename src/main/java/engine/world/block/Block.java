@@ -82,6 +82,18 @@ public class Block {
         return properties.getLightLevel();
     }
 
+    public float getHardness() {
+        return properties.hardness;
+    }
+
+    public engine.world.item.ToolItem.ToolType getRequiredToolType() {
+        return properties.requiredToolType;
+    }
+
+    public int getMinToolTier() {
+        return properties.minToolTier;
+    }
+
     // ==================== TEXTURES ====================
 
     /**
