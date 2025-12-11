@@ -50,7 +50,7 @@ public final class GameGuis {
                 // ==================== INVENTORY ====================
                 // Standard player inventory: 9 hotbar + 27 main = 36 slots
 
-                INVENTORY = Guis.builder("game:inventory", "textures/gui/inventory.png", 256, 256)
+                INVENTORY = Guis.builder("game:inventory", "textures/gui/inventory.png", 196, 166)
                                 .backgroundColor(0.15f, 0.15f, 0.15f, 0.95f)
                                 .centeredLabel("Inventory", 88, 6)
                                 .slotRow("main", 8, 17, "main", 0, 9)

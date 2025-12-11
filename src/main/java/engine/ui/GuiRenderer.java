@@ -10,10 +10,6 @@ import java.nio.FloatBuffer;
 import static org.lwjgl.opengl.GL20.*;
 import static org.lwjgl.opengl.GL30.*;
 
-/**
- * 2D GUI Renderer with orthographic projection.
- * Renders quads, text, and UI elements.
- */
 public class GuiRenderer {
 
     // GUI Scale factor (1 = normal, 2 = 2x, 3 = 3x larger)
@@ -24,233 +20,188 @@ public class GuiRenderer {
 
     private Shader shader;
     private int vao, vbo;
+    private int defaultTexture;
 
     private FloatBuffer quadBuffer;
 
     // Shader uniform locations
-    private int uProjectionLoc;
-    private int uTextureLoc;
-    private int uColorLoc;
+    private int uProjectionLoc, uTextureLoc, uColorLoc;
+    private int uTextureArrayLoc, uUseTextureArrayLoc, uLayerLoc;
 
-    // New uniforms for TextureArray support
-    private int uTextureArrayLoc;
-    private int uUseTextureArrayLoc;
-    private int uLayerLoc;
-
-    // Block texture atlas for rendering block items
     private engine.rendering.TextureArray atlasTexture;
 
     public GuiRenderer(int windowWidth, int windowHeight) {
         this.windowWidth = windowWidth;
         this.windowHeight = windowHeight;
         init();
-
         System.out.println("[GuiRenderer] Initialized with Scale=" + guiScale);
     }
 
-    /**
-     * Set the GUI scale factor
-     * 
-     * @param scale Scale factor (min 1)
-     */
+    // ... (Getter/Setter per Scale e Atlas invariati) ...
     public void setGuiScale(int scale) {
         this.guiScale = Math.max(1, scale);
     }
 
-    /**
-     * Get current GUI scale
-     */
     public int getGuiScale() {
         return guiScale;
     }
 
-    /**
-     * Set the block texture atlas for rendering block items
-     */
     public void setAtlasTexture(engine.rendering.TextureArray atlasTexture) {
         this.atlasTexture = atlasTexture;
     }
 
     private void init() {
-        // Create shader
-        System.out.println("[GuiRenderer] Creating shader...");
+        // ... (Logica di init shader identica a prima) ...
         try {
             shader = new Shader(getVertexShader(), getFragmentShader());
-            System.out.println("[GuiRenderer] Shader compiled successfully");
         } catch (Exception e) {
-            System.err.println("[GuiRenderer] SHADER ERROR: " + e.getMessage());
-            e.printStackTrace();
-            throw e;
+            throw new RuntimeException(e);
         }
 
-        // Cache uniform locations
         uProjectionLoc = glGetUniformLocation(shader.getProgramId(), "uProjection");
         uTextureLoc = glGetUniformLocation(shader.getProgramId(), "uTexture");
         uColorLoc = glGetUniformLocation(shader.getProgramId(), "uColor");
-
-        // Cache new uniform locations
         uTextureArrayLoc = glGetUniformLocation(shader.getProgramId(), "uTextureArray");
         uUseTextureArrayLoc = glGetUniformLocation(shader.getProgramId(), "uUseTextureArray");
         uLayerLoc = glGetUniformLocation(shader.getProgramId(), "uLayer");
 
-        System.out.println("[GuiRenderer] Uniform locations: uProjection=" + uProjectionLoc +
-                ", uTexture=" + uTextureLoc + ", uColor=" + uColorLoc +
-                ", uTextureArray=" + uTextureArrayLoc + ", uUseTextureArray=" + uUseTextureArrayLoc);
-
-        if (uProjectionLoc == -1 || uTextureLoc == -1 || uColorLoc == -1) {
-            System.err.println("[GuiRenderer] WARNING: Some uniforms not found in shader!");
-        }
-
-        // Create VAO and VBO for quad
         vao = glGenVertexArrays();
         vbo = glGenBuffers();
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-        // Allocate buffer (6 vertices * 4 floats each: x,y,u,v)
         glBufferData(GL_ARRAY_BUFFER, 6 * 4 * Float.BYTES, GL_DYNAMIC_DRAW);
 
-        // Position attribute (location = 0)
         glVertexAttribPointer(0, 2, GL_FLOAT, false, 4 * Float.BYTES, 0);
         glEnableVertexAttribArray(0);
-
-        // TexCoord attribute (location = 1)
         glVertexAttribPointer(1, 2, GL_FLOAT, false, 4 * Float.BYTES, 2 * Float.BYTES);
         glEnableVertexAttribArray(1);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
 
-        // Create reusable buffer
         quadBuffer = BufferUtils.createFloatBuffer(6 * 4);
 
-        // Create default white 1x1 texture for rendering without textures
+        // Default Texture Creation
         defaultTexture = glGenTextures();
         glBindTexture(GL_TEXTURE_2D, defaultTexture);
-        ByteBuffer whitePixel = BufferUtils.createByteBuffer(4);
-        whitePixel.put((byte) 255).put((byte) 255).put((byte) 255).put((byte) 255).flip();
+        ByteBuffer whitePixel = BufferUtils.createByteBuffer(4).put((byte) 255).put((byte) 255).put((byte) 255)
+                .put((byte) 255).flip();
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        System.out.println("[GuiRenderer] Initialized (" + windowWidth + "x" + windowHeight + ") VAO=" + vao + ", VBO="
-                + vbo + ", DefaultTex=" + defaultTexture);
     }
 
-    private int defaultTexture; // Keep reference to default white texture
-
-    /**
-     * Begin 2D rendering
-     * Sets up orthographic projection and blending
-     */
     public void begin() {
-        // CRITICAL: Clear depth buffer so 3D world doesn't block 2D GUI
         glClear(GL_DEPTH_BUFFER_BIT);
-
-        // Disable depth testing and writing completely for 2D
         glDisable(GL_DEPTH_TEST);
         glDepthMask(false);
-
-        // Disable face culling for 2D elements
         glDisable(GL_CULL_FACE);
-
-        // Enable alpha blending
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         shader.bind();
 
-        // Set orthographic projection matrix with GUI Scale
-        // Divide logical size by scale to zoom in
         float logicalW = windowWidth / (float) guiScale;
         float logicalH = windowHeight / (float) guiScale;
-
         float[] projectionMatrix = createOrthoMatrix(0, logicalW, logicalH, 0, -1, 1);
         glUniformMatrix4fv(uProjectionLoc, false, projectionMatrix);
 
-        // Default white color
         glUniform4f(uColorLoc, 1, 1, 1, 1);
-
-        // Bind default white texture to texture unit 0
         glUniform1i(uTextureLoc, 0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, defaultTexture);
-
-        // Configure texture array unit (unit 1)
         glUniform1i(uTextureArrayLoc, 1);
-        glUniform1i(uUseTextureArrayLoc, 0); // Disable array by default
+        glUniform1i(uUseTextureArrayLoc, 0);
     }
 
-    /**
-     * End 2D rendering
-     * Restore OpenGL state for 3D world rendering
-     */
     public void end() {
         shader.unbind();
-
-        // Restore 3D rendering state
         glDisable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         glDepthMask(true);
-        // Do not force culling enable/disable, leave it to world
     }
 
+    // ==================== METODI DI RENDERING MODIFICATI ====================
+
     /**
-     * Render a textured quad
-     * 
-     * @param x       Screen X (pixels from left)
-     * @param y       Screen Y (pixels from top)
-     * @param width   Width in pixels
-     * @param height  Height in pixels
-     * @param texture Texture to render
+     * Render a textured quad using the FULL texture.
      */
     public void renderQuad(float x, float y, float width, float height, GuiTexture texture) {
-        renderQuad(x, y, width, height, texture, 1, 1, 1, 1);
+        renderRawQuad(x, y, width, height, texture, 0, 0, 1, 1, 1, 1, 1, 1);
+    }
+
+    public void renderQuad(float x, float y, float width, float height, GuiTexture texture, float r, float g, float b,
+            float a) {
+        renderRawQuad(x, y, width, height, texture, 0, 0, 1, 1, r, g, b, a);
     }
 
     /**
-     * Render a textured quad with color tint
+     * NUOVO: Renderizza solo una porzione (Region) della texture.
+     * Calcola automaticamente le coordinate UV basandosi sulla dimensione totale
+     * dell'immagine.
+     * * @param regionW Larghezza della porzione in pixel (es. 176)
+     * 
+     * @param regionH Altezza della porzione in pixel (es. 166)
+     * @param u       Start X in pixel (solitamente 0)
+     * @param v       Start Y in pixel (solitamente 0)
      */
-    public void renderQuad(float x, float y, float width, float height, GuiTexture texture,
+    public void renderSubTexture(float x, float y, float width, float height, GuiTexture texture,
+            float u, float v, float regionW, float regionH) {
+        if (texture == null) {
+            renderRect(x, y, width, height, 1, 0, 1, 1);
+            return;
+        }
+
+        // Calcolo UV (Da 0.0 a 1.0)
+        float totalW = (float) texture.getWidth();
+        float totalH = (float) texture.getHeight();
+
+        float uMin = u / totalW;
+        float vMin = v / totalH;
+        float uMax = (u + regionW) / totalW;
+        float vMax = (v + regionH) / totalH;
+
+        renderRawQuad(x, y, width, height, texture, uMin, vMin, uMax, vMax, 1, 1, 1, 1);
+    }
+
+    /**
+     * Metodo interno "raw" che accetta UV custom.
+     */
+    private void renderRawQuad(float x, float y, float width, float height, GuiTexture texture,
+            float uMin, float vMin, float uMax, float vMax,
             float r, float g, float b, float a) {
         if (texture != null) {
             texture.bind();
         } else {
-            // CRITICAL: When no texture specified, bind white texture so color works
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, defaultTexture);
         }
 
-        // Ensure array mode is off
         glUniform1i(uUseTextureArrayLoc, 0);
-
         glUniform4f(uColorLoc, r, g, b, a);
 
-        // Build quad vertices (2 triangles)
         quadBuffer.clear();
 
-        // Triangle 1: top-left, bottom-left, top-right
-        quadBuffer.put(x).put(y).put(0).put(0); // Top-left
-        quadBuffer.put(x).put(y + height).put(0).put(1); // Bottom-left
-        quadBuffer.put(x + width).put(y).put(1).put(0); // Top-right
+        // Triangolo 1
+        quadBuffer.put(x).put(y).put(uMin).put(vMin); // TL
+        quadBuffer.put(x).put(y + height).put(uMin).put(vMax); // BL
+        quadBuffer.put(x + width).put(y).put(uMax).put(vMin); // TR
 
-        // Triangle 2: top-right, bottom-left, bottom-right
-        quadBuffer.put(x + width).put(y).put(1).put(0); // Top-right
-        quadBuffer.put(x).put(y + height).put(0).put(1); // Bottom-left
-        quadBuffer.put(x + width).put(y + height).put(1).put(1); // Bottom-right
+        // Triangolo 2
+        quadBuffer.put(x + width).put(y).put(uMax).put(vMin); // TR
+        quadBuffer.put(x).put(y + height).put(uMin).put(vMax); // BL
+        quadBuffer.put(x + width).put(y + height).put(uMax).put(vMax); // BR
 
         quadBuffer.flip();
 
-        // Upload and draw
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferSubData(GL_ARRAY_BUFFER, 0, quadBuffer);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        if (texture != null) {
+        if (texture != null)
             texture.unbind();
-        }
     }
 
     /**
