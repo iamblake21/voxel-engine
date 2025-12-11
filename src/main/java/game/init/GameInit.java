@@ -35,7 +35,7 @@ public final class GameInit {
         GameItems.register();
         GameGuis.register(); // <-- NEW: Register GUIs
         GameBiomes.register();
-        // GameEntities.register(); // When entities are implemented
+        GameEntities.register(); // When entities are implemented
 
         registered = true;
 

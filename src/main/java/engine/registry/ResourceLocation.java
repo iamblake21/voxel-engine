@@ -67,18 +67,18 @@ public final class ResourceLocation {
         return ns;
     }
     
-    private static String validatePath(String path) {
-        if (path == null || path.isEmpty()) {
-            throw new IllegalArgumentException("Path cannot be null or empty");
-        }
-        // Lowercase letters, numbers, underscores, forward slashes
-        for (char c : path.toCharArray()) {
-            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '/')) {
-                throw new IllegalArgumentException("Invalid path: " + path + " (only a-z, 0-9, _, / allowed)");
-            }
-        }
-        return path;
+private static String validatePath(String path) {
+    if (path == null || path.isEmpty()) {
+        throw new IllegalArgumentException("Path cannot be null or empty");
     }
+    // Lowercase letters, numbers, underscores, forward slashes, E IL PUNTO.
+    for (char c : path.toCharArray()) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '/' || c == '.')) { // AGGIUNTA QUI
+            throw new IllegalArgumentException("Invalid path: " + path + " (only a-z, 0-9, _, /, . allowed)"); // AGGIORNARE ANCHE MESSAGGIO
+        }
+    }
+    return path;
+}
     
     public String getNamespace() {
         return namespace;

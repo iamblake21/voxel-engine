@@ -40,6 +40,7 @@ public final class EngineBootstrap {
         Biomes.registerEngineBiomes();
         EntityTypes.registerEngineEntityTypes();
         
+        
         initialized = true;
         
         System.out.println("[Engine] Initialization complete");
