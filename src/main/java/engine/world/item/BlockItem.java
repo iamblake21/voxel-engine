@@ -1,116 +1,113 @@
 package engine.world.item;
 
 import engine.entity.Player;
+import engine.interaction.InteractionResult;
+import engine.world.BlockPos;
 import engine.world.World;
 import engine.world.block.Block;
 
 /**
  * An item that can place a block in the world.
  * 
- * This is the standard item type for blocks (stone item -> stone block).
+ * Updated to use the new interaction system.
  */
 public class BlockItem extends Item implements IUsableItem {
 
     private final Block blockToPlace;
 
-    /**
-     * Create a BlockItem with custom properties
-     */
     public BlockItem(Block blockToPlace, ItemProperties properties) {
         super(properties);
         this.blockToPlace = blockToPlace;
     }
 
-    /**
-     * Create a BlockItem with default properties
-     */
     public BlockItem(Block blockToPlace) {
         this(blockToPlace, ItemProperties.create().defaultItem());
     }
 
-    /**
-     * Get the block this item places
-     */
     public Block getBlock() {
         return blockToPlace;
     }
 
-    /**
-     * Use this block item to place a block in the world
-     */
+    // ==================== NEW INTERACTION SYSTEM ====================
+    
     @Override
-    public boolean use(World world, Player player, ItemStack stack,
-            float hitX, float hitY, float hitZ,
-            int lastAirX, int lastAirY, int lastAirZ) {
-        // Check if we hit a block
-        if (Float.isNaN(hitX)) {
-            return false; // No block hit, can't place
-        }
-
-        // Place block at last air position (the face we clicked on)
-        int placeX = lastAirX;
-        int placeY = lastAirY;
-        int placeZ = lastAirZ;
+    public InteractionResult onUseOnBlock(World world, Player player, ItemStack stack,
+                                          BlockPos blockPos, BlockPos.Direction face, BlockPos placePos) {
+        // Place block at the adjacent position
+        int placeX = placePos.getX();
+        int placeY = placePos.getY();
+        int placeZ = placePos.getZ();
 
         // Check if position is valid (not inside player)
         if (wouldCollideWithPlayer(player, placeX, placeY, placeZ)) {
-            return false;
+            return InteractionResult.FAIL;
+        }
+
+        // Check if the position is replaceable
+        Block existingBlock = world.getBlockType(placeX, placeY, placeZ);
+        if (!existingBlock.isAir() && !existingBlock.isReplaceable()) {
+            return InteractionResult.FAIL;
         }
 
         // Place the block
         world.setBlock(placeX, placeY, placeZ, blockToPlace.getNumericId());
 
-        // If it's a fluid, set it to max level
+        // If it's a fluid, set max level
         if (blockToPlace.isLiquid()) {
             world.setFluidLevel(placeX, placeY, placeZ, blockToPlace.getMaxFluidLevel());
         }
+        
+        // Create block entity if needed
+        if (blockToPlace.hasBlockEntity()) {
+            world.createBlockEntity(new BlockPos(placeX, placeY, placeZ), blockToPlace);
+        }
 
-        return true; // Successfully placed
+        return InteractionResult.CONSUME; // Item should be consumed
+    }
+    
+    // ==================== OLD INTERFACE (for backwards compatibility) ====================
+
+    @Override
+    public boolean use(World world, Player player, ItemStack stack,
+            float hitX, float hitY, float hitZ,
+            int lastAirX, int lastAirY, int lastAirZ) {
+        if (Float.isNaN(hitX)) {
+            return false;
+        }
+
+        if (wouldCollideWithPlayer(player, lastAirX, lastAirY, lastAirZ)) {
+            return false;
+        }
+
+        world.setBlock(lastAirX, lastAirY, lastAirZ, blockToPlace.getNumericId());
+
+        if (blockToPlace.isLiquid()) {
+            world.setFluidLevel(lastAirX, lastAirY, lastAirZ, blockToPlace.getMaxFluidLevel());
+        }
+
+        return true;
     }
 
-    /**
-     * Check if placing a block at this position would collide with the player
-     */
     private boolean wouldCollideWithPlayer(Player player, int bx, int by, int bz) {
-        // Get player bounding box
         float px = player.getX();
         float py = player.getY();
         float pz = player.getZ();
-        float hw = 0.3f; // Half width
-        float hh = 1.8f; // Height
+        float hw = 0.3f;
+        float hh = 1.8f;
 
-        // Check if block overlaps with player
-        float minX = px - hw;
-        float maxX = px + hw;
-        float minY = py;
-        float maxY = py + hh;
-        float minZ = pz - hw;
-        float maxZ = pz + hw;
+        float minX = px - hw, maxX = px + hw;
+        float minY = py, maxY = py + hh;
+        float minZ = pz - hw, maxZ = pz + hw;
 
-        // Block bounds
-        float blockMinX = bx;
-        float blockMaxX = bx + 1;
-        float blockMinY = by;
-        float blockMaxY = by + 1;
-        float blockMinZ = bz;
-        float blockMaxZ = bz + 1;
-
-        // AABB collision test
-        return !(maxX < blockMinX || minX > blockMaxX ||
-                maxY < blockMinY || minY > blockMaxY ||
-                maxZ < blockMinZ || minZ > blockMaxZ);
+        return !(maxX < bx || minX > bx + 1 ||
+                maxY < by || minY > by + 1 ||
+                maxZ < bz || minZ > bz + 1);
     }
 
-    /**
-     * Helper method to create a BlockItem from a block with default properties
-     */
     public static BlockItem fromBlock(Block block) {
         return new BlockItem(block);
     }
 
-    /**
-     * Helper method to create a BlockItem from a block with custom stack size
-     */
     public static BlockItem fromBlock(Block block, int maxStackSize) {
         return new BlockItem(block, ItemProperties.create().maxStackSize(maxStackSize));
     }

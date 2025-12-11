@@ -1,9 +1,17 @@
 package engine.world.item;
 
+import engine.entity.Player;
 import engine.registry.Registries;
 import engine.registry.ResourceLocation;
+import engine.world.World;
 
 import java.util.Optional;
+
+import engine.entity.Entity;
+import engine.entity.Player;
+import engine.interaction.InteractionResult;
+import engine.world.BlockPos;
+import engine.world.World;
 
 /**
  * Represents an item type in the game.
@@ -96,6 +104,52 @@ public class Item {
      */
     public boolean isRegistered() {
         return registryId != null;
+    }
+
+    // ==================== INTERACTION METHODS ====================
+
+    /**
+     * Called when player right-clicks with this item (not on a block).
+     * Override for consumables, throwables, etc.
+     * 
+     * @param world  The world
+     * @param player The player using the item
+     * @param stack  The item stack being used
+     * @return The interaction result
+     */
+    public InteractionResult onUse(World world, Player player, ItemStack stack) {
+        return InteractionResult.PASS;
+    }
+
+    /**
+     * Called when player right-clicks on a block with this item.
+     * Override for items that interact with blocks (hoe, shovel, etc.).
+     * 
+     * @param world    The world
+     * @param player   The player
+     * @param stack    The item stack
+     * @param blockPos The block that was clicked
+     * @param face     The face that was clicked
+     * @param placePos The position where a block would be placed
+     * @return The interaction result
+     */
+    public InteractionResult onUseOnBlock(World world, Player player, ItemStack stack,
+            BlockPos blockPos, BlockPos.Direction face, BlockPos placePos) {
+        return InteractionResult.PASS;
+    }
+
+    /**
+     * Called when player right-clicks on an entity with this item.
+     * Override for items that interact with entities (lead, name tag, etc.).
+     * 
+     * @param world  The world
+     * @param player The player
+     * @param stack  The item stack
+     * @param target The entity that was clicked
+     * @return The interaction result
+     */
+    public InteractionResult onUseOnEntity(World world, Player player, ItemStack stack, Entity target) {
+        return InteractionResult.PASS;
     }
 
     // ==================== STATIC HELPERS ====================

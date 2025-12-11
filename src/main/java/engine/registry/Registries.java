@@ -1,6 +1,7 @@
 package engine.registry;
 
 import engine.world.block.Block;
+import engine.world.blockentity.BlockEntityType;
 import engine.world.biome.Biome;
 import engine.entity.EntityType;
 import engine.world.item.Item;
@@ -38,6 +39,9 @@ public final class Registries {
 
     /** Registry of all GUI definitions */
     public static final Registry<GuiDefinition> GUIS = new Registry<>("engine:guis");
+
+    /** Registry of all block entity types */
+    public static final Registry<BlockEntityType<?>> BLOCK_ENTITY_TYPES = new Registry<>("block_entity_types");
 
     // ==================== REGISTRY OF REGISTRIES ====================
 

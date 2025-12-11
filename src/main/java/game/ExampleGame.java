@@ -89,7 +89,7 @@ public class ExampleGame implements IGame {
         // 1. Setup Player
         this.player = playerType.create();
         this.player.init(engine);
-        
+
         // CRUCIALE: Diciamo all'Engine che questo è il player principale
         // Così l'EntityRenderer dell'engine saprà quale camera usare!
         engine.getEntities().setPlayer(player);
@@ -102,7 +102,7 @@ public class ExampleGame implements IGame {
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.DIRT, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
-        
+
         // Setup render input handler
         RenderSettings settings = new RenderSettings();
         settings.setViewDistance(config.viewDistance);
@@ -125,10 +125,11 @@ public class ExampleGame implements IGame {
 
     @Override
     public void update(float deltaTime) {
-        if (world == null || player == null) return;
+        if (world == null || player == null)
+            return;
 
         renderInputHandler.processInput(engine.getWindow().getHandle());
-        
+
         // NOTA: Non chiamiamo più entityManager.update(deltaTime) qui!
         // Ci pensa Engine.java a chiamare engine.getEntities().update()
 
@@ -152,15 +153,18 @@ public class ExampleGame implements IGame {
                 inventoryInteraction.dropCursorToInventory();
             }
         }
-        if (!eDown) eKeyLatch = false;
+        if (!eDown)
+            eKeyLatch = false;
 
         // Gestione Input Inventario vs Gioco
         if (!inventoryOpen) {
             double scrollY = engine.getInput().getScrollY();
-            if (scrollY != 0) inventoryInteraction.handleMouseWheel(scrollY);
-            player.handleBlockInteraction(engine.getInput(), deltaTime);
+            if (scrollY != 0)
+                inventoryInteraction.handleMouseWheel(scrollY);
+            player.handleInteraction(engine.getInput(), deltaTime);
         } else {
-            inventoryGui.handleInput(engine.getInput(), inventoryInteraction, engine.getInput().getMouseX(), engine.getInput().getMouseY(), config.windowHeight);
+            inventoryGui.handleInput(engine.getInput(), inventoryInteraction, engine.getInput().getMouseX(),
+                    engine.getInput().getMouseY(), config.windowHeight);
         }
 
         // Update player logic (movimento etc)
@@ -170,7 +174,8 @@ public class ExampleGame implements IGame {
     @Override
     public void render(Renderer renderer) {
         // QUI È CAMBIATO TUTTO:
-        // Non renderizziamo più le entità qui. L'Engine ha già disegnato Mondo + Entità.
+        // Non renderizziamo più le entità qui. L'Engine ha già disegnato Mondo +
+        // Entità.
         // Qui disegniamo solo ciò che è SPECIFICO del gioco (UI, Overlay).
 
         guiRenderer.begin();
@@ -186,7 +191,8 @@ public class ExampleGame implements IGame {
         if (inventoryOpen) {
             inventoryGui.render(guiRenderer);
             if (inventoryInteraction.hasCursorItem()) {
-                inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(), engine.getInput().getMouseX(), engine.getInput().getMouseY());
+                inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
+                        engine.getInput().getMouseX(), engine.getInput().getMouseY());
             }
         }
 
@@ -199,7 +205,9 @@ public class ExampleGame implements IGame {
 
     @Override
     public void cleanup() {
-        if (guiRenderer != null) guiRenderer.cleanup();
-        if (guiEditor != null) guiEditor.cleanup();
+        if (guiRenderer != null)
+            guiRenderer.cleanup();
+        if (guiEditor != null)
+            guiEditor.cleanup();
     }
 }

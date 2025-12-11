@@ -8,6 +8,9 @@ import engine.rendering.Frustum;
 import engine.utils.Math3D.Vec3;
 import engine.world.light.LightPropagator;
 import engine.world.fluid.FluidManager;
+import engine.world.blockentity.BlockEntity;
+import engine.world.blockentity.BlockEntityType;
+import engine.world.blockentity.ITickableBlockEntity;
 
 import java.util.*;
 
@@ -91,6 +94,19 @@ public class World implements MeshBuilder.WorldAccess {
         while (fluidTickAccumulator >= FLUID_TICK_INTERVAL) {
             fluidTickAccumulator -= FLUID_TICK_INTERVAL;
             fluidManager.tick();
+            tickBlockEntities();
+        }
+    }
+
+    /**
+     * Tick all block entities in loaded chunks.
+     * Call this in update() along with fluid ticking.
+     */
+    private void tickBlockEntities() {
+        for (Chunk chunk : chunks.values()) {
+            if (chunk.getPhase().ordinal() >= Chunk.Phase.TERRAIN.ordinal()) {
+                chunk.tickBlockEntities();
+            }
         }
     }
 
@@ -410,6 +426,102 @@ public class World implements MeshBuilder.WorldAccess {
         return submitted;
     }
 
+    /**
+     * Get block entity at world position.
+     */
+    public BlockEntity getBlockEntity(BlockPos pos) {
+        return getBlockEntity(pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    /**
+     * Get block entity at world position.
+     */
+    public BlockEntity getBlockEntity(int x, int y, int z) {
+        if (y < 0 || y >= config.worldHeight)
+            return null;
+
+        int cx = floorDiv(x, config.chunkSize);
+        int cz = floorDiv(z, config.chunkSize);
+        Chunk chunk = getChunkIfLoaded(cx, cz);
+
+        if (chunk == null)
+            return null;
+
+        int lx = mod(x, config.chunkSize);
+        int lz = mod(z, config.chunkSize);
+
+        return chunk.getBlockEntity(lx, y, lz);
+    }
+
+    /**
+     * Set block entity at world position.
+     */
+    public void setBlockEntity(BlockPos pos, BlockEntity blockEntity) {
+        setBlockEntity(pos.getX(), pos.getY(), pos.getZ(), blockEntity);
+    }
+
+    /**
+     * Set block entity at world position.
+     */
+    public void setBlockEntity(int x, int y, int z, BlockEntity blockEntity) {
+        if (y < 0 || y >= config.worldHeight)
+            return;
+
+        int cx = floorDiv(x, config.chunkSize);
+        int cz = floorDiv(z, config.chunkSize);
+        Chunk chunk = getChunkIfLoaded(cx, cz);
+
+        if (chunk == null)
+            return;
+
+        int lx = mod(x, config.chunkSize);
+        int lz = mod(z, config.chunkSize);
+
+        chunk.setBlockEntity(lx, y, lz, blockEntity);
+
+        if (blockEntity != null) {
+            blockEntity.setWorld(this);
+        }
+    }
+
+    public BlockEntity removeBlockEntity(BlockPos pos) {
+        return removeBlockEntity(pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    /**
+     * Remove block entity at world position.
+     */
+    public BlockEntity removeBlockEntity(int x, int y, int z) {
+        if (y < 0 || y >= config.worldHeight)
+            return null;
+
+        int cx = floorDiv(x, config.chunkSize);
+        int cz = floorDiv(z, config.chunkSize);
+        Chunk chunk = getChunkIfLoaded(cx, cz);
+
+        if (chunk == null)
+            return null;
+
+        int lx = mod(x, config.chunkSize);
+        int lz = mod(z, config.chunkSize);
+
+        return chunk.removeBlockEntity(lx, y, lz);
+    }
+
+    /**
+     * Create a block entity for a block if it has one.
+     */
+    public BlockEntity createBlockEntity(BlockPos pos, Block block) {
+        if (!block.hasBlockEntity())
+            return null;
+
+        BlockEntity be = block.createBlockEntity(pos);
+        if (be != null) {
+            setBlockEntity(pos, be);
+        }
+        return be;
+    }
+
     // ==================== BLOCK ACCESS ====================
 
     /**
@@ -442,6 +554,17 @@ public class World implements MeshBuilder.WorldAccess {
 
         Block oldBlock = Blocks.get(oldBlockId);
         Block newBlock = Blocks.get(blockId);
+
+        // Remove old block entity if block changed
+        if (oldBlockId != blockId) {
+            BlockEntity oldBE = removeBlockEntity(x, y, z);
+            // oldBE's items should be dropped here if needed
+        }
+
+        // Create new block entity if new block has one
+        if (newBlock.hasBlockEntity()) {
+            createBlockEntity(new BlockPos(x, y, z), newBlock);
+        }
 
         boolean oldIsOpaque = oldBlock.isOpaque();
         boolean newIsOpaque = newBlock.isOpaque();

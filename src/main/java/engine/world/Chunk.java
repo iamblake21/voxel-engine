@@ -5,6 +5,15 @@ import engine.world.block.Blocks;
 import engine.rendering.Mesh;
 
 import java.util.Arrays;
+import java.util.Collection;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import engine.world.BlockPos;
+import engine.world.blockentity.BlockEntity;
+import engine.world.blockentity.ITickableBlockEntity;
+import java.util.Collection;
 
 /**
  * A chunk of the world - 16x256x16 blocks.
@@ -19,6 +28,7 @@ public class Chunk {
     public static final int HEIGHT = 256;
     private volatile boolean meshPending = false;
     private boolean userModified = false;
+    private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
 
     /** Numero massimo di livelli di dettaglio per chunk. */
     public static final int MAX_LOD_LEVELS = 4;
@@ -337,6 +347,78 @@ public class Chunk {
         this.phase = phase;
     }
 
+    // ==================== BLOCK ENTITIES ====================
+
+    /**
+     * Get block entity at local position.
+     */
+    public BlockEntity getBlockEntity(int localX, int y, int localZ) {
+        long key = packLocalPos(localX, y, localZ);
+        return blockEntities.get(key);
+    }
+
+    /**
+     * Set block entity at local position.
+     */
+    public void setBlockEntity(int localX, int y, int localZ, BlockEntity blockEntity) {
+        long key = packLocalPos(localX, y, localZ);
+
+        // Remove old block entity
+        BlockEntity old = blockEntities.remove(key);
+        if (old != null) {
+            old.onRemoved();
+        }
+
+        // Add new one
+        if (blockEntity != null) {
+            blockEntities.put(key, blockEntity);
+        }
+    }
+
+    /**
+     * Remove block entity at local position.
+     */
+    public BlockEntity removeBlockEntity(int localX, int y, int localZ) {
+        long key = packLocalPos(localX, y, localZ);
+        BlockEntity removed = blockEntities.remove(key);
+        if (removed != null) {
+            removed.onRemoved();
+        }
+        return removed;
+    }
+
+    /**
+     * Get all block entities in this chunk.
+     */
+    public Collection<BlockEntity> getBlockEntities() {
+        return blockEntities.values();
+    }
+
+    /**
+     * Check if chunk has any block entities.
+     */
+    public boolean hasBlockEntities() {
+        return !blockEntities.isEmpty();
+    }
+
+    /**
+     * Pack local coordinates into a single long key.
+     */
+    private long packLocalPos(int x, int y, int z) {
+        return ((long) (y & 0xFFFF) << 8) | ((z & 0xF) << 4) | (x & 0xF);
+    }
+
+    /**
+     * Tick all tickable block entities.
+     */
+    public void tickBlockEntities() {
+        for (BlockEntity be : blockEntities.values()) {
+            if (be instanceof ITickableBlockEntity && !be.isRemoved()) {
+                ((ITickableBlockEntity) be).tick();
+            }
+        }
+    }
+
     // ==================== CLEANUP ====================
 
     public void cleanup() {
@@ -348,5 +430,9 @@ public class Chunk {
             if (waterLOD[i] != null)
                 waterLOD[i].cleanup();
         }
+        for (BlockEntity be : blockEntities.values()) {
+            be.onRemoved();
+        }
+        blockEntities.clear();
     }
 }

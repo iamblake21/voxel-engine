@@ -1,12 +1,16 @@
 package engine.entity;
 
 import engine.entity.ai.goals.*;
+import engine.interaction.IInteractable;
+import engine.interaction.InteractionResult;
 import engine.registry.ResourceLocation;
 
 /**
  * NPC entity with dialogue, professions, and schedules.
+ * 
+ * Updated to implement IInteractable for the new interaction system.
  */
-public class NpcEntity extends LivingEntity {
+public class NpcEntity extends LivingEntity implements IInteractable {
     
     // Identity
     protected String displayName = "Villager";
@@ -32,7 +36,6 @@ public class NpcEntity extends LivingEntity {
     }
     
     protected void initDefaultAI() {
-        // Default NPC AI goals (lower priority = higher importance)
         brain.getGoalSelector().addGoal(1, new LookAtPlayerGoal(this, 8f, 0.8f));
         brain.getGoalSelector().addGoal(5, new WanderGoal(this, 0.6f, 20, 100));
         brain.getGoalSelector().addGoal(7, new ReturnHomeGoal(this, 32f, 1.2f));
@@ -42,8 +45,35 @@ public class NpcEntity extends LivingEntity {
     @Override
     public void update(float deltaTime) {
         super.update(deltaTime);
+    }
+    
+    // ==================== IINTERACTABLE ====================
+    
+    @Override
+    public InteractionResult onInteract(Player player) {
+        // Face the player
+        lookAt(player.getX(), player.getY() + player.getEyeHeight(), player.getZ());
         
-        // Additional NPC logic here
+        // Show dialogue
+        String dialogue = getCurrentDialogue();
+        System.out.println("[" + displayName + "] " + dialogue);
+        
+        // Advance dialogue for next interaction
+        advanceDialogue();
+        
+        // TODO: Trigger dialogue GUI or trade GUI based on profession
+        return InteractionResult.SUCCESS;
+    }
+    
+    @Override
+    public boolean canInteract(Player player) {
+        // Can interact if within range and not dead
+        return !isDead() && distanceTo(player) <= getInteractionRange();
+    }
+    
+    @Override
+    public float getInteractionRange() {
+        return 4.0f; // NPCs have shorter interaction range
     }
     
     // ==================== IDENTITY ====================
@@ -90,14 +120,7 @@ public class NpcEntity extends LivingEntity {
         }
     }
     
-    // ==================== INTERACTION ====================
-    
-    public void onInteract(Entity interactor) {
-        // Face the interactor
-        lookAt(interactor.getX(), interactor.getY() + interactor.getEyeHeight(), interactor.getZ());
-        
-        // Show dialogue
-        System.out.println("[" + displayName + "] " + getCurrentDialogue());
-        advanceDialogue();
+    public void resetDialogue() {
+        dialogueIndex = 0;
     }
 }

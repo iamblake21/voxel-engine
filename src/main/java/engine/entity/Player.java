@@ -12,19 +12,25 @@ import engine.physics.PhysicsEngine;
 import engine.window.InputManager;
 import engine.utils.Math3D.Vec3;
 import static org.lwjgl.glfw.GLFW.*;
+import engine.interaction.InteractionManager;
 
 public class Player extends Entity {
-
     private final Config config;
     private final Camera camera;
     private final PlayerInventory inventory;
     private final engine.mechanics.MiningManager miningManager = new engine.mechanics.MiningManager();
-    
+
     private World world;
-    private PhysicsEngine physics; 
-    
+    private PhysicsEngine physics;
+
     private boolean flying = false;
     private boolean flyKeyLatch = false;
+
+    private InteractionManager interactionManager;
+    private EntityManager entityManager;
+
+    // Click cooldowns per evitare spam
+    private boolean rightClickLatch = false;
 
     public Player(EntityType<?> type, Config config) {
         super(type);
@@ -37,7 +43,7 @@ public class Player extends Entity {
     @Override
     public void init(Engine engine) {
         this.world = engine.getWorld();
-        this.physics = engine.getPhysics(); 
+        this.physics = engine.getPhysics();
 
         engine.getRenderer().setCamera(camera);
 
@@ -46,21 +52,35 @@ public class Player extends Entity {
             setPosition(spawn.x, spawn.y + 1, spawn.z);
         }
         updateCamera();
+
+        this.entityManager = engine.getEntityManager();
+        this.interactionManager = new InteractionManager();
+
+        // Setup GUI handler (collega al tuo sistema GUI)
+        interactionManager.setGuiHandler((player, blockEntity) -> {
+            // Questo sarà gestito dal game layer
+            // Per ora logga
+            System.out.println("[Player] Opening GUI for: " + blockEntity);
+        });
+
     }
 
     @Override
-    public void update(float deltaTime) {}
+    public void update(float deltaTime) {
+    }
 
     public void update(float deltaTime, InputManager input, boolean inputEnabled) {
-        if (world == null) return;
+        if (world == null)
+            return;
 
         // 1. INPUT: Definisce VX e VZ
         if (inputEnabled) {
             handleInput(input, deltaTime);
         } else {
-            this.vx = 0; 
+            this.vx = 0;
             this.vz = 0;
-            if (flying) this.vy = 0;
+            if (flying)
+                this.vy = 0;
         }
 
         // 2. STATO: Definisce gravità
@@ -89,8 +109,9 @@ public class Player extends Entity {
 
         // Speed settings (Originali)
         float speed = onGround ? config.playerSpeed : 4.0f;
-        if (flying) speed = config.playerFlySpeed; // Velocità fissa in volo
-        
+        if (flying)
+            speed = config.playerFlySpeed; // Velocità fissa in volo
+
         if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT) && !flying) {
             speed *= config.playerSprintMultiplier;
         }
@@ -103,15 +124,27 @@ public class Player extends Entity {
         float rz = fx;
 
         float mx = 0, mz = 0;
-        if (input.isKeyDown(GLFW_KEY_W)) { mx += fx; mz += fz; }
-        if (input.isKeyDown(GLFW_KEY_S)) { mx -= fx; mz -= fz; }
-        if (input.isKeyDown(GLFW_KEY_D)) { mx += rx; mz += rz; }
-        if (input.isKeyDown(GLFW_KEY_A)) { mx -= rx; mz -= rz; }
+        if (input.isKeyDown(GLFW_KEY_W)) {
+            mx += fx;
+            mz += fz;
+        }
+        if (input.isKeyDown(GLFW_KEY_S)) {
+            mx -= fx;
+            mz -= fz;
+        }
+        if (input.isKeyDown(GLFW_KEY_D)) {
+            mx += rx;
+            mz += rz;
+        }
+        if (input.isKeyDown(GLFW_KEY_A)) {
+            mx -= rx;
+            mz -= rz;
+        }
 
         float len = (float) Math.sqrt(mx * mx + mz * mz);
-        if (len > 0) { 
-            mx /= len; 
-            mz /= len; 
+        if (len > 0) {
+            mx /= len;
+            mz /= len;
         }
 
         // ASSEGNAZIONE DIRETTA (Restituisce il feeling "Snappy")
@@ -122,8 +155,10 @@ public class Player extends Entity {
         // Salto e Volo
         if (flying) {
             float vyInput = 0;
-            if (input.isKeyDown(GLFW_KEY_SPACE)) vyInput += speed;
-            if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) vyInput -= speed;
+            if (input.isKeyDown(GLFW_KEY_SPACE))
+                vyInput += speed;
+            if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT))
+                vyInput -= speed;
             this.vy = vyInput;
         } else {
             if (onGround && input.isKeyDown(GLFW_KEY_SPACE)) {
@@ -137,13 +172,16 @@ public class Player extends Entity {
         if (fDown && !flyKeyLatch) {
             flying = !flying;
             flyKeyLatch = true;
-            if (flying) this.vy = 0;
+            if (flying)
+                this.vy = 0;
         }
-        if (!fDown) flyKeyLatch = false;
+        if (!fDown)
+            flyKeyLatch = false;
 
         // Hotbar
         for (int i = 0; i < 9; i++) {
-            if (input.isKeyDown(GLFW_KEY_1 + i)) inventory.setSelectedSlot(i);
+            if (input.isKeyDown(GLFW_KEY_1 + i))
+                inventory.setSelectedSlot(i);
         }
     }
 
@@ -153,64 +191,105 @@ public class Player extends Entity {
         camera.update(0f);
         if (world != null) {
             world.updateCamera(
-                camera.getProjectionMatrix().toArray(),
-                camera.getViewMatrix().toArray(),
-                camera.getForward()
-            );
+                    camera.getProjectionMatrix().toArray(),
+                    camera.getViewMatrix().toArray(),
+                    camera.getForward());
         }
     }
 
-    // Copia qui il tuo vecchio handleBlockInteraction (quello col Raycast)
-    // Non lo modifico perché funziona bene.
-    public void handleBlockInteraction(InputManager input, float deltaTime) {
-        if (world == null) return;
-        boolean breakBlock = input.isMouseButtonDown(GLFW_MOUSE_BUTTON_1);
-        boolean placeBlock = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_2);
-
-        if (!breakBlock && !placeBlock) {
-            miningManager.resetBreaking();
+    public void handleInteraction(InputManager input, float deltaTime) {
+        if (world == null)
             return;
+
+        boolean breakBlock = input.isMouseButtonDown(GLFW_MOUSE_BUTTON_1);
+        boolean useItem = input.isMouseButtonDown(GLFW_MOUSE_BUTTON_2);
+        boolean useItemPressed = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_2);
+
+        // Left Click: Mining/Attack
+        if (breakBlock) {
+            handleLeftClick(input, deltaTime);
+        } else {
+            miningManager.resetBreaking();
         }
+
+        // Right Click: Use/Interact
+        if (useItemPressed && !rightClickLatch) {
+            rightClickLatch = true;
+            handleRightClick();
+        }
+        if (!useItem) {
+            rightClickLatch = false;
+        }
+    }
+
+    private void handleLeftClick(InputManager input, float deltaTime) {
+        // First check for entity attack
+        if (interactionManager != null && entityManager != null) {
+            // For now, just do block mining
+            // Entity attack can be added later
+        }
+
+        // Block mining (existing raycast logic)
         ItemStack selectedStack = inventory.getSelectedStack();
-        float eyeX = x; float eyeY = y + config.playerEyeHeight; float eyeZ = z;
-        float yawRad = (float) Math.toRadians(yaw); float pitchRad = (float) Math.toRadians(pitch);
+        float eyeX = x, eyeY = y + config.playerEyeHeight, eyeZ = z;
+        float yawRad = (float) Math.toRadians(yaw);
+        float pitchRad = (float) Math.toRadians(pitch);
         float dirX = (float) (Math.cos(pitchRad) * Math.cos(yawRad));
         float dirY = (float) (Math.sin(pitchRad));
         float dirZ = (float) (Math.cos(pitchRad) * Math.sin(yawRad));
-        float maxDist = 6.0f; float step = 0.05f; float dist = 0f;
-        int lastAirX = 0, lastAirY = 0, lastAirZ = 0;
-        boolean hitSolid = false;
+        float maxDist = 6.0f, step = 0.05f, dist = 0f;
 
         while (dist <= maxDist) {
-            float cx = eyeX + dirX * dist; float cy = eyeY + dirY * dist; float cz = eyeZ + dirZ * dist;
-            int bx = (int) Math.floor(cx); int by = (int) Math.floor(cy); int bz = (int) Math.floor(cz);
+            float cx = eyeX + dirX * dist;
+            float cy = eyeY + dirY * dist;
+            float cz = eyeZ + dirZ * dist;
+            int bx = (int) Math.floor(cx);
+            int by = (int) Math.floor(cy);
+            int bz = (int) Math.floor(cz);
             int blockId = world.getBlock(bx, by, bz);
 
-            if (Blocks.isLiquid(blockId)) {
-                lastAirX = bx; lastAirY = by; lastAirZ = bz;
-            } else if (Blocks.isSolid(blockId)) {
-                hitSolid = true;
-                if (breakBlock) {
-                    miningManager.processMining(this, world, bx, by, bz, deltaTime);
-                } else if (placeBlock) {
-                    miningManager.resetBreaking();
-                    if (!selectedStack.isEmpty() && selectedStack.getItem() instanceof IUsableItem) {
-                        IUsableItem usableItem = (IUsableItem) selectedStack.getItem();
-                        boolean used = usableItem.use(world, this, selectedStack, bx, by, bz, lastAirX, lastAirY, lastAirZ);
-                        if (used) selectedStack.shrink(1);
-                    }
-                }
-                break;
-            } else {
-                lastAirX = bx; lastAirY = by; lastAirZ = bz;
+            if (Blocks.isSolid(blockId)) {
+                miningManager.processMining(this, world, bx, by, bz, deltaTime);
+                return;
             }
             dist += step;
         }
-        if (!hitSolid) miningManager.resetBreaking();
+        miningManager.resetBreaking();
     }
 
-    public Camera getCamera() { return camera; }
-    public boolean isFlying() { return flying; }
-    public PlayerInventory getInventory() { return inventory; }
-    public engine.mechanics.MiningManager getMiningManager() { return miningManager; }
+    private void handleRightClick() {
+        if (interactionManager == null || entityManager == null) {
+            // Fallback to old system
+            return;
+        }
+
+        // Use the new interaction manager
+        boolean handled = interactionManager.handleRightClick(this, world, entityManager);
+
+        if (!handled) {
+            // Nothing was interacted with
+        }
+    }
+
+    // ==================== GETTER ====================
+
+    public InteractionManager getInteractionManager() {
+        return interactionManager;
+    }
+
+    public Camera getCamera() {
+        return camera;
+    }
+
+    public boolean isFlying() {
+        return flying;
+    }
+
+    public PlayerInventory getInventory() {
+        return inventory;
+    }
+
+    public engine.mechanics.MiningManager getMiningManager() {
+        return miningManager;
+    }
 }

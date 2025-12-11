@@ -36,28 +36,7 @@ public final class GameInit {
         GameGuis.register(); // <-- NEW: Register GUIs
         GameBiomes.register();
         GameEntities.register(); // When entities are implemented
-
-        registered = true;
-
-        System.out.println("[Game] Content registration complete");
-    }
-
-    /**
-     * Alternative: Register with JSON-based GUIs.
-     * Use this if you prefer loading GUI definitions from JSON files.
-     */
-    public static void registerContentWithJsonGuis() {
-        if (registered) {
-            System.out.println("[Game] Content already registered, skipping");
-            return;
-        }
-
-        System.out.println("[Game] Registering game content (JSON GUIs)...");
-
-        GameBlocks.register();
-        GameItems.register();
-        GameGuis.registerFromJson(); // Load from JSON instead
-        GameBiomes.register();
+        GameBlockEntities.register(); // When block entities are implemented
 
         registered = true;
 

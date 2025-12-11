@@ -3,6 +3,11 @@ package engine.world.block;
 import engine.registry.Registries;
 import engine.registry.RegistryEntry;
 import engine.registry.ResourceLocation;
+import engine.world.BlockPos;
+import engine.world.blockentity.BlockEntity;
+import engine.world.blockentity.BlockEntityType;
+import engine.world.blockentity.ITickableBlockEntity;
+import java.util.Collection;
 
 import java.util.Optional;
 
@@ -184,4 +189,34 @@ public class Block {
     public String toString() {
         return "Block{" + (registryId != null ? registryId : "unregistered") + "}";
     }
+
+    // ==================== BLOCK ENTITY ====================
+
+    /**
+     * Check if this block type has an associated block entity.
+     * Override in subclasses that need block entities.
+     */
+    public boolean hasBlockEntity() {
+        return false;
+    }
+
+    /**
+     * Create a new block entity for this block.
+     * Override in subclasses that have block entities.
+     * 
+     * @param pos The position where the block entity will be placed
+     * @return The new block entity, or null if this block doesn't have one
+     */
+    public BlockEntity createBlockEntity(BlockPos pos) {
+        return null;
+    }
+
+    /**
+     * Get the block entity type for this block.
+     * Override in subclasses.
+     */
+    public BlockEntityType<?> getBlockEntityType() {
+        return null;
+    }
+
 }
