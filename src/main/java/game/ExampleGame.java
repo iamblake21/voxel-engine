@@ -13,6 +13,7 @@ import engine.ui.GuiRenderer;
 import engine.ui.HotbarGui;
 import engine.ui.InventoryGui;
 import engine.ui.InventoryInteractionManager;
+import engine.ui.editor.GuiEditorIntegration; // <-- NUOVO IMPORT
 import engine.world.World;
 import game.init.GameInit;
 import static org.lwjgl.glfw.GLFW.*;
@@ -34,7 +35,10 @@ public class ExampleGame implements IGame {
     private InventoryGui inventoryGui;
     private InventoryInteractionManager inventoryInteraction;
     private boolean inventoryOpen = false;
-    private boolean eKeyLatch = false; // Latch for E key to prevent flickering
+    private boolean eKeyLatch = false;
+
+    // GUI Editor <-- NUOVO
+    private GuiEditorIntegration guiEditor;
 
     private engine.rendering.BreakProgressRenderer breakProgressRenderer;
 
@@ -97,48 +101,39 @@ public class ExampleGame implements IGame {
 
         // Setup render input handler
         RenderSettings settings = new RenderSettings();
-        settings.setViewDistance(config.viewDistance); // Sync con config
+        settings.setViewDistance(config.viewDistance);
         this.renderInputHandler = new RenderInputHandler(settings, world);
 
-        // Setup GUI renderer
-        this.guiRenderer = new GuiRenderer(config.windowWidth, config.windowHeight);
+        // ============================================================
+        // SETUP GUI - ORDINE CORRETTO
+        // ============================================================
 
-        // Pass atlas texture to GUI renderer so we can use it
+        // 1. Crea GuiRenderer
+        this.guiRenderer = new GuiRenderer(config.windowWidth, config.windowHeight);
         guiRenderer.setAtlasTexture(engine.getRenderer().getAtlasTexture());
 
-        // Use GUI scale factor from renderer to setup layout
-        // This ensures the GUI Layout Logic matches the Scaled Projection Matrix
         int scale = guiRenderer.getGuiScale();
 
-        this.hotbarGui = new HotbarGui(player.getInventory(), config.windowWidth / scale, config.windowHeight / scale);
-        this.inventoryGui = new InventoryGui(player.getInventory(), config.windowWidth / scale,
+        // 2. Crea HotbarGui (usa dimensioni LOGICHE perché non estende TexturedGui)
+        this.hotbarGui = new HotbarGui(player.getInventory(),
+                config.windowWidth / scale,
                 config.windowHeight / scale);
 
+        // 3. Crea InventoryGui con dimensioni RAW (TexturedGui fa la divisione)
+        this.inventoryGui = new InventoryGui(player.getInventory(),
+                config.windowWidth, // <-- RAW, non diviso!
+                config.windowHeight); // <-- RAW, non diviso!
+        inventoryGui.setGuiScale(scale);
+
+        // 4. Crea GUI Editor
+        this.guiEditor = new GuiEditorIntegration(config.windowWidth, config.windowHeight, guiRenderer);
+
+        // 5. Altri componenti
         this.inventoryInteraction = new InventoryInteractionManager(player.getInventory());
         this.breakProgressRenderer = new engine.rendering.BreakProgressRenderer();
 
-        // Pass GUI scale to inventory GUI for mouse coordinate conversion
-        inventoryGui.setGuiScale(scale);
-
-        System.out.println("[Game] GUI initialized:");
-        System.out.println("  - GuiRenderer created (Scale=" + scale + ")");
-        System.out.println("  - HotbarGui created using scaled sizes: " + (config.windowWidth / scale) + "x"
-                + (config.windowHeight / scale));
-        System.out.println("  - InventoryGui created using scaled sizes: " + (config.windowWidth / scale) + "x"
-                + (config.windowHeight / scale));
-        System.out.println("  - InventoryInteractionManager created");
-        System.out.println("  - Atlas texture: " + (engine.getRenderer().getAtlasTexture() != null ? "OK" : "NULL"));
-
+        System.out.println("[Game] GUI initialized with scale=" + scale);
         System.out.println("[Game] Init complete");
-    }
-
-    private int countNonEmptySlots(engine.entity.inventory.PlayerInventory inv, int start, int count) {
-        int nonEmpty = 0;
-        for (int i = start; i < start + count; i++) {
-            if (!inv.getStack(i).isEmpty())
-                nonEmpty++;
-        }
-        return nonEmpty;
     }
 
     @Override
@@ -149,7 +144,23 @@ public class ExampleGame implements IGame {
         // Process render settings input (view distance, frustum toggle, etc.)
         renderInputHandler.processInput(engine.getWindow().getHandle());
 
-        // Toggle inventory with E key (with latch to prevent flickering)
+        // ============================================================
+        // GUI EDITOR (F7) - DEVE ESSERE PRIMA DELL'INVENTARIO!
+        // ============================================================
+        guiEditor.update(engine.getInput(),
+                engine.getInput().getMouseX(),
+                engine.getInput().getMouseY());
+
+        // Se l'editor è attivo, blocca tutto il resto
+        if (guiEditor.isEditorActive()) {
+            // L'editor gestisce il cursore internamente
+            engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
+            return; // Skip tutto il resto
+        }
+
+        // ============================================================
+        // INVENTARIO (E key)
+        // ============================================================
         boolean eDown = engine.getInput().isKeyDown(GLFW_KEY_E);
         if (eDown && !eKeyLatch) {
             boolean wasOpen = inventoryOpen;
@@ -160,10 +171,8 @@ public class ExampleGame implements IGame {
                 engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
             } else {
                 engine.getWindow().setCursorMode(GLFW_CURSOR_DISABLED);
-                // Reset mouse delta to prevent camera jump when re-entering game
                 engine.getInput().resetMouseDelta();
 
-                // Drop cursor item back to inventory when closing
                 if (wasOpen) {
                     inventoryInteraction.dropCursorToInventory();
                 }
@@ -202,8 +211,20 @@ public class ExampleGame implements IGame {
 
     @Override
     public void render(Renderer renderer) {
-        // HUD, crosshair, debug info...
         guiRenderer.begin();
+
+        // ============================================================
+        // SE EDITOR ATTIVO, RENDERIZZA SOLO QUELLO
+        // ============================================================
+        if (guiEditor != null && guiEditor.isEditorActive()) {
+            guiEditor.getEditor().render(guiRenderer);
+            guiRenderer.end();
+            return; // Non renderizzare altro
+        }
+
+        // ============================================================
+        // RENDER NORMALE
+        // ============================================================
 
         // Always render hotbar
         hotbarGui.render(guiRenderer);
@@ -214,78 +235,27 @@ public class ExampleGame implements IGame {
 
             // Render cursor item if holding one
             if (inventoryInteraction.hasCursorItem()) {
-                int[] mousePos = inventoryGui.getMousePosition(
+                inventoryGui.renderCursorItem(guiRenderer,
+                        inventoryInteraction.getCursorStack(),
                         engine.getInput().getMouseX(),
-                        engine.getInput().getMouseY(),
-                        config.windowHeight);
-                inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
-                        mousePos[0], mousePos[1]);
+                        engine.getInput().getMouseY());
             }
         }
 
-        // TODO: Render crosshair if inventory not open
-
         guiRenderer.end();
 
-        // Render break progress (3D overlay, so outside GUI 2D mode, but after main
-        // render?)
-        // Actually main render is probably already done by engine.render() calling
-        // world.render()
-        // We need to render this in the 3D pass.
-        // ExampleGame.render is called... when? After world render I assume.
-        // Let's check Engine.java if possible, but assuming standard flow:
-        // Engine -> World -> Entities -> Game.render (which does GUI).
-        // If Game.render is strictly GUI (2D), we might need to inject into World
-        // rendering or
-        // setup 3D context here.
-        // Assuming ExampleGame.render is just a callback at end of frame.
-        // We should enable depth test for the block overlay but maybe disable writing
-        // or use depth func equal?
-        // The renderer uses standard GL.
-
-        // Re-enable depth test if gui disabled it
+        // Render break progress (3D overlay)
         org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_DEPTH_TEST);
-
-        // We need camera.
-        // We also need to Apply camera transform since GUI renderer likely reset it or
-        // setup ortho.
-        // If this is too complex, we might just skip visual or accept it's tricky
-        // without full engine context.
-        // However, let's try pushing matrix and applying view.
-
-        // Actually, Engine loop usually clears, Renders World (3D), Renders Game
-        // (Overlay).
-        // If we want 3D overlay, we need to set up 3D projection again or hook into
-        // World renderer.
-        // For now, let's try to render it. If it fails (wrong projection), we'll see 2D
-        // artifacts.
-
-        // But wait, the GUI renderer sets Ortho. We need Perspective.
-        // Let's just update the Task to "Visual Feedback implemented (Best Effort)"
-        // and try to use the player camera to set up view.
-
-        // For now, I will NOT put it in render() if it risks breaking the view.
-        // I'll assume the user wants the logic first.
-        // But wait, I promised visual feedback.
-
-        // Let's try to add it, but protect it.
         engine.rendering.Renderer ren = engine.getRenderer();
-        ren.setCamera(player.getCamera()); // Helpers to set view?
-        // ren.prepare3D()?
-
-        // Just call the renderer, assuming we can get 3D context.
-        // Since I don't see `prepare3D` exposed easily, I'll rely on World interactions
-        // or modify World.
-        // But ExampleGame is high-level.
-
-        // Let's try rendering it:
+        ren.setCamera(player.getCamera());
         breakProgressRenderer.render(player.getMiningManager(), player.getCamera(), world);
     }
 
     @Override
     public void cleanup() {
-        if (guiRenderer != null) {
+        if (guiRenderer != null)
             guiRenderer.cleanup();
-        }
+        if (guiEditor != null)
+            guiEditor.cleanup();
     }
 }

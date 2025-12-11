@@ -4,6 +4,7 @@ import engine.world.block.Block;
 import engine.world.biome.Biome;
 import engine.entity.EntityType;
 import engine.world.item.Item;
+import engine.ui.definition.GuiDefinition;
 
 import java.util.*;
 
@@ -35,6 +36,9 @@ public final class Registries {
     /** Registry of all entity types */
     public static final Registry<EntityType<?>> ENTITY_TYPES = new Registry<>("engine:entity_types");
 
+    /** Registry of all GUI definitions */
+    public static final Registry<GuiDefinition> GUIS = new Registry<>("engine:guis");
+
     // ==================== REGISTRY OF REGISTRIES ====================
 
     private static final Map<ResourceLocation, Registry<?>> ALL_REGISTRIES = new LinkedHashMap<>();
@@ -45,6 +49,7 @@ public final class Registries {
         registerRegistry(ITEMS);
         registerRegistry(BIOMES);
         registerRegistry(ENTITY_TYPES);
+        registerRegistry(GUIS);
     }
 
     private Registries() {

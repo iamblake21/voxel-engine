@@ -13,7 +13,7 @@ import engine.world.item.ItemStack;
 public class PlayerInventory extends Inventory {
 
     public static final int HOTBAR_SIZE = 9;
-    public static final int MAIN_SIZE = 27;
+    public static final int MAIN_SIZE = 45;
     public static final int TOTAL_SIZE = HOTBAR_SIZE + MAIN_SIZE;
 
     private int selectedHotbarSlot = 0; // 0-8

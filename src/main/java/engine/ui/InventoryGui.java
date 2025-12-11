@@ -1,120 +1,119 @@
 package engine.ui;
 
 import engine.entity.inventory.PlayerInventory;
+import engine.registry.Registries;
+import engine.ui.definition.GuiDefinition;
+import engine.ui.definition.GuiDefinitionLoader;
+import engine.ui.definition.Guis;
 import engine.window.InputManager;
 import engine.world.item.ItemStack;
+import engine.ui.editor.*;
+
+import java.util.Optional;
 
 import static org.lwjgl.glfw.GLFW.*;
 
 /**
  * Full inventory GUI screen - opened with E key.
- * Shows hotbar (9 slots) + main inventory (27 slots).
- * Supports mouse interaction for item manipulation.
+ * Uses texture + JSON metadata for layout.
+ * 
+ * This is a refactored version that extends TexturedGui
+ * and loads slot positions from the registry.
+ * 
+ * Usage:
+ * // In GameGuis.register():
+ * INVENTORY = Guis.builder("game:inventory", ...)...register();
+ * 
+ * // In game init:
+ * InventoryGui gui = new InventoryGui(playerInventory, width, height);
  */
-public class InventoryGui extends GuiComponent {
-
-    private static final int GUI_WIDTH = 176;
-    private static final int GUI_HEIGHT = 166;
+public class InventoryGui extends TexturedGui {
 
     private final PlayerInventory inventory;
-    private final InventorySlot[] hotbarSlots;
-    private final InventorySlot[] mainSlots;
 
-    // GUI scale factor (needed for mouse coordinate conversion)
-    private int guiScale = 2;
-
+    /**
+     * Create inventory GUI from registry.
+     * Requires "game:inventory" to be registered in GameGuis.
+     */
     public InventoryGui(PlayerInventory inventory, int windowWidth, int windowHeight) {
-        super(windowWidth / 2 - GUI_WIDTH / 2,
-                windowHeight / 2 - GUI_HEIGHT / 2,
-                GUI_WIDTH,
-                GUI_HEIGHT);
+        super(loaDefinition(), windowWidth, windowHeight);
 
         this.inventory = inventory;
-        this.hotbarSlots = new InventorySlot[9];
-        this.mainSlots = new InventorySlot[27];
 
-        // Create hotbar slots (bottom row) - slots 0-8
-        int hotbarY = y + GUI_HEIGHT - 26;
-        for (int i = 0; i < 9; i++) {
-            int slotX = x + 8 + i * 18;
-            hotbarSlots[i] = new InventorySlot(slotX, hotbarY, i); // slot index = i
-        }
+        // Set up the stack provider to get items from the player inventory
+        setStackProvider(this::getStackForSlot);
 
-        // Create main inventory slots (3 rows above hotbar) - slots 9-35
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 9; col++) {
-                int localIndex = row * 9 + col;
-                int absoluteSlotIndex = PlayerInventory.HOTBAR_SIZE + localIndex; // 9-35
-                int slotX = x + 8 + col * 18;
-                int slotY = y + 40 + row * 18;
-                mainSlots[localIndex] = new InventorySlot(slotX, slotY, absoluteSlotIndex);
-            }
-        }
-
-        System.out.println("[InventoryGui] Created (36 slots)");
+        System.out.println("[InventoryGui] Created with " + definition.getSlots().size() + " slots");
     }
 
     /**
-     * Set the GUI scale factor for mouse coordinate conversion
+     * Create inventory GUI with a custom definition.
+     * Useful for testing or modded inventories.
      */
-    public void setGuiScale(int scale) {
-        this.guiScale = scale;
+    public InventoryGui(PlayerInventory inventory, GuiDefinition customDefinition,
+            int windowWidth, int windowHeight) {
+        super(customDefinition, windowWidth, windowHeight);
+
+        this.inventory = inventory;
+        setStackProvider(this::getStackForSlot);
+    }
+
+    /**
+     * Get the GUI definition from registry.
+     * Falls back to "inventory" if "game:inventory" not found.
+     */
+    private static GuiDefinition loaDefinition() {
+        // Try game:inventory first (standard game GUI)
+        Optional<GuiDefinition> gameDef = Registries.GUIS.get("game:inventory");
+        if (gameDef.isPresent()) {
+            return gameDef.get();
+        }
+
+        // Try engine:inventory (engine default)
+        Optional<GuiDefinition> engineDef = Registries.GUIS.get("engine:inventory");
+        if (engineDef.isPresent()) {
+            return engineDef.get();
+        }
+
+        // Try just "inventory" (default namespace)
+        Optional<GuiDefinition> defaultDef = Registries.GUIS.get("inventory");
+        if (defaultDef.isPresent()) {
+            return defaultDef.get();
+        }
+
+        // No definition found - this is an error in setup
+        throw new IllegalStateException(
+                "[InventoryGui] No inventory GUI definition found! " +
+                        "Make sure GameGuis.register() is called before creating InventoryGui. " +
+                        "Expected: game:inventory, engine:inventory, or inventory");
+    }
+
+    /**
+     * Get ItemStack for a slot index (used by stack provider)
+     */
+    private ItemStack getStackForSlot(int absoluteIndex) {
+        if (absoluteIndex < 0) {
+            return ItemStack.EMPTY;
+        }
+
+        // Hotbar: 0-8
+        if (absoluteIndex < PlayerInventory.HOTBAR_SIZE) {
+            return inventory.getHotbarStack(absoluteIndex);
+        }
+
+        // Main inventory: 9-35
+        int mainIndex = absoluteIndex - PlayerInventory.HOTBAR_SIZE;
+        if (mainIndex < PlayerInventory.MAIN_SIZE) {
+            return inventory.getMainStack(mainIndex);
+        }
+
+        return ItemStack.EMPTY;
     }
 
     @Override
-    public void render(GuiRenderer renderer) {
-        if (!visible)
-            return;
-
-        // Semi-transparent background overlay (full screen)
-        renderer.renderRect(0, 0, renderer.getWindowWidth(), renderer.getWindowHeight(),
-                0, 0, 0, 0.5f);
-
-        // Main inventory panel background
-        renderer.renderRect(x, y, width, height, 0.15f, 0.15f, 0.15f, 0.95f);
-
-        // Title
-        renderer.renderText("Inventory", x + width / 2 - 40, y + 8, 12, 1, 1, 1, 1);
-
-        // Main inventory label
-        renderer.renderText("Main", x + 8, y + 28, 10, 0.8f, 0.8f, 0.8f, 1);
-
-        // Hotbar label
-        renderer.renderText("Hotbar", x + 8, y + GUI_HEIGHT - 40, 10, 0.8f, 0.8f, 0.8f, 1);
-
-        // Render main inventory slots
-        for (int i = 0; i < 27; i++) {
-            ItemStack stack = inventory.getMainStack(i);
-            mainSlots[i].setStack(stack);
-            mainSlots[i].render(renderer);
-        }
-
-        // Render hotbar slots
-        int selectedSlot = inventory.getSelectedSlot();
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = inventory.getHotbarStack(i);
-            hotbarSlots[i].setStack(stack);
-            hotbarSlots[i].setSelected(i == selectedSlot);
-            hotbarSlots[i].render(renderer);
-        }
-    }
-
-    /**
-     * Render the cursor item (should be called last, after all other UI)
-     */
-    public void renderCursorItem(GuiRenderer renderer, ItemStack cursorStack, int mouseX, int mouseY) {
-        if (cursorStack == null || cursorStack.isEmpty()) {
-            return;
-        }
-
-        // Create a temporary slot to render the item at cursor position
-        // Offset by half slot size so item is centered on cursor
-        int renderX = mouseX - InventorySlot.SLOT_SIZE / 2;
-        int renderY = mouseY - InventorySlot.SLOT_SIZE / 2;
-
-        InventorySlot cursorSlot = new InventorySlot(renderX, renderY, -1);
-        cursorSlot.setStack(cursorStack);
-        cursorSlot.render(renderer);
+    protected void renderCustom(GuiRenderer renderer) {
+        // Update selected slot highlighting
+        setSelectedSlot(inventory.getSelectedSlot());
     }
 
     /**
@@ -124,14 +123,14 @@ public class InventoryGui extends GuiComponent {
      * @param manager      The interaction manager for handling clicks
      * @param rawMouseX    Raw window mouse X position
      * @param rawMouseY    Raw window mouse Y position
-     * @param windowHeight Window height for Y flip
+     * @param windowHeight Window height (unused, kept for API compat)
      */
     public void handleInput(InputManager input, InventoryInteractionManager manager,
             double rawMouseX, double rawMouseY, int windowHeight) {
         // Convert raw mouse coordinates to GUI coordinates
-        // GUI uses top-left origin, GLFW uses top-left, so NO Y-flip needed
-        int mx = (int) (rawMouseX / guiScale);
-        int my = (int) (rawMouseY / guiScale);
+        int[] coords = convertMouseCoords(rawMouseX, rawMouseY);
+        int mx = coords[0];
+        int my = coords[1];
 
         // Update hover state on all slots
         updateHoverStates(mx, my);
@@ -148,10 +147,10 @@ public class InventoryGui extends GuiComponent {
         boolean shiftHeld = input.isKeyDown(GLFW_KEY_LEFT_SHIFT) || input.isKeyDown(GLFW_KEY_RIGHT_SHIFT);
 
         // Check which slot was clicked
-        InventorySlot clickedSlot = getSlotAt(mx, my);
+        Optional<InventorySlot> clickedSlot = getSlotAt(mx, my);
 
-        if (clickedSlot != null && clickedSlot.getSlotIndex() >= 0) {
-            manager.handleSlotClick(clickedSlot.getSlotIndex(), leftClicked, shiftHeld, input);
+        if (clickedSlot.isPresent() && clickedSlot.get().getSlotIndex() >= 0) {
+            manager.handleSlotClick(clickedSlot.get().getSlotIndex(), leftClicked, shiftHeld, input);
         } else {
             // Clicked outside any slot
             manager.handleClickOutside(leftClicked);
@@ -159,72 +158,29 @@ public class InventoryGui extends GuiComponent {
     }
 
     /**
-     * Update hover states for all slots based on mouse position
+     * Render the cursor item (should be called last, after all other UI)
      */
-    private void updateHoverStates(int mx, int my) {
-        // Check hotbar slots
-        for (InventorySlot slot : hotbarSlots) {
-            slot.setHovered(slot.isMouseOver(mx, my));
+    public void renderCursorItem(GuiRenderer renderer, ItemStack cursorStack,
+            double rawMouseX, double rawMouseY) {
+        if (cursorStack == null || cursorStack.isEmpty()) {
+            return;
         }
 
-        // Check main slots
-        for (InventorySlot slot : mainSlots) {
-            slot.setHovered(slot.isMouseOver(mx, my));
-        }
-    }
-
-    /**
-     * Find the slot at the given GUI coordinates
-     */
-    private InventorySlot getSlotAt(int mx, int my) {
-        // Check hotbar slots
-        for (InventorySlot slot : hotbarSlots) {
-            if (slot.isMouseOver(mx, my)) {
-                return slot;
-            }
-        }
-
-        // Check main slots
-        for (InventorySlot slot : mainSlots) {
-            if (slot.isMouseOver(mx, my)) {
-                return slot;
-            }
-        }
-
-        return null;
+        int[] coords = convertMouseCoords(rawMouseX, rawMouseY);
+        super.renderCursorItem(renderer, cursorStack, coords[0], coords[1]);
     }
 
     /**
      * Get current mouse position in GUI coordinates
      */
     public int[] getMousePosition(double rawMouseX, double rawMouseY, int windowHeight) {
-        int mx = (int) (rawMouseX / guiScale);
-        int my = (int) (rawMouseY / guiScale);
-        return new int[] { mx, my };
+        return convertMouseCoords(rawMouseX, rawMouseY);
     }
 
     /**
-     * Update position (e.g., on window resize)
+     * Get the player inventory
      */
-    public void updatePosition(int windowWidth, int windowHeight) {
-        this.x = windowWidth / 2 - GUI_WIDTH / 2;
-        this.y = windowHeight / 2 - GUI_HEIGHT / 2;
-
-        // Update hotbar slot positions
-        int hotbarY = y + GUI_HEIGHT - 26;
-        for (int i = 0; i < 9; i++) {
-            int slotX = x + 8 + i * 18;
-            hotbarSlots[i].setPosition(slotX, hotbarY);
-        }
-
-        // Update main slot positions
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 9; col++) {
-                int slotIndex = row * 9 + col;
-                int slotX = x + 8 + col * 18;
-                int slotY = y + 40 + row * 18;
-                mainSlots[slotIndex].setPosition(slotX, slotY);
-            }
-        }
+    public PlayerInventory getInventory() {
+        return inventory;
     }
 }
