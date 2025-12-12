@@ -2,6 +2,11 @@ package engine.entity;
 
 import java.util.*;
 
+import engine.entity.inventory.PlayerInventory;
+import engine.world.item.ItemStack;
+
+
+
 /**
  * Manages all entities in the world.
  */
@@ -10,6 +15,11 @@ public class EntityManager {
     private final Map<Long, Entity> entitiesById = new HashMap<>();
     private final List<Entity> entities = new ArrayList<>();
     private final List<Entity> toAdd = new ArrayList<>();
+
+    private static final float PICKUP_RADIUS = 1.5f;
+    private static final float MAGNET_RADIUS = 2.5f;
+    private static final float MAGNET_SPEED = 5.0f;
+
     
     // Player reference for AI
     private Player player;
@@ -37,6 +47,97 @@ public class EntityManager {
     public void removeEntity(Entity entity) {
         entity.remove();
     }
+
+
+
+/**
+ * Process item pickup for player.
+ * Call this in update().
+ */
+private void processItemPickup(float deltaTime) {
+    if (player == null) return;
+    
+    float px = player.getX();
+    float py = player.getY();
+    float pz = player.getZ();
+    
+    for (Entity e : entities) {
+        if (e instanceof ItemEntity && !e.isRemoved()) {
+            ItemEntity item = (ItemEntity) e;
+            
+            float dx = px - item.getX();
+            float dy = (py + 0.5f) - item.getY(); // Aim for player center
+            float dz = pz - item.getZ();
+            float distSq = dx * dx + dy * dy + dz * dz;
+            float dist = (float) Math.sqrt(distSq);
+            
+            // Magnet effect - pull items toward player
+            if (dist < MAGNET_RADIUS && item.canPickup()) {
+                float speed = MAGNET_SPEED * deltaTime;
+                if (dist > 0.1f) {
+                    item.addVelocity(
+                        (dx / dist) * speed,
+                        (dy / dist) * speed,
+                        (dz / dist) * speed
+                    );
+                }
+            }
+            
+            // Pickup
+            if (dist < PICKUP_RADIUS && item.canPickup()) {
+                tryPickupItem(item);
+            }
+        }
+    }
+}
+
+/**
+ * Try to add item to player inventory.
+ */
+private void tryPickupItem(ItemEntity itemEntity) {
+    if (player == null) return;
+    
+    PlayerInventory inv = player.getInventory();
+    ItemStack stack = itemEntity.getStack();
+    
+    if (stack == null || stack.isEmpty()) {
+        itemEntity.remove();
+        return;
+    }
+    
+    // Try to add to inventory
+    ItemStack remaining = inv.addItem(stack);
+    
+    if (remaining.isEmpty()) {
+        // Fully picked up
+        itemEntity.remove();
+    } else {
+        // Partially picked up
+        itemEntity.setStack(remaining);
+    }
+}
+
+/**
+ * Merge nearby item entities.
+ */
+private void processItemMerging() {
+    List<ItemEntity> items = getEntitiesOfType(ItemEntity.class);
+    
+    for (int i = 0; i < items.size(); i++) {
+        ItemEntity a = items.get(i);
+        if (a.isRemoved() || !a.canPickup()) continue;
+        
+        for (int j = i + 1; j < items.size(); j++) {
+            ItemEntity b = items.get(j);
+            if (b.isRemoved() || !b.canPickup()) continue;
+            
+            if (a.distanceToSq(b) < 0.5f * 0.5f) {
+                a.tryMerge(b);
+            }
+        }
+    }
+}
+
     
     /**
      * Get entity by ID.
@@ -102,61 +203,64 @@ public class EntityManager {
      * @param deltaTime Time since last frame
      */
     public void update(float deltaTime) {
-        // Add pending entities
-        for (Entity e : toAdd) {
-            entities.add(e);
-            entitiesById.put(e.getEntityId(), e);
-            
-            // Set spawn position for living entities
-            if (e instanceof LivingEntity) {
-                LivingEntity le = (LivingEntity) e;
-                le.setSpawnPosition(e.getX(), e.getY(), e.getZ());
-            }
-            
-            // Update AI memory with player reference
-            if (e instanceof LivingEntity && player != null) {
-                ((LivingEntity) e).getBrain().remember("nearestPlayer", player);
-            }
-        }
-        toAdd.clear();
+    for (Entity e : toAdd) {
+        entities.add(e);
+        entitiesById.put(e.getEntityId(), e);
         
-        // Fixed timestep for game logic
-        tickAccumulator += deltaTime;
-        
-        while (tickAccumulator >= TICK_TIME) {
-            // Pre-tick (save previous state)
-            for (Entity e : entities) {
-                e.preTick();
-            }
-            
-            // Tick
-            for (Entity e : entities) {
-                if (!e.isRemoved()) {
-                    e.update(TICK_TIME);
-                }
-            }
-            
-            // Post-tick
-            for (Entity e : entities) {
-                e.postTick();
-            }
-            
-            tickAccumulator -= TICK_TIME;
+        if (e instanceof LivingEntity) {
+            LivingEntity le = (LivingEntity) e;
+            le.setSpawnPosition(e.getX(), e.getY(), e.getZ());
         }
         
-        // Calculate partial tick for interpolation
-        partialTick = tickAccumulator / TICK_TIME;
-        
-        // Remove dead entities
-        Iterator<Entity> iter = entities.iterator();
-        while (iter.hasNext()) {
-            Entity e = iter.next();
-            if (e.isRemoved()) {
-                entitiesById.remove(e.getEntityId());
-                iter.remove();
-            }
+        if (e instanceof LivingEntity && player != null) {
+            ((LivingEntity) e).getBrain().remember("nearestPlayer", player);
         }
     }
+    toAdd.clear();
+    
+    // Fixed timestep for game logic
+    tickAccumulator += deltaTime;
+    
+    while (tickAccumulator >= TICK_TIME) {
+        // Pre-tick
+        for (Entity e : entities) {
+            e.preTick();
+        }
+        
+        // Tick
+        for (Entity e : entities) {
+            if (!e.isRemoved()) {
+                e.update(TICK_TIME);
+            }
+        }
+        
+        // Post-tick
+        for (Entity e : entities) {
+            e.postTick();
+        }
+        
+        // Item pickup (ogni tick)
+        processItemPickup(TICK_TIME);
+        
+        // Item merging (ogni tick)
+        processItemMerging();
+        
+        tickAccumulator -= TICK_TIME;
+    }
+    
+    partialTick = tickAccumulator / TICK_TIME;
+    
+    // Remove dead entities
+    Iterator<Entity> iter = entities.iterator();
+    while (iter.hasNext()) {
+        Entity e = iter.next();
+        if (e.isRemoved()) {
+            entitiesById.remove(e.getEntityId());
+            iter.remove();
+        }
+    }
+}
+
     
     /**
      * Get partial tick for rendering interpolation.

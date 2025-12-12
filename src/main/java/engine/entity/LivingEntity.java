@@ -3,6 +3,8 @@ package engine.entity;
 import engine.entity.ai.EntityBrain;
 import engine.world.World;
 
+import engine.loot.LootTable;
+
 /**
  * Entity with health, AI, and physics capabilities.
  * Base class for NPCs, animals, monsters.
@@ -92,6 +94,33 @@ public class LivingEntity extends Entity {
         
         // Update animation
         updateAnimation(deltaTime);
+    }
+
+        /**
+     * Get the loot table for when this entity dies.
+     * Override in subclasses.
+     */
+    public LootTable getLootTable() {
+        return LootTable.EMPTY;
+    }
+    
+    /**
+     * Called when entity dies.
+     */
+    protected void onDeath() {
+        // Drop loot
+        World world = getWorld(); // Devi avere un riferimento al mondo
+        if (world != null && !getLootTable().isEmpty()) {
+            world.dropLoot(getLootTable(), getX(), getY(), getZ());
+        }
+    }
+    
+    /**
+     * Override the kill/damage method to call onDeath.
+     */
+    public void kill() {
+        onDeath();
+        remove();
     }
     
     protected void updateAiMovement() {

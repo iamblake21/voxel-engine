@@ -37,6 +37,7 @@ public final class GameInit {
         GameBiomes.register();
         GameEntities.register(); // When entities are implemented
         GameBlockEntities.register(); // When block entities are implemented
+        GameLootTables.register(); // <-- NEW: Register loot tables
 
         registered = true;
 

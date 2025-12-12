@@ -8,6 +8,7 @@ import engine.world.blockentity.BlockEntity;
 import engine.world.blockentity.BlockEntityType;
 import engine.world.blockentity.ITickableBlockEntity;
 import java.util.Collection;
+import engine.loot.LootTable;
 
 import java.util.Optional;
 
@@ -86,6 +87,15 @@ public class Block {
     public int getLightLevel() {
         return properties.getLightLevel();
     }
+
+        public LootTable getLootTable() {
+        return properties.getLootTable();
+    }
+
+    public boolean hasLoot() {
+        return properties.hasLoot();
+    }
+
 
     public float getHardness() {
         return properties.hardness;

@@ -1,5 +1,7 @@
 package engine.world.block;
 
+import engine.loot.LootTable;
+
 /**
  * Properties for a block type.
  * Use the builder pattern for clean configuration.
@@ -37,6 +39,9 @@ public class BlockProperties {
     float hardness = 1.0f; // Seconds to break with correct tool
     engine.world.item.ToolItem.ToolType requiredToolType = null; // Null means any tool (or hand)
     int minToolTier = 0; // 0=Hand/Wood, 1=Stone, 2=Iron, 3=Diamond
+
+    LootTable lootTable = null;
+
 
     public BlockProperties model(String path) {
         this.modelPath = path;
@@ -158,6 +163,14 @@ public class BlockProperties {
         this.minToolTier = tier;
         return this;
     }
+
+    public BlockProperties loot(LootTable lootTable) {
+        this.lootTable = lootTable;
+        return this;
+    }
+
+
+
 
     // ==================== PRESETS ====================
 
@@ -281,6 +294,15 @@ public class BlockProperties {
     public int getMaxFluidLevel() {
         return maxFluidLevel;
     }
+
+    public LootTable getLootTable() {
+        return lootTable;
+    }
+
+    public boolean hasLoot() {
+        return lootTable != null && !lootTable.isEmpty();
+    }
+
 
     /**
      * Copy properties from another BlockProperties

@@ -22,6 +22,7 @@ public class ItemStack {
     public ItemStack(Item item) {
         this(item, 1);
     }
+    
 
     public ItemStack(Item item, int count) {
         this(item, count, 0);
@@ -86,6 +87,18 @@ public class ItemStack {
         shrink(toSplit);
         return result;
     }
+
+    /**
+ * Check if this stack can be merged with another.
+ */
+public boolean canStackWith(ItemStack other) {
+    if (this.isEmpty() || other.isEmpty()) return false;
+    if (this.item != other.item) return false;
+    // Add NBT/damage check here if needed
+    return true;
+}
+
+
 
     /**
      * Check if two stacks can be merged (same item, damage, NBT)

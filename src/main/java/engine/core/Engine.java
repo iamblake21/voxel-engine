@@ -9,6 +9,10 @@ import engine.entity.render.EntityRenderer;
 import engine.world.World;
 import engine.entity.EntityManager;
 import engine.physics.PhysicsEngine;
+import engine.rendering.ItemEntityRenderer;
+import engine.utils.Math3D.Vec3;
+import engine.entity.ItemEntity;
+
 import engine.api.IGame;
 
 public class Engine {
@@ -19,6 +23,8 @@ public class Engine {
 
     private final Renderer renderer;
     private final EntityRenderer entityRenderer;
+    private final ItemEntityRenderer itemEntityRenderer;
+
 
     private final PhysicsEngine physics;
     private final EntityManager entities;
@@ -37,6 +43,8 @@ public class Engine {
         this.physics = new PhysicsEngine(config);
         this.entities = new EntityManager();
         this.gameLoop = new GameLoop(this);
+        this.itemEntityRenderer = new ItemEntityRenderer();
+
     }
 
     public void init(IGame game) {
@@ -51,6 +59,8 @@ public class Engine {
 
         window.create();
         renderer.init();
+        itemEntityRenderer.init(renderer.getAtlasTexture());
+
         entityRenderer.init();
         input.init();
 
@@ -117,6 +127,19 @@ public class Engine {
             entityRenderer.end();
         }
 
+        if (entities.getPlayer() != null) {
+            Vec3 sunDir = (world != null) ? world.getSunDirection() : null;
+            itemEntityRenderer.begin(entities.getPlayer().getCamera(), sunDir);
+            
+            for (Entity e : entities.getEntities()) {
+                if (e instanceof ItemEntity) {
+                    itemEntityRenderer.renderItemEntity((ItemEntity) e, entities.getPartialTick());
+                }
+            }
+            itemEntityRenderer.end();
+        }
+
+
         // 3. Render Game GUI / Overlay
         if (game != null) {
             game.render(renderer);
@@ -178,8 +201,10 @@ public class Engine {
 
     public void setWorld(World world) {
         this.world = world;
+        if (world != null) {
+            world.setEntityManager(this.entities);
+        }
     }
-
     public boolean isRunning() {
         return running && !window.shouldClose();
     }

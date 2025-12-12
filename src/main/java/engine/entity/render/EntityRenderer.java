@@ -9,6 +9,7 @@ import engine.rendering.Shader;
 import engine.rendering.Texture;
 import engine.utils.Math3D.Mat4;
 import engine.utils.Math3D.Vec3;
+import engine.entity.ItemEntity;
 
 import java.util.*;
 
@@ -84,6 +85,8 @@ public class EntityRenderer {
     
     public void renderEntity(Entity entity, float partialTick) {
         if (entity == null || entity.isRemoved()) return;
+            if (entity instanceof ItemEntity) return;
+
         float x = entity.getLerpedX(partialTick), y = entity.getLerpedY(partialTick), z = entity.getLerpedZ(partialTick);
         float yaw = entity.getLerpedYaw(partialTick);
         EntityModel model = getModel(entity);
