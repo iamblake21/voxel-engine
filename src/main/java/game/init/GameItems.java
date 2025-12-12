@@ -55,6 +55,9 @@ public final class GameItems {
         public static FoodItem COOKED_MEAT;
         public static FoodItem RAW_MEAT;
 
+        public static Item FURNACE;
+        public static Item CHEST;
+
         private GameItems() {
         }
 
@@ -73,6 +76,10 @@ public final class GameItems {
 
                 DIRT = Items.register("game:dirt",
                                 new BlockItem(GameBlocks.DIRT));
+                FURNACE = Items.register("game:furnace",
+                                new BlockItem(GameBlocks.FURNACE));
+                CHEST = Items.register("game:chest",
+                                new BlockItem(GameBlocks.CHEST));
 
                 GRASS = Items.register("game:grass",
                                 new BlockItem(GameBlocks.GRASS));

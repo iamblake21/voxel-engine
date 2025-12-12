@@ -4,6 +4,8 @@ import engine.world.block.Block;
 import engine.world.block.BlockProperties;
 import engine.world.block.Blocks;
 import engine.world.item.ToolItem.ToolType;
+import game.block.ChestBlock;
+import game.block.FurnaceBlock;
 import engine.world.block.MultiTextureBlock;
 
 /**
@@ -33,6 +35,10 @@ public final class GameBlocks {
         public static Block FLOWERDEBUG;
         public static Block TORCHDEBUG;
 
+        // Interactions
+        public static Block CHEST;
+        public static Block FURNACE;
+
         private GameBlocks() {
         }
 
@@ -51,6 +57,23 @@ public final class GameBlocks {
                                                 .requiredTool(ToolType.PICKAXE)
                                                 .minTier(0) // Wood or better
                                                 .tile(1, 0)));
+
+                CHEST = Blocks.register("game:chest",
+                                new ChestBlock(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(2.5f)
+                                                .requiredTool(ToolType.AXE) // Chest è di legno!
+                                                .minTier(0)
+                                                .tile(1, 1)));
+
+                // Stessa cosa per FURNACE
+                FURNACE = Blocks.register("game:furnace",
+                                new FurnaceBlock(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(3.5f)
+                                                .requiredTool(ToolType.PICKAXE)
+                                                .minTier(0)
+                                                .tile(1, 2), false));
 
                 // Dirt - under grass
                 DIRT = Blocks.register("game:dirt",
