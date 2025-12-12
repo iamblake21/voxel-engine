@@ -97,6 +97,12 @@ public abstract class ContainerGui extends TexturedGui {
         }
     }
 
+    public boolean hasCursorItem() {
+    return !cursorStack.isEmpty();
+}
+
+
+
     /**
      * Handle a click on a slot.
      */

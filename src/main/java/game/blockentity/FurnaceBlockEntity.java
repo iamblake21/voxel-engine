@@ -7,6 +7,11 @@ import engine.world.blockentity.ContainerBlockEntity;
 import engine.world.blockentity.ITickableBlockEntity;
 import engine.world.item.ItemStack;
 import engine.world.item.nbt.NBTTagCompound;
+import engine.ui.TexturedGui;
+import game.ui.FurnaceGui;
+import engine.ui.TexturedGui;
+import game.ui.FurnaceGui;
+
 
 /**
  * Furnace block entity with smelting logic.
@@ -42,6 +47,11 @@ public class FurnaceBlockEntity extends ContainerBlockEntity implements ITickabl
     public String getDefaultName() {
         return "Furnace";
     }
+
+    public TexturedGui createGui(Player player, int windowWidth, int windowHeight) {
+        return new FurnaceGui(player, this, windowWidth, windowHeight);
+    }
+
     
     // ==================== TICK ====================
     

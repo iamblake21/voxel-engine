@@ -1,5 +1,7 @@
 package engine.ui.definition;
 
+import engine.entity.inventory.PlayerInventory;
+
 /**
  * Definition of a single slot in a GUI.
  * Loaded from JSON metadata.
@@ -9,18 +11,20 @@ public class GuiSlotDefinition {
     private String id;
     private int x;
     private int y;
-    private int width = 18;  // Default slot size
+    private int width = 18;
     private int height = 18;
-    private String type;     // "hotbar", "main", "crafting_input", "crafting_output", "armor", etc.
-    private int index;       // Index within the slot type (e.g., hotbar slot 0-8)
+    private String type;
+    private int index;
+    
+    // Absolute index assigned by builder (sequential order in GUI)
+    private int absoluteIndex = -1;
     
     // Optional properties
     private boolean canInsert = true;
     private boolean canExtract = true;
-    private String filter;   // Item filter (e.g., "armor_helmet", "fuel")
+    private String filter;
     
     public GuiSlotDefinition() {
-        // Default constructor for JSON deserialization
     }
     
     public GuiSlotDefinition(String id, int x, int y, String type, int index) {
@@ -73,7 +77,7 @@ public class GuiSlotDefinition {
         return filter;
     }
     
-    // ==================== SETTERS (for editor tool) ====================
+    // ==================== SETTERS ====================
     
     public void setId(String id) {
         this.id = id;
@@ -115,19 +119,27 @@ public class GuiSlotDefinition {
         this.filter = filter;
     }
     
+    /** NUOVO METODO: Per impostare l'indice assoluto esplicitamente. */
+    public void setAbsoluteIndex(int absoluteIndex) {
+        this.absoluteIndex = absoluteIndex;
+    }
+    
     /**
-     * Calculate absolute slot index for inventory access.
-     * Hotbar: 0-8, Main: 9-35, etc.
+     * Get absolute slot index.
+     * Se esplicitamente impostato (container e slot player in GUI composte), usalo.
+     * Altrimenti calcola dal tipo (fallback, non dovrebbe essere usato in GUIs composte).
      */
     public int getAbsoluteIndex() {
+        if (absoluteIndex >= 0) {
+            return absoluteIndex;
+        }
+        // Fallback (solo se absoluteIndex non è stato impostato)
         return switch (type) {
             case "hotbar" -> index;
-            case "main" -> 9 + index;  // Main inventory starts at 9
-            case "armor" -> 36 + index;
-            case "offhand" -> 40;
-            case "crafting_input" -> 41 + index;
-            case "crafting_output" -> 45;
-            default -> index;
+            // Assumiamo che PlayerInventory.HOTBAR_SIZE sia 9
+            case "main" -> PlayerInventory.HOTBAR_SIZE + index; 
+            // Gestione di altri tipi se necessario (armor, crafting, ecc.)
+            default -> index; 
         };
     }
     
@@ -139,6 +151,7 @@ public class GuiSlotDefinition {
                 ", y=" + y +
                 ", type='" + type + '\'' +
                 ", index=" + index +
+                ", absoluteIndex=" + getAbsoluteIndex() +
                 '}';
     }
 }

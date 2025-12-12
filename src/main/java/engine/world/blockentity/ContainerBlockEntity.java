@@ -4,6 +4,7 @@ import engine.entity.Player;
 import engine.entity.inventory.Inventory;
 import engine.interaction.IInteractable;
 import engine.interaction.InteractionResult;
+import engine.ui.TexturedGui;
 import engine.world.BlockPos;
 import engine.world.item.ItemStack;
 import engine.world.item.nbt.NBTTagCompound;
@@ -18,6 +19,7 @@ import java.util.List;
  * - Inventory storage
  * - NBT serialization of items
  * - IInteractable implementation
+ * - GUI creation (each subclass defines its own GUI)
  */
 public abstract class ContainerBlockEntity extends BlockEntity implements IInteractable {
     
@@ -85,6 +87,19 @@ public abstract class ContainerBlockEntity extends BlockEntity implements IInter
     public String getDisplayName() {
         return hasCustomName() ? customName : getDefaultName();
     }
+    
+    // ==================== GUI CREATION ====================
+    
+    /**
+     * Create the GUI for this container.
+     * Each subclass creates its own specific GUI type.
+     * 
+     * @param player The player opening the container
+     * @param windowWidth Window width for GUI positioning
+     * @param windowHeight Window height for GUI positioning
+     * @return The GUI instance ready to be displayed
+     */
+    public abstract TexturedGui createGui(Player player, int windowWidth, int windowHeight);
     
     // ==================== INTERACTION ====================
     

@@ -4,6 +4,11 @@ import engine.entity.Player;
 import engine.world.BlockPos;
 import engine.world.blockentity.BlockEntityType;
 import engine.world.blockentity.ContainerBlockEntity;
+import engine.ui.TexturedGui;
+import game.ui.ChestGui;
+import engine.ui.TexturedGui;
+import game.ui.ChestGui;
+
 
 /**
  * Chest block entity - 27 slot storage container.
@@ -25,6 +30,7 @@ public class ChestBlockEntity extends ContainerBlockEntity {
     public String getDefaultName() {
         return "Chest";
     }
+
     
     // ==================== LID ANIMATION ====================
     
@@ -69,4 +75,9 @@ public class ChestBlockEntity extends ContainerBlockEntity {
     public int getOpenCount() {
         return openCount;
     }
+
+    public TexturedGui createGui(Player player, int windowWidth, int windowHeight) {
+        return new ChestGui(player, this, windowWidth, windowHeight);
+    }
+
 }

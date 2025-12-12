@@ -17,10 +17,6 @@ public final class Guis {
 
     /**
      * Register a GUI definition.
-     * 
-     * @param id         Full ID (e.g., "game:inventory")
-     * @param definition The GUI definition
-     * @return The registered definition (for chaining)
      */
     public static GuiDefinition register(String id, GuiDefinition definition) {
         ResourceLocation resLoc = ResourceLocation.of(id);
@@ -34,9 +30,6 @@ public final class Guis {
 
     /**
      * Register a GUI definition loaded from JSON resources.
-     * 
-     * @param id Full ID (e.g., "game:inventory") - will load from /gui/{path}.json
-     * @return The loaded and registered definition
      */
     public static GuiDefinition registerFromJson(String id) {
         try {
@@ -54,12 +47,6 @@ public final class Guis {
 
     /**
      * Register a GUI with a builder pattern.
-     * 
-     * @param id      Full ID
-     * @param texture Texture path (can be null)
-     * @param width   GUI width
-     * @param height  GUI height
-     * @return Builder for further configuration
      */
     public static GuiBuilder builder(String id, String texture, int width, int height) {
         return new GuiBuilder(id, texture, width, height);
@@ -97,6 +84,8 @@ public final class Guis {
     public static class GuiBuilder {
         private final String id;
         private final GuiDefinition definition;
+        // Tracciamo l'ultimo slot solo per il metodo .absoluteIndex()
+        private GuiSlotDefinition lastSlot = null; 
 
         private int slotCounter = 0;
 
@@ -114,33 +103,65 @@ public final class Guis {
         }
 
         /**
-         * Add a slot
+         * Add a slot (Traccia l'ultimo slot creato)
          */
         public GuiBuilder slot(String slotId, int x, int y, String type, int index) {
-            definition.addSlot(new GuiSlotDefinition(slotId, x, y, type, index));
+            GuiSlotDefinition newSlot = new GuiSlotDefinition(slotId, x, y, type, index);
+            definition.addSlot(newSlot);
+            this.lastSlot = newSlot; 
+            return this;
+        }
+        
+        /**
+         * IMPOSTA L'INDICE ASSOLUTO SULL'ULTIMO SLOT AGGIUNTO.
+         */
+        public GuiBuilder absoluteIndex(int absoluteIndex) {
+            if (lastSlot != null) {
+                lastSlot.setAbsoluteIndex(absoluteIndex);
+                this.lastSlot = null;
+            }
             return this;
         }
 
+
         /**
          * Add a row of slots (9 slots like hotbar or inventory row)
+         * USA IL FALLBACK PER L'INDICE ASSOLUTO (non lo imposta)
          */
         public GuiBuilder slotRow(String typePrefix, int startX, int y, String type, int startIndex, int count) {
             for (int i = 0; i < count; i++) {
                 String slotId = typePrefix + "_" + (startIndex + i);
                 definition.addSlot(new GuiSlotDefinition(slotId, startX + i * 18, y, type, startIndex + i));
             }
+            this.lastSlot = null;
+            return this;
+        }
+        
+        /** NUOVO METODO: Aggiunge una riga di slot con indice assoluto esplicito. */
+        public GuiBuilder slotRow(String typePrefix, int startX, int y, String type, int startIndex, int absoluteStart, int count) {
+            for (int i = 0; i < count; i++) {
+                String slotId = typePrefix + "_" + (startIndex + i);
+                
+                GuiSlotDefinition newSlot = new GuiSlotDefinition(slotId, startX + i * 18, y, type, startIndex + i);
+                newSlot.setAbsoluteIndex(absoluteStart + i); // APPLICA L'INDICE ASSOLUTO ESPLICITO
+                
+                definition.addSlot(newSlot);
+            }
+            this.lastSlot = null;
             return this;
         }
 
+
         /**
-         * Add hotbar slots (9 slots)
+         * Add hotbar slots (9 slots) - USA IL NUOVO OVERLOAD
          */
         public GuiBuilder hotbar(int startX, int y) {
-            return slotRow("hotbar", startX, y, "hotbar", 0, 9);
+            // Hotbar ha sempre indice assoluto 0-8
+            return slotRow("hotbar", startX, y, "hotbar", 0, 0, 9);
         }
 
         /**
-         * Add main inventory (3 rows of 9 slots)
+         * Add main inventory (3 rows of 9 slots) - USA IL VECCHIO OVERLOAD, non usare in GUIs composte.
          */
         public GuiBuilder mainInventory(int startX, int startY) {
             for (int row = 0; row < 3; row++) {

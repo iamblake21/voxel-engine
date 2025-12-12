@@ -10,6 +10,7 @@ import engine.entity.EntityTypes;
 import engine.entity.NpcEntity;
 import engine.entity.Player;
 import engine.rendering.Renderer;
+import engine.ui.ContainerGui;
 import engine.ui.GuiRenderer;
 import engine.ui.HotbarGui;
 import engine.ui.InventoryGui;
@@ -19,6 +20,9 @@ import engine.world.World;
 import game.init.GameEntities;
 import game.init.GameInit;
 import static org.lwjgl.glfw.GLFW.*;
+import engine.world.blockentity.ContainerBlockEntity;
+import engine.ui.ContainerGui;
+import engine.world.blockentity.ContainerBlockEntity;
 
 public class ExampleGame implements IGame {
 
@@ -39,6 +43,10 @@ public class ExampleGame implements IGame {
     private boolean inventoryOpen = false;
     private boolean eKeyLatch = false;
     private GuiEditorIntegration guiEditor;
+
+    private ContainerGui currentContainerGui = null;
+    private ContainerBlockEntity currentContainer = null;
+
 
     // Rendering specifico del gioco (Overlay rottura blocchi)
     private engine.rendering.BreakProgressRenderer breakProgressRenderer;
@@ -90,6 +98,18 @@ public class ExampleGame implements IGame {
         this.player = playerType.create();
         this.player.init(engine);
 
+        player.getInteractionManager().setGuiHandler((p, blockEntity) -> {
+            if (blockEntity instanceof ContainerBlockEntity container) {
+                ContainerGui gui = (ContainerGui) container.createGui(p, config.windowWidth, config.windowHeight);
+                gui.setGuiScale(guiRenderer.getGuiScale());
+                this.currentContainerGui = gui;
+                this.currentContainer = container;
+                this.inventoryOpen = true;
+                engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
+            }
+        });
+
+
         // CRUCIALE: Diciamo all'Engine che questo è il player principale
         // Così l'EntityRenderer dell'engine saprà quale camera usare!
         engine.getEntities().setPlayer(player);
@@ -102,7 +122,7 @@ public class ExampleGame implements IGame {
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.DIRT, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
-        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 1));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 2));
         // Setup render input handler
         RenderSettings settings = new RenderSettings();
         settings.setViewDistance(config.viewDistance);
@@ -143,14 +163,26 @@ public class ExampleGame implements IGame {
         // Gestione apertura inventario (Logica invariata)
         boolean eDown = engine.getInput().isKeyDown(GLFW_KEY_E);
         if (eDown && !eKeyLatch) {
-            inventoryOpen = !inventoryOpen;
             eKeyLatch = true;
+            
             if (inventoryOpen) {
-                engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
-            } else {
+                // Close current GUI
+                if (currentContainerGui != null) {
+                    currentContainerGui.onClose();
+                    currentContainerGui.cleanup();
+                    currentContainerGui = null;
+                    currentContainer = null;
+                }
+                inventoryOpen = false;
                 engine.getWindow().setCursorMode(GLFW_CURSOR_DISABLED);
                 engine.getInput().resetMouseDelta();
                 inventoryInteraction.dropCursorToInventory();
+            } else {
+                // Open normal inventory
+                inventoryOpen = true;
+                currentContainerGui = null;
+                currentContainer = null;
+                engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
             }
         }
         if (!eDown)
@@ -163,8 +195,17 @@ public class ExampleGame implements IGame {
                 inventoryInteraction.handleMouseWheel(scrollY);
             player.handleInteraction(engine.getInput(), deltaTime);
         } else {
-            inventoryGui.handleInput(engine.getInput(), inventoryInteraction, engine.getInput().getMouseX(),
-                    engine.getInput().getMouseY(), config.windowHeight);
+            // GUI input
+            if (currentContainerGui != null) {
+                currentContainerGui.handleInput(engine.getInput(),
+                        engine.getInput().getMouseX(),
+                        engine.getInput().getMouseY());
+            } else {
+                inventoryGui.handleInput(engine.getInput(), inventoryInteraction, 
+                        engine.getInput().getMouseX(),
+                        engine.getInput().getMouseY(), 
+                        config.windowHeight);
+            }
         }
 
         // Update player logic (movimento etc)
@@ -188,13 +229,24 @@ public class ExampleGame implements IGame {
 
         hotbarGui.render(guiRenderer);
 
-        if (inventoryOpen) {
-            inventoryGui.render(guiRenderer);
-            if (inventoryInteraction.hasCursorItem()) {
-                inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
-                        engine.getInput().getMouseX(), engine.getInput().getMouseY());
+            if (inventoryOpen) {
+                if (currentContainerGui != null) {
+                    // Container GUI (chest, furnace)
+                    currentContainerGui.render(guiRenderer);
+                    if (currentContainerGui.hasCursorItem()) {
+                        currentContainerGui.renderCursorItem(guiRenderer,
+                                engine.getInput().getMouseX(),
+                                engine.getInput().getMouseY());
+                    }
+                } else {
+                    // Normal inventory
+                    inventoryGui.render(guiRenderer);
+                    if (inventoryInteraction.hasCursorItem()) {
+                        inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
+                                engine.getInput().getMouseX(), engine.getInput().getMouseY());
+                    }
+                }
             }
-        }
 
         guiRenderer.end();
 

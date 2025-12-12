@@ -44,7 +44,7 @@ public class EntityModelLoader {
 
             // Se fallisce tutto...
             if (in == null) {
-                System.err.println("[EntityModelLoader] ❌ Model NOT found!");
+                System.err.println("[EntityModelLoader] Model NOT found!");
                 System.err.println("   Checked paths:");
                 System.err.println("   1. " + standardPath);
                 System.err.println("   2. " + directPath + " (User folder structure)");

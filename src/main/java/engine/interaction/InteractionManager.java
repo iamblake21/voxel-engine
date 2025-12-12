@@ -11,6 +11,7 @@ import engine.world.block.Blocks;
 import engine.world.blockentity.BlockEntity;
 import engine.world.item.Item;
 import engine.world.item.ItemStack;
+import engine.world.blockentity.ContainerBlockEntity;
 
 import java.util.List;
 
@@ -84,11 +85,16 @@ public class InteractionManager {
                 if (interactable.canInteract(player)) {
                     InteractionResult result = interactable.onInteract(player);
                     if (result.isSuccess()) {
+                        // Open GUI if this is a container
+                        if (blockEntity instanceof ContainerBlockEntity container && guiHandler != null) {
+                            guiHandler.openBlockEntityGui(player, blockEntity);
+                        }
                         return true;
                     }
                 }
             }
         }
+
         
         // 3. Item use on block
         if (raycast.isBlock() && !heldItem.isEmpty()) {
@@ -126,6 +132,7 @@ public class InteractionManager {
      * Handle left-click (attack/break).
      * This is mainly for entity attacks; block breaking is handled by MiningManager.
      */
+    
     public boolean handleLeftClick(Player player, World world, EntityManager entityManager) {
         RaycastResult raycast = performRaycast(player, world, entityManager);
         
