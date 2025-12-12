@@ -36,9 +36,6 @@ public class NpcEntity extends LivingEntity implements IInteractable {
     }
     
     protected void initDefaultAI() {
-        brain.getGoalSelector().addGoal(1, new LookAtPlayerGoal(this, 8f, 0.8f));
-        brain.getGoalSelector().addGoal(5, new WanderGoal(this, 0.6f, 20, 100));
-        brain.getGoalSelector().addGoal(7, new ReturnHomeGoal(this, 32f, 1.2f));
         brain.getGoalSelector().addGoal(10, new IdleGoal(this));
     }
     

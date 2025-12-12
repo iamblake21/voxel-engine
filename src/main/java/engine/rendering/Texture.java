@@ -16,12 +16,11 @@ import static org.lwjgl.system.MemoryUtil.*;
 /**
  * Single texture wrapper for OpenGL.
  * Handles loading from file and GPU upload.
- * 
- * Usage:
- *   Texture tex = new Texture("textures/entity/villager.png");
- *   tex.bind(0); // Bind to texture unit 0
- *   // ... render ...
- *   tex.unbind();
+ * * Usage:
+ * Texture tex = new Texture("game:textures/entity/villager.png");
+ * tex.bind(0); // Bind to texture unit 0
+ * // ... render ...
+ * tex.unbind();
  */
 public class Texture {
     
@@ -32,8 +31,7 @@ public class Texture {
     
     /**
      * Load texture from resources.
-     * 
-     * @param resourcePath Path relative to resources (e.g., "textures/entity/villager.png")
+     * * @param resourcePath Path with potential namespace (e.g., "game:textures/entity/villager.png")
      */
     public Texture(String resourcePath) {
         this.path = resourcePath;
@@ -113,20 +111,29 @@ public class Texture {
         System.out.println("[Texture] Loaded: " + resourcePath + " (" + width + "x" + height + ")");
     }
     
-    private ByteBuffer loadResource(String path) {
+    private ByteBuffer loadResource(String pathWithNamespace) {
+        
+        String path = pathWithNamespace;
+        
+        // 1. RIMUOVI IL NAMESPACE (es. "game:")
+        if (path.contains(":")) {
+            path = path.substring(path.indexOf(":") + 1);
+        }
+        
+        // 2. TENTA IL CARICAMENTO
         try {
-            // Try with leading slash first
+            // Tenta con slash iniziale (rispetto alla radice /resources/)
             InputStream in = Texture.class.getResourceAsStream("/" + path);
             if (in == null) {
-                // Try without leading slash
+                // Tenta senza slash iniziale (potrebbe funzionare a seconda del ClassLoader)
                 in = Texture.class.getResourceAsStream(path);
             }
             if (in == null) {
-                // Try from classloader
+                // Tenta dal ClassLoader di sistema (fallback robusto)
                 in = Thread.currentThread().getContextClassLoader().getResourceAsStream(path);
             }
             if (in == null) {
-                return null;
+                return null; // Risorsa non trovata
             }
             
             byte[] bytes = in.readAllBytes();

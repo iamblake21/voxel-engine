@@ -23,7 +23,7 @@ public class EntityRenderer {
     
     private Shader shader;
     private int cubeVAO, cubeVBO, cubeVertexCount;
-    private int uProj, uView, uModel, uTex, uColor, uUseTexture, uLightDir, uAmbient;
+    private int uProj, uView, uModel, uTex, uColor, uUseTexture, uLightDir, uAmbient, uUVTransform;
     private Texture defaultTexture;
     private final Map<String, Texture> textureCache = new HashMap<>();
     private final Map<String, EntityModel> modelCache = new HashMap<>();
@@ -40,21 +40,74 @@ public class EntityRenderer {
         uUseTexture = shader.getUniformLocation("uUseTexture");
         uLightDir = shader.getUniformLocation("uLightDir");
         uAmbient = shader.getUniformLocation("uAmbient");
+        uUVTransform = shader.getUniformLocation("uUVTransform"); // nuovo uniform
+        
         createCubeMesh();
         defaultTexture = Texture.createSolidColor(1f, 1f, 1f, 1f);
         initialized = true;
-        System.out.println("[EntityRenderer] Initialized");
+        System.out.println("[EntityRenderer] Initialized (UV + winding patch applied)");
     }
     
     private void createCubeMesh() {
+        /*
+         * We build a cube where each face is a quad split into two triangles.
+         * For every face we use CCW winding when looking at the face:
+         *   uv order: (0,0), (1,0), (1,1), (0,1)
+         * Vertex layout: pos.x,pos.y,pos.z, normal.x,normal.y,normal.z, u,v
+         *
+         * Face order (used later by computeFaceUVs): FRONT, BACK, RIGHT, LEFT, TOP, BOTTOM
+         */
+
         float[] vertices = {
-            0,0,1,0,0,1,0,1, 1,0,1,0,0,1,1,1, 1,1,1,0,0,1,1,0, 0,0,1,0,0,1,0,1, 1,1,1,0,0,1,1,0, 0,1,1,0,0,1,0,0,
-            1,0,0,0,0,-1,0,1, 0,0,0,0,0,-1,1,1, 0,1,0,0,0,-1,1,0, 1,0,0,0,0,-1,0,1, 0,1,0,0,0,-1,1,0, 1,1,0,0,0,-1,0,0,
-            1,0,1,1,0,0,0,1, 1,0,0,1,0,0,1,1, 1,1,0,1,0,0,1,0, 1,0,1,1,0,0,0,1, 1,1,0,1,0,0,1,0, 1,1,1,1,0,0,0,0,
-            0,0,0,-1,0,0,0,1, 0,0,1,-1,0,0,1,1, 0,1,1,-1,0,0,1,0, 0,0,0,-1,0,0,0,1, 0,1,1,-1,0,0,1,0, 0,1,0,-1,0,0,0,0,
-            0,1,1,0,1,0,0,1, 1,1,1,0,1,0,1,1, 1,1,0,0,1,0,1,0, 0,1,1,0,1,0,0,1, 1,1,0,0,1,0,1,0, 0,1,0,0,1,0,0,0,
-            0,0,0,0,-1,0,0,1, 1,0,0,0,-1,0,1,1, 1,0,1,0,-1,0,1,0, 0,0,0,0,-1,0,0,1, 1,0,1,0,-1,0,1,0, 0,0,1,0,-1,0,0,0
+            // FRONT (z = 1)   (v0,v1,v2,v3) -> triangles (v0,v1,v2) (v2,v3,v0)
+            0,0,1,  0,0,1,  0,0,
+            1,0,1,  0,0,1,  1,0,
+            1,1,1,  0,0,1,  1,1,
+            1,1,1,  0,0,1,  1,1,
+            0,1,1,  0,0,1,  0,1,
+            0,0,1,  0,0,1,  0,0,
+
+            // BACK (z = 0)  (note vertices chosen so face is CCW when looking at -Z)
+            1,0,0,  0,0,-1, 0,0,
+            0,0,0,  0,0,-1, 1,0,
+            0,1,0,  0,0,-1, 1,1,
+            0,1,0,  0,0,-1, 1,1,
+            1,1,0,  0,0,-1, 0,1,
+            1,0,0,  0,0,-1, 0,0,
+
+            // RIGHT (x = 1)
+            1,0,1,  1,0,0,  0,0,
+            1,0,0,  1,0,0,  1,0,
+            1,1,0,  1,0,0,  1,1,
+            1,1,0,  1,0,0,  1,1,
+            1,1,1,  1,0,0,  0,1,
+            1,0,1,  1,0,0,  0,0,
+
+            // LEFT (x = 0)
+            0,0,0,  -1,0,0,  0,0,
+            0,0,1,  -1,0,0,  1,0,
+            0,1,1,  -1,0,0,  1,1,
+            0,1,1,  -1,0,0,  1,1,
+            0,1,0,  -1,0,0,  0,1,
+            0,0,0,  -1,0,0,  0,0,
+
+            // TOP (y = 1)
+            0,1,1,  0,1,0,  0,0,
+            1,1,1,  0,1,0,  1,0,
+            1,1,0,  0,1,0,  1,1,
+            1,1,0,  0,1,0,  1,1,
+            0,1,0,  0,1,0,  0,1,
+            0,1,1,  0,1,0,  0,0,
+
+            // BOTTOM (y = 0)
+            0,0,0,  0,-1,0,  0,0,
+            1,0,0,  0,-1,0,  1,0,
+            1,0,1,  0,-1,0,  1,1,
+            1,0,1,  0,-1,0,  1,1,
+            0,0,1,  0,-1,0,  0,1,
+            0,0,0,  0,-1,0,  0,0
         };
+
         cubeVertexCount = vertices.length / 8;
         cubeVAO = glGenVertexArrays();
         cubeVBO = glGenBuffers();
@@ -85,7 +138,7 @@ public class EntityRenderer {
     
     public void renderEntity(Entity entity, float partialTick) {
         if (entity == null || entity.isRemoved()) return;
-            if (entity instanceof ItemEntity) return;
+        if (entity instanceof ItemEntity) return;
 
         float x = entity.getLerpedX(partialTick), y = entity.getLerpedY(partialTick), z = entity.getLerpedZ(partialTick);
         float yaw = entity.getLerpedYaw(partialTick);
@@ -142,65 +195,39 @@ public class EntityRenderer {
         glUniform1i(uUseTexture, tex != defaultTexture ? 1 : 0);
         glUniform4f(uColor, 1f, 1f, 1f, 1f);
         Mat4 base = Mat4.mul(Mat4.translate(x, y, z), Mat4.mul(rotY((float)Math.toRadians(-yaw)), Mat4.scale(1f/16f, 1f/16f, 1f/16f)));
-        for (ModelBone bone : model.getRootBones()) renderBone(bone, base);
+        for (ModelBone bone : model.getRootBones()) renderBone(model, bone, base, tex);
     }
     
-private void renderBone(ModelBone bone, Mat4 parent) {
+    private void renderBone(EntityModel model, ModelBone bone, Mat4 parent, Texture tex) {
         if (!bone.isVisible()) return;
 
-        // --- MATEMATICA PIVOT CORRETTA ---
-        // 1. Trasla AL pivot
         Mat4 tPivot = Mat4.translate(bone.getPivotX(), bone.getPivotY(), bone.getPivotZ());
-        
-        // 2. Ruota (Animazione + Default)
-        Mat4 r = rotXYZ(
-            (float)Math.toRadians(bone.getRotationX()), 
-            (float)Math.toRadians(bone.getRotationY()), 
-            (float)Math.toRadians(bone.getRotationZ())
-        );
-        
-        // 3. Trasla DAL pivot (Torna indietro)
+        Mat4 r = rotXYZ((float)Math.toRadians(bone.getRotationX()), (float)Math.toRadians(bone.getRotationY()), (float)Math.toRadians(bone.getRotationZ()));
         Mat4 tInvPivot = Mat4.translate(-bone.getPivotX(), -bone.getPivotY(), -bone.getPivotZ());
-        
-        // 4. Trasla Posizione (Animazione)
         Mat4 tPos = Mat4.translate(bone.getPositionX(), bone.getPositionY(), bone.getPositionZ());
-        
-        // 5. Scala (Animazione)
         Mat4 s = Mat4.scale(bone.getScaleX(), bone.getScaleY(), bone.getScaleZ());
 
-        // Ordine moltiplicazione: Parent * TranslatePos * Pivot * Rotation * Scale * InvPivot
-        // Nota: L'ordine esatto dipende dalla libreria matrici (Column-major vs Row-major).
-        // Per OpenGL standard (e Bedrock) è solitamente:
-        // Global = Parent * (TranslatePos + Pivot) * Rotate * Scale * -Pivot
-        
         Mat4 localTransform = Mat4.identity();
-        localTransform = Mat4.mul(localTransform, tPos); // Sposta osso (animazione)
-        localTransform = Mat4.mul(localTransform, tPivot); // Vai al pivot
-        localTransform = Mat4.mul(localTransform, r);      // Ruota
-        localTransform = Mat4.mul(localTransform, s);      // Scala
-        localTransform = Mat4.mul(localTransform, tInvPivot); // Torna dal pivot (così i cubi figli sono relativi al pivot)
+        localTransform = Mat4.mul(localTransform, tPos);
+        localTransform = Mat4.mul(localTransform, tPivot);
+        localTransform = Mat4.mul(localTransform, r);
+        localTransform = Mat4.mul(localTransform, s);
+        localTransform = Mat4.mul(localTransform, tInvPivot);
 
         Mat4 globalTransform = Mat4.mul(parent, localTransform);
 
-        // Renderizza i cubi di questo osso
+        // Render cubes
         for (ModelCube c : bone.getCubes()) {
-            renderCube(c, globalTransform);
+            renderCube(model, c, globalTransform);
         }
-        
-        // Ricorsione figli
+
         for (ModelBone ch : bone.getChildren()) {
-            renderBone(ch, globalTransform);
+            renderBone(model, ch, globalTransform, tex);
         }
     }
     
-    private void renderCube(ModelCube c, Mat4 boneMatrix) {
-        // I cubi in Blockbench sono definiti da "Origin" (angolo min) e "Size".
-        // Sono coordinate ASSOLUTE nello spazio modello, MA quando esporti come "Bedrock"
-        // o "Modded Entity", spesso sono relative.
-        
-        // Se i tuoi pezzi esplodono ancora, prova a togliere o aggiungere questo offset.
-        // Solitamente con la logica Pivot sopra, qui basta traslare all'origine del cubo.
-        
+    private void renderCube(EntityModel model, ModelCube c, Mat4 boneMatrix) {
+        // cube geometry (min corner = origin used by your writer)
         float mx = c.getMinX();
         float my = c.getMinY();
         float mz = c.getMinZ();
@@ -214,12 +241,78 @@ private void renderBone(ModelBone bone, Mat4 parent) {
         
         shader.setUniform(uModel, cubeMat);
         
-        // ... (Render Mesh) ...
+        // Calcola UV per ogni faccia (6 facce), restituisce array di 6 rect (u0,v0,u1,v1) in 0..1
+        float texW = model.getTextureWidth();
+        float texH = model.getTextureHeight();
+        Rect[] faceRects = computeFaceUVs(c, texW, texH, c.isMirror());
+        
+        // DRAW: il cubeVAO contiene 6 facce, ogni faccia ha N vertices.
+        int faces = 6;
+        int vertsPerFace = cubeVertexCount / faces; // tipicamente 6
         glBindVertexArray(cubeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, cubeVertexCount);
+        for (int f = 0; f < faces; f++) {
+            Rect r = faceRects[f];
+            // uOffset.x = r.u0, uOffset.y = r.v0, scale z = (u1-u0), scale w = (v1-v0)
+            glUniform4f(uUVTransform, r.u0, r.v0, r.u1 - r.u0, r.v1 - r.v0);
+            int base = f * vertsPerFace;
+            glDrawArrays(GL_TRIANGLES, base, vertsPerFace);
+        }
         glBindVertexArray(0);
     }
     
+    /**
+     * Compute UV rectangles for the six faces of the cube.
+     * Returns array ordered as: FRONT, BACK, RIGHT, LEFT, TOP, BOTTOM
+     */
+private Rect[] computeFaceUVs(ModelCube c, float texW, float texH, boolean mirror) {
+    float u0 = c.getUvX();
+    float v0 = c.getUvY();
+    float W = c.getSizeX(); // Larghezza
+    float H = c.getSizeY(); // Altezza
+    float D = c.getSizeZ(); // Profondità
+
+    // Le coordinate V sono tutte sfalsate da D (Profondità), tranne Top e Bottom.
+    float V_D = v0 + D;
+
+    // --- Calcolo Posizioni U (Orizzontali) ---
+    // Blocchi di Larghezza: D (Left) | W (Front) | D (Right) | W (Back)
+    float U_LEFT_START = u0;
+    float U_FRONT_START = u0 + D;
+    float U_RIGHT_START = u0 + D + W;
+    float U_BACK_START = u0 + D + W + D;
+    
+    // --- TOP e BOTTOM ---
+    // Blocchi di Larghezza: W (Top) | W (Bottom)
+    float U_TOP_START = U_FRONT_START; 
+    float U_BOTTOM_START = U_RIGHT_START;
+
+    Rect front = new Rect(U_FRONT_START / texW, V_D / texH, (U_FRONT_START + W) / texW, (V_D + H) / texH);
+    Rect back= new Rect(U_BACK_START / texW, V_D / texH, (U_BACK_START + W) / texW, (V_D + H) / texH);
+    
+    Rect left= new Rect(U_LEFT_START / texW, V_D / texH, (U_LEFT_START + D) / texW, (V_D + H) / texH);
+    Rect right = new Rect(U_RIGHT_START / texW, V_D / texH, (U_RIGHT_START + D) / texW, (V_D + H) / texH);
+    
+    Rect top = new Rect(U_TOP_START / texW, v0 / texH, (U_TOP_START + W) / texW, (v0 + D) / texH);
+    Rect bottom= new Rect(U_BOTTOM_START / texW, v0 / texH, (U_BOTTOM_START + W) / texW, (v0 + D) / texH);
+
+    if (mirror) {
+        // La mirroratura in Bedrock è complessa e spesso influisce solo sugli X, 
+        // ma è gestita in modo migliore con la logica Blockbench. Qui assumiamo
+        // una semplice inversione U per il momento, se necessario.
+        // left = left.flippedU(); // Potrebbe essere necessario, ma proviamo prima senza.
+        // right = right.flippedU();
+    }
+
+    Rect[] res = new Rect[6];
+    res[0] = front;
+    res[1] = back;
+    res[2] = right;
+    res[3] = left;
+    res[4] = top;
+    res[5] = bottom;
+    return res;
+}
+
     private void renderFallback(float x, float y, float z, float w, float h, float yaw) {
         defaultTexture.bind(0);
         glUniform1i(uUseTexture, 0);
@@ -255,7 +348,31 @@ private void renderBone(ModelBone bone, Mat4 parent) {
         for (Texture t : textureCache.values()) t.cleanup();
         textureCache.clear(); modelCache.clear();
     }
+
+    // Simple rect helper
+    private static class Rect {
+        final float u0,v0,u1,v1;
+        Rect(float u0,float v0,float u1,float v1){this.u0=u0;this.v0=v0;this.u1=u1;this.v1=v1;}
+        Rect flippedU(){ return new Rect(1f - u1, v0, 1f - u0, v1); }
+    }
     
-    private static final String VS = "#version 330 core\nlayout(location=0)in vec3 aPos;layout(location=1)in vec3 aNormal;layout(location=2)in vec2 aUV;uniform mat4 uProj,uView,uModel;out vec3 vN;out vec2 vUV;void main(){vN=mat3(uModel)*aNormal;vUV=aUV;gl_Position=uProj*uView*uModel*vec4(aPos,1.0);}";
-    private static final String FS = "#version 330 core\nin vec3 vN;in vec2 vUV;uniform sampler2D uTex;uniform vec4 uColor;uniform int uUseTexture;uniform vec3 uLightDir;uniform float uAmbient;out vec4 F;void main(){vec3 n=normalize(vN);float d=max(dot(n,normalize(uLightDir)),0.0);float l=uAmbient+(1.0-uAmbient)*d;vec4 b=uUseTexture==1?texture(uTex,vUV)*uColor:uColor;F=vec4(b.rgb*l,b.a);}";
+private static final String VS_FIXED = "#version 330 core\n"
+        + "layout(location=0)in vec3 aPos;layout(location=1)in vec3 aNormal;layout(location=2)in vec2 aUV;"
+        + "uniform mat4 uProj,uView,uModel;uniform vec4 uUVTransform;out vec3 vN;out vec2 vUV;"
+        + "void main(){"
+        + "vN=mat3(uModel)*aNormal;"
+        
+        // FIX: Inversione dell'asse V (aUV.y) per allineare OpenGL (0=Bottom) con Blockbench (0=Top)
+        + "vUV.x = uUVTransform.x + aUV.x * uUVTransform.z;"
+        + "vUV.y = uUVTransform.y + (1.0 - aUV.y) * uUVTransform.w;" // <--- LA RIGA CRITICA
+        
+        + "gl_Position=uProj*uView*uModel*vec4(aPos,1.0);"
+        + "}";
+
+    private static final String FS = "#version 330 core\n"
+        + "in vec3 vN;in vec2 vUV;uniform sampler2D uTex;uniform vec4 uColor;uniform int uUseTexture;uniform vec3 uLightDir;uniform float uAmbient;out vec4 F;"
+        + "void main(){vec3 n=normalize(vN);float d=max(dot(n,normalize(uLightDir)),0.0);float l=uAmbient+(1.0-uAmbient)*d;vec4 b = uUseTexture==1 ? texture(uTex,vUV) * uColor : uColor;F = vec4(b.rgb*l,b.a);}";
+
+    // Rinomina la vecchia costante VS
+    private static final String VS = VS_FIXED; // Usa il Vertex Shader Corretto!
 }
