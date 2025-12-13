@@ -63,6 +63,7 @@ public class Renderer {
     private int uTileGrassTop, uTileLeaves, uTileWater;
     private int uGrassTint, uFoliageTint;
     private int uTileGrassTopIndex, uTileLeavesIndex; // <--- nuovi
+    private int uUseTextureArray, uTex2D; // New uniforms for hybrid rendering
 
     private int uTimeOfDay;
     private int uSunDir;
@@ -134,6 +135,13 @@ public class Renderer {
         initSkyboxMesh();
 
         System.out.println("Renderer initialized with LOD and Fog support");
+
+        // Set default uniforms
+        voxelShader.bind();
+        voxelShader.setUniform(uTex, 0); // Unit 0 for Atlas
+        voxelShader.setUniform(uTex2D, 1); // Unit 1 for Standalone
+        voxelShader.setUniform(uUseTextureArray, 1); // Default to Atlas
+        voxelShader.unbind();
     }
 
     private void cacheUniformLocations() {
@@ -141,6 +149,8 @@ public class Renderer {
         uView = voxelShader.getUniformLocation("uView");
         uModel = voxelShader.getUniformLocation("uModel");
         uTex = voxelShader.getUniformLocation("uTex");
+        uTex2D = voxelShader.getUniformLocation("uTex2D");
+        uUseTextureArray = voxelShader.getUniformLocation("uUseTextureArray");
         uTint = voxelShader.getUniformLocation("uTint");
         uTime = voxelShader.getUniformLocation("uTime");
         uCameraPos = voxelShader.getUniformLocation("uCameraPos");
@@ -380,6 +390,7 @@ public class Renderer {
         voxelShader.setUniform(uCameraPos, camera.getPosition());
         voxelShader.setUniform(uWaterLevel, config.waterLevel);
         voxelShader.setUniform(uUnderwater, underwater ? 1 : 0);
+        voxelShader.setUniform(uUseTextureArray, 1); // Enable Atlas for blocks
 
         // Rimangono se ti servono nello shader (per l'acqua usi ancora uTilesX/uTilesY)
         voxelShader.setUniform(uTilesX, 8);
@@ -506,21 +517,40 @@ public class Renderer {
         for (int i = visibleChunks.size() - 1; i >= 0; i--) {
             Chunk chunk = visibleChunks.get(i);
             int lod = calculateChunkLOD(chunk);
+            Mat4 model = Mat4.translate(
+                    chunk.getX() * config.chunkSize, 0,
+                    chunk.getZ() * config.chunkSize);
 
-            // At high LOD, transparent mesh is empty (merged into solid)
+            // 1. Transparent Mesh
             Mesh transpMesh = chunk.getTransparentMesh(lod);
             if (transpMesh != null && !transpMesh.isEmpty()) {
-                Mat4 model = Mat4.translate(
-                        chunk.getX() * config.chunkSize, 0,
-                        chunk.getZ() * config.chunkSize);
                 voxelShader.setUniform(uModel, model);
+                atlasTexture.bind(0); // Ensure atlas is bound for standard meshes
                 transpMesh.draw();
+            }
+
+            // 2. Custom Meshes (assume they are transparent/cutout)
+            for (java.util.Map.Entry<String, engine.rendering.Mesh> entry : chunk.getCustomMeshes().entrySet()) {
+                String texturePath = entry.getKey();
+                engine.rendering.Mesh customMesh = entry.getValue();
+
+                if (customMesh != null && !customMesh.isEmpty()) {
+                    Texture tex = getCustomTexture(texturePath);
+                    if (tex != null) {
+                        voxelShader.setUniform(uUseTextureArray, 0); // Disable Atlas
+                        tex.bind(1); // Bind to slot 1
+                        voxelShader.setUniform(uModel, model);
+                        customMesh.draw();
+                        voxelShader.setUniform(uUseTextureArray, 1); // Re-enable Atlas
+                    }
+                }
             }
         }
 
         // Water (back-to-front)
         glDepthMask(true);
         voxelShader.setUniform(uWaterPass, 1);
+        atlasTexture.bind(0); // Rebind atlas for water
 
         for (int i = visibleChunks.size() - 1; i >= 0; i--) {
             Chunk chunk = visibleChunks.get(i);
@@ -538,6 +568,37 @@ public class Renderer {
 
         glDepthMask(true);
         voxelShader.unbind();
+    }
+
+    // ==================== CUSTOM TEXTURE MANAGEMENT ====================
+    private final java.util.Map<String, Texture> customTextures = new java.util.HashMap<>();
+
+    private Texture getCustomTexture(String path) {
+        if (customTextures.containsKey(path)) {
+            return customTextures.get(path);
+        }
+
+        // Load new texture
+        // Path might be "block/torch" -> needs to find "textures/blocks/torch.png"
+        // But Texture class takes a resource path.
+        // Let's try heuristic:
+        // 1. Try exact path
+        // 2. Try adding "textures/" prefix and ".png" suffix
+        // 3. Try adding "textures/blocks/" if it starts with "block/"
+
+        String loadPath = path;
+        // Simple mapping for now based on what I saw in resources
+        if (!path.endsWith(".png")) {
+            if (path.startsWith("block/")) {
+                loadPath = "textures/blocks/" + path.substring(6) + ".png";
+            } else {
+                loadPath = "textures/" + path + ".png";
+            }
+        }
+
+        Texture tex = new Texture(loadPath);
+        customTextures.put(path, tex);
+        return tex;
     }
 
     private float chunkDistanceSq(Chunk chunk, Vec3 camPos) {
@@ -610,6 +671,11 @@ public class Renderer {
             glDeleteVertexArrays(skyVAO);
         if (skyVBO != 0)
             glDeleteBuffers(skyVBO);
+
+        for (Texture tex : customTextures.values()) {
+            tex.cleanup();
+        }
+        customTextures.clear();
     }
 
     private void renderBlockSelection(World world) {
@@ -824,6 +890,8 @@ public class Renderer {
                 "in vec3 vNormal;\n" +
                 "\n" +
                 "uniform sampler2DArray uTex;\n" +
+                "uniform sampler2D uTex2D;\n" + // NEW: 2D Sampler
+                "uniform int uUseTextureArray;\n" + // NEW: Toggle
                 "uniform vec4 uTint;\n" +
                 "uniform int uTileGrassTopIndex;\n" +
                 "uniform int uTileLeavesIndex;\n" +
@@ -849,7 +917,7 @@ public class Renderer {
                 "vec3 getSkyLightColor(vec3 sunDir) {\n" +
                 "  float sunHeight = sunDir.y;\n" +
                 "  vec3 dayColor   = vec3(1.00, 1.00, 1.00);\n" +
-                "  vec3 nightColor = vec3(0.15, 0.20, 0.35); // Notte un po' più luminosa\n" +
+                "  vec3 nightColor = vec3(0.15, 0.20, 0.35);\n" +
                 "  float t = clamp(sunHeight * 2.0 + 0.2, 0.0, 1.0);\n" +
                 "  return mix(nightColor, dayColor, t);\n" +
                 "}\n" +
@@ -859,9 +927,6 @@ public class Renderer {
                 "  float dist = length(vWP - uCameraPos);\n" +
                 "  float fogAmount = calculateFog(dist);\n" +
                 "\n" +
-                "  // 1. LUCE (Teniamo valori 'vivi')\n" +
-                "  // uSunDir.y varia da -1 a 1. Lo mappiamo per avere luce piena (1.0) di giorno e minima (0.2) di notte\n"
-                +
                 "  float sunHeight = uSunDir.y;\n" +
                 "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" +
                 "  \n" +
@@ -869,29 +934,27 @@ public class Renderer {
                 "  float blockLum = vBlockLight;\n" +
                 "  float lightLevel = max(skyLum, blockLum);\n" +
                 "\n" +
-                "  // 2. COLORE TEXTURE (Senza alterazioni gamma)\n" +
                 "  vec4 texColor;\n" +
                 "  vec3 finalColor;\n" +
                 "\n" +
                 "  if (uWaterPass == 0) { // BLOCCHI SOLIDI\n" +
-                "     texColor = texture(uTex, vec3(vUV, tileIndex));\n" +
+                "     if (uUseTextureArray == 1) {\n" +
+                "         texColor = texture(uTex, vec3(vUV, tileIndex));\n" +
+                "     } else {\n" +
+                "         texColor = texture(uTex2D, vUV);\n" +
+                "     }\n" +
                 "     if(texColor.a < 0.1) discard;\n" +
                 "\n" +
-                "     // Tinting (Erba/Foglie)\n" +
                 "     vec3 terrainTint = uTint.rgb;\n" +
-                "     if(tileIndex == uTileGrassTopIndex) terrainTint *= uGrassTint;\n" +
-                "     else if(tileIndex == uTileLeavesIndex) terrainTint *= uFoliageTint;\n" +
+                "     if (uUseTextureArray == 1) {\n" +
+                "         if(tileIndex == uTileGrassTopIndex) terrainTint *= uGrassTint;\n" +
+                "         else if(tileIndex == uTileLeavesIndex) terrainTint *= uFoliageTint;\n" +
+                "     }\n" +
                 "     \n" +
                 "     finalColor = texColor.rgb * terrainTint;\n" +
                 "     \n" +
-                "     // --- FIX ARTEFATTI E COLORE ---\n" +
-                "     // 1. Non scuriamo mai oltre il 10% per evitare il nero assoluto\n" +
                 "     lightLevel = max(lightLevel, 0.1);\n" +
-                "     \n" +
-                "     \n" +
-                "     // 2. Applichiamo l'AO in modo non lineare per evitare scuri troppo forti\n" +
                 "     finalColor *= vAO;\n" +
-                "     // 3. Moltiplichiamo per la luce\n" +
                 "     finalColor *= lightLevel;\n" +
                 "\n" +
                 "  } else { // ACQUA\n" +
@@ -899,9 +962,7 @@ public class Renderer {
                 "     finalColor = texColor.rgb * lightLevel * vAO;\n" +
                 "  }\n" +
                 "\n" +
-                "  // 3. FOG (Nebbia)\n" +
                 "  vec3 skyColor = getSkyLightColor(uSunDir);\n" +
-                "  // La nebbia deve corrispondere al colore del cielo per fondersi bene\n" +
                 "  vec3 fogColor = skyColor;\n" +
                 "\n" +
                 "  if(uUnderwater == 1){\n" +
@@ -911,8 +972,6 @@ public class Renderer {
                 "\n" +
                 "  finalColor = mix(finalColor, fogColor, fogAmount);\n" +
                 "\n" +
-                "  // 4. NESSUNA GAMMA CORRECTION QUI!\n" +
-                "  // Usciamo direttamente con il colore calcolato.\n" +
                 "  FragColor = vec4(finalColor, texColor.a * uTint.a);\n" +
                 "}\n";
     }

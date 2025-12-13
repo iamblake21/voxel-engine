@@ -73,7 +73,21 @@ public class InventorySlot extends GuiComponent {
     }
 
     private void renderItemIcon(GuiRenderer renderer) {
-        // Special handling for BlockItem - render isometric cube
+        // 1. Try explicit Item Icon first (Overrides Block rendering if present)
+        // This fixes Doors appearing as half-blocks
+        String iconPath = stack.getItem().getIconTexture();
+        if (iconPath != null) {
+            try {
+                GuiTexture itemIcon = new GuiTexture(iconPath);
+                renderer.renderQuad(x + 1, y + 1, 16, 16, itemIcon);
+                itemIcon.cleanup();
+                return;
+            } catch (Exception e) {
+                // Fallback if texture fails
+            }
+        }
+
+        // 2. Special handling for BlockItem - render isometric cube or flat model
         if (stack.getItem() instanceof engine.world.item.BlockItem) {
             engine.world.item.BlockItem blockItem = (engine.world.item.BlockItem) stack.getItem();
             engine.world.block.Block block = blockItem.getBlock();
@@ -88,20 +102,8 @@ public class InventorySlot extends GuiComponent {
             return;
         }
 
-        // Try to get item icon texture
-        String iconPath = stack.getItem().getIconTexture();
-        if (iconPath != null) {
-            try {
-                GuiTexture itemIcon = new GuiTexture(iconPath);
-                renderer.renderQuad(x + 1, y + 1, 16, 16, itemIcon);
-                itemIcon.cleanup();
-            } catch (Exception e) {
-                // Fallback: render colored square based on item type
-                renderFallbackIcon(renderer);
-            }
-        } else {
-            renderFallbackIcon(renderer);
-        }
+        // 3. Last resort fallback
+        renderFallbackIcon(renderer);
     }
 
     private void renderFallbackIcon(GuiRenderer renderer) {

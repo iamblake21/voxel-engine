@@ -336,11 +336,84 @@ public class GuiRenderer {
         atlasTexture.unbind();
     }
 
+    // Cache for custom block textures in GUI
+    private final java.util.Map<String, GuiTexture> customBlockTextures = new java.util.HashMap<>();
+
+    private GuiTexture getCustomBlockTexture(String modelPath) {
+        if (customBlockTextures.containsKey(modelPath)) {
+            return customBlockTextures.get(modelPath);
+        }
+
+        // Load model to find texture
+        engine.world.block.model.BlockModel model = engine.world.block.model.BlockModelLoader.load(modelPath);
+        if (model != null && !model.elements.isEmpty()) {
+            // Find first texture
+            for (engine.world.block.model.BlockModel.ModelElement elem : model.elements) {
+                for (engine.world.block.model.BlockModel.ModelElement.Face face : elem.faces.values()) {
+                    if (face.texture != null) {
+                        String resolved = engine.world.block.model.BlockModelLoader.resolveTexture(model, face.texture);
+                        if (resolved != null) {
+                            // Path correction (same as ItemEntityRenderer)
+                            String loadPath = resolved;
+                            if (!resolved.endsWith(".png")) {
+                                if (resolved.startsWith("block/"))
+                                    loadPath = "textures/blocks/" + resolved.substring(6) + ".png";
+                                else
+                                    loadPath = "textures/" + resolved + ".png";
+                            }
+
+                            try {
+                                GuiTexture tex = new GuiTexture(loadPath);
+                                customBlockTextures.put(modelPath, tex);
+                                return tex;
+                            } catch (Exception e) {
+                                System.err.println("Failed to load GUI texture: " + loadPath);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        customBlockTextures.put(modelPath, null); // Cache miss
+        return null;
+    }
+
     /**
      * Render a block as a flat sprite from the texture atlas.
      * Used for custom models (flowers, torches) that shouldn't be isometric cubes.
      */
     public void renderBlockFlat(float x, float y, float size, Block block) {
+        // Try custom model/texture first
+        if (block.getProperties().hasCustomModel()) {
+            String modelPath = block.getProperties().getModelPath();
+            GuiTexture customTex = getCustomBlockTexture(modelPath);
+
+            if (customTex != null) {
+                customTex.bind();
+                glUniform1i(uUseTextureArrayLoc, 0); // Use 2D sampler (Unit 0 for GUI)
+
+                glUniform4f(uColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+
+                quadBuffer.clear();
+                quadBuffer.put(x).put(y).put(0).put(0); // TL
+                quadBuffer.put(x).put(y + size).put(0).put(1); // BL
+                quadBuffer.put(x + size).put(y).put(1).put(0); // TR
+
+                quadBuffer.put(x + size).put(y).put(1).put(0); // TR
+                quadBuffer.put(x).put(y + size).put(0).put(1); // BL
+                quadBuffer.put(x + size).put(y + size).put(1).put(1); // BR
+
+                quadBuffer.flip();
+                glBindVertexArray(vao);
+                glBindBuffer(GL_ARRAY_BUFFER, vbo);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, quadBuffer);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+
+                customTex.unbind();
+                return;
+            }
+        }
+
         if (atlasTexture == null)
             return;
 

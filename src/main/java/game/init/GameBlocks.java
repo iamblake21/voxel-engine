@@ -5,6 +5,7 @@ import engine.world.block.BlockProperties;
 import engine.world.block.Blocks;
 import engine.world.item.ToolItem.ToolType;
 import game.block.ChestBlock;
+import game.block.DoorBlock;
 import game.block.FurnaceBlock;
 import engine.world.block.MultiTextureBlock;
 
@@ -38,6 +39,9 @@ public final class GameBlocks {
         // Interactions
         public static Block CHEST;
         public static Block FURNACE;
+
+        // Interactions
+        public static Block DOOR;
 
         private GameBlocks() {
         }
@@ -145,14 +149,19 @@ public final class GameBlocks {
                                                 .hardness(0.0f) // Instant
                                                 .model("block/poppy")
                                                 .tile(0, 2)));
-                TORCHDEBUG = Blocks.register("game:torch", new Block(
+                TORCHDEBUG = Blocks.register("game:torch", new game.block.TorchBlock(
                                 BlockProperties.create()
                                                 .solid(false)
                                                 .opaque(false)
                                                 .hardness(0.0f) // Instant
-                                                .model("block/torch")
                                                 .tile(1, 2)
                                                 .lightLevel(15)));
+
+                DOOR = Blocks.register("game:door", new DoorBlock(
+                                BlockProperties.create()
+                                                .solid(false)
+                                                .opaque(false)
+                                                .hardness(1.0f)));
 
                 System.out.println("[GameBlocks] Registered " +
                                 engine.registry.Registries.BLOCKS.size() + " blocks total");

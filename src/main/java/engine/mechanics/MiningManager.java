@@ -24,12 +24,13 @@ public class MiningManager {
             currentBlockZ = bz;
             isBreaking = true;
             breakProgress = 0.0f;
+            System.out.println("Start Mining: " + bx + "," + by + "," + bz);
         }
 
         int blockId = world.getBlock(bx, by, bz);
         Block block = Blocks.get(blockId);
 
-        if (Blocks.isAir(blockId)) {
+        if (block.isAir()) {
             resetBreaking();
             return;
         }
@@ -44,6 +45,7 @@ public class MiningManager {
         breakProgress += speed * deltaTime;
 
         if (breakProgress >= 1.0f) {
+            System.out.println("Breaking Block!");
             breakBlock(world, player, bx, by, bz, block);
         }
     }
@@ -51,12 +53,12 @@ public class MiningManager {
     private void breakBlock(World world, Player player, int x, int y, int z, Block block) {
         // Calculate fortune level from held tool
         int fortuneLevel = getFortuneLevel(player);
-        
+
         // Drop loot BEFORE removing the block
         if (canHarvest(player, block)) {
             world.dropBlockLoot(x, y, z, block, fortuneLevel);
         }
-        
+
         // Remove the block
         world.setBlock(x, y, z, Blocks.AIR().getNumericId());
 
@@ -68,7 +70,7 @@ public class MiningManager {
 
         resetBreaking();
     }
-    
+
     /**
      * Check if player can harvest this block (gets drops).
      * Returns false if wrong tool tier.
@@ -78,24 +80,24 @@ public class MiningManager {
         if (block.getRequiredToolType() == null && block.getMinToolTier() == 0) {
             return true;
         }
-        
+
         ItemStack stack = player.getInventory().getSelectedStack();
         if (stack.isEmpty() || !(stack.getItem() instanceof ToolItem)) {
             // Hand can only harvest tier 0 blocks
             return block.getMinToolTier() == 0;
         }
-        
+
         ToolItem tool = (ToolItem) stack.getItem();
-        
+
         // Check tool type matches if required
         if (block.getRequiredToolType() != null && tool.getType() != block.getRequiredToolType()) {
             return false;
         }
-        
+
         // Check tier
         return tool.getTier().ordinal() >= block.getMinToolTier();
     }
-    
+
     /**
      * Get fortune level from held item.
      */
@@ -116,8 +118,10 @@ public class MiningManager {
 
     public float calculateMiningSpeed(Player player, Block block) {
         float hardness = block.getHardness();
-        if (hardness < 0) return 0.0f;
-        if (hardness == 0) return 1000.0f;
+        if (hardness < 0)
+            return 0.0f;
+        if (hardness == 0)
+            return 1000.0f;
 
         ItemStack stack = player.getInventory().getSelectedStack();
         float toolSpeed = 1.0f;
@@ -143,7 +147,15 @@ public class MiningManager {
         return isBreaking;
     }
 
-    public int getCurrentBlockX() { return currentBlockX; }
-    public int getCurrentBlockY() { return currentBlockY; }
-    public int getCurrentBlockZ() { return currentBlockZ; }
+    public int getCurrentBlockX() {
+        return currentBlockX;
+    }
+
+    public int getCurrentBlockY() {
+        return currentBlockY;
+    }
+
+    public int getCurrentBlockZ() {
+        return currentBlockZ;
+    }
 }

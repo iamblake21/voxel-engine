@@ -29,10 +29,10 @@ public class BlockItem extends Item implements IUsableItem {
     }
 
     // ==================== NEW INTERACTION SYSTEM ====================
-    
+
     @Override
     public InteractionResult onUseOnBlock(World world, Player player, ItemStack stack,
-                                          BlockPos blockPos, BlockPos.Direction face, BlockPos placePos) {
+            BlockPos blockPos, BlockPos.Direction face, BlockPos placePos) {
         // Place block at the adjacent position
         int placeX = placePos.getX();
         int placeY = placePos.getY();
@@ -50,13 +50,20 @@ public class BlockItem extends Item implements IUsableItem {
         }
 
         // Place the block
-        world.setBlock(placeX, placeY, placeZ, blockToPlace.getNumericId());
+        // Get the state based on placement context (rotation, etc.)
+        engine.world.Direction engineFace = engine.world.Direction.fromVector(face.getOffsetX(), face.getOffsetY(),
+                face.getOffsetZ());
+        engine.world.block.state.BlockState state = blockToPlace.getStateForPlacement(world, placePos, player,
+                engineFace);
+
+        // Map state to ID (Block.STATE_IDS.getId(state))
+        world.setBlock(placeX, placeY, placeZ, Block.STATE_IDS.getId(state));
 
         // If it's a fluid, set max level
         if (blockToPlace.isLiquid()) {
             world.setFluidLevel(placeX, placeY, placeZ, blockToPlace.getMaxFluidLevel());
         }
-        
+
         // Create block entity if needed
         if (blockToPlace.hasBlockEntity()) {
             world.createBlockEntity(new BlockPos(placeX, placeY, placeZ), blockToPlace);
@@ -64,8 +71,9 @@ public class BlockItem extends Item implements IUsableItem {
 
         return InteractionResult.CONSUME; // Item should be consumed
     }
-    
-    // ==================== OLD INTERFACE (for backwards compatibility) ====================
+
+    // ==================== OLD INTERFACE (for backwards compatibility)
+    // ====================
 
     @Override
     public boolean use(World world, Player player, ItemStack stack,

@@ -47,7 +47,6 @@ public class ExampleGame implements IGame {
     private ContainerGui currentContainerGui = null;
     private ContainerBlockEntity currentContainer = null;
 
-
     // Rendering specifico del gioco (Overlay rottura blocchi)
     private engine.rendering.BreakProgressRenderer breakProgressRenderer;
 
@@ -85,6 +84,9 @@ public class ExampleGame implements IGame {
         System.out.println("[Game] Entity types registered");
     }
 
+    private RenderSettings renderSettings;
+    private engine.rendering.WireframeRenderer wireframeRenderer;
+
     @Override
     public void init(Engine engine) {
         this.engine = engine;
@@ -109,7 +111,6 @@ public class ExampleGame implements IGame {
             }
         });
 
-
         // CRUCIALE: Diciamo all'Engine che questo è il player principale
         // Così l'EntityRenderer dell'engine saprà quale camera usare!
         engine.getEntities().setPlayer(player);
@@ -123,12 +124,16 @@ public class ExampleGame implements IGame {
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 2));
-                player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.TORCH, 34));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.TORCH, 34));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.DOOR, 1));
 
-        // Setup render input handler
-        RenderSettings settings = new RenderSettings();
-        settings.setViewDistance(config.viewDistance);
-        this.renderInputHandler = new RenderInputHandler(settings, world);
+        // Setup render input handler (Using Field)
+        this.renderSettings = new RenderSettings();
+        this.renderSettings.setViewDistance(config.viewDistance);
+        this.renderInputHandler = new RenderInputHandler(this.renderSettings, world);
+
+        // Setup Wireframe Renderer
+        this.wireframeRenderer = new engine.rendering.WireframeRenderer();
 
         // Setup GUI
         this.guiRenderer = new GuiRenderer(config.windowWidth, config.windowHeight);
@@ -166,7 +171,7 @@ public class ExampleGame implements IGame {
         boolean eDown = engine.getInput().isKeyDown(GLFW_KEY_E);
         if (eDown && !eKeyLatch) {
             eKeyLatch = true;
-            
+
             if (inventoryOpen) {
                 // Close current GUI
                 if (currentContainerGui != null) {
@@ -203,9 +208,9 @@ public class ExampleGame implements IGame {
                         engine.getInput().getMouseX(),
                         engine.getInput().getMouseY());
             } else {
-                inventoryGui.handleInput(engine.getInput(), inventoryInteraction, 
+                inventoryGui.handleInput(engine.getInput(), inventoryInteraction,
                         engine.getInput().getMouseX(),
-                        engine.getInput().getMouseY(), 
+                        engine.getInput().getMouseY(),
                         config.windowHeight);
             }
         }
@@ -216,6 +221,19 @@ public class ExampleGame implements IGame {
 
     @Override
     public void render(Renderer renderer) {
+        // Draw Selection Box (Wireframe)
+        // Perform raycast locally to know what to highlight
+        engine.interaction.RaycastResult target = player.getInteractionManager().performRaycast(player, world,
+                engine.getEntities());
+        if (target != null && target.isBlock()) {
+            engine.world.BlockPos pos = target.getBlockPos();
+            // Draw black outline with slight transparency
+            wireframeRenderer.draw(player.getCamera().getProjectionMatrix(),
+                    player.getCamera().getViewMatrix(),
+                    pos.getX(), pos.getY(), pos.getZ(),
+                    0, 0, 0, 0.4f);
+        }
+
         // QUI È CAMBIATO TUTTO:
         // Non renderizziamo più le entità qui. L'Engine ha già disegnato Mondo +
         // Entità.
@@ -231,24 +249,24 @@ public class ExampleGame implements IGame {
 
         hotbarGui.render(guiRenderer);
 
-            if (inventoryOpen) {
-                if (currentContainerGui != null) {
-                    // Container GUI (chest, furnace)
-                    currentContainerGui.render(guiRenderer);
-                    if (currentContainerGui.hasCursorItem()) {
-                        currentContainerGui.renderCursorItem(guiRenderer,
-                                engine.getInput().getMouseX(),
-                                engine.getInput().getMouseY());
-                    }
-                } else {
-                    // Normal inventory
-                    inventoryGui.render(guiRenderer);
-                    if (inventoryInteraction.hasCursorItem()) {
-                        inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
-                                engine.getInput().getMouseX(), engine.getInput().getMouseY());
-                    }
+        if (inventoryOpen) {
+            if (currentContainerGui != null) {
+                // Container GUI (chest, furnace)
+                currentContainerGui.render(guiRenderer);
+                if (currentContainerGui.hasCursorItem()) {
+                    currentContainerGui.renderCursorItem(guiRenderer,
+                            engine.getInput().getMouseX(),
+                            engine.getInput().getMouseY());
+                }
+            } else {
+                // Normal inventory
+                inventoryGui.render(guiRenderer);
+                if (inventoryInteraction.hasCursorItem()) {
+                    inventoryGui.renderCursorItem(guiRenderer, inventoryInteraction.getCursorStack(),
+                            engine.getInput().getMouseX(), engine.getInput().getMouseY());
                 }
             }
+        }
 
         guiRenderer.end();
 
@@ -263,5 +281,7 @@ public class ExampleGame implements IGame {
             guiRenderer.cleanup();
         if (guiEditor != null)
             guiEditor.cleanup();
+        if (wireframeRenderer != null)
+            wireframeRenderer.cleanup();
     }
 }

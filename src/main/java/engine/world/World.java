@@ -19,7 +19,6 @@ import engine.loot.LootTable;
 import engine.world.item.ItemStack;
 import java.util.Random;
 
-
 import java.util.*;
 
 public class World implements MeshBuilder.WorldAccess {
@@ -57,7 +56,6 @@ public class World implements MeshBuilder.WorldAccess {
     private float gameTime = 0f;
 
     private EntityManager entityManager;
-
 
     // Day/Night Cycle
     private static final float DAY_LENGTH_SECONDS = 600f;
@@ -229,6 +227,9 @@ public class World implements MeshBuilder.WorldAccess {
                 task.meshData.solidVertices,
                 task.meshData.transparentVertices,
                 task.meshData.waterVertices);
+
+        chunk.uploadCustomMeshes(task.meshData.customMeshes);
+
         chunk.setMeshPending(false);
 
         // ✅ Promozione finale
@@ -566,8 +567,20 @@ public class World implements MeshBuilder.WorldAccess {
         Block oldBlock = Blocks.get(oldBlockId);
         Block newBlock = Blocks.get(blockId);
 
+        int oldBlockLight = chunk.getBlockLight(lx, y, lz);
+        int oldSkyLight = chunk.getSkyLight(lx, y, lz);
+
+        // Modifica il blocco (Moved UP to prevent infinite recursion in onRemove)
+        chunk.setBlock(lx, y, lz, blockId);
+
         // Remove old block entity if block changed
         if (oldBlockId != blockId) {
+            engine.world.block.state.BlockState oldState = engine.world.block.Block.STATE_IDS.get(oldBlockId);
+            // Fallback if state lookup fails (should not happen if registered correctly)
+            if (oldState == null)
+                oldState = oldBlock.getDefaultState();
+
+            oldBlock.onRemove(this, x, y, z, oldState);
             BlockEntity oldBE = removeBlockEntity(x, y, z);
             // oldBE's items should be dropped here if needed
         }
@@ -582,11 +595,10 @@ public class World implements MeshBuilder.WorldAccess {
         int oldEmission = oldBlock.getLightLevel();
         int newEmission = newBlock.getLightLevel();
 
-        int oldBlockLight = chunk.getBlockLight(lx, y, lz);
-        int oldSkyLight = chunk.getSkyLight(lx, y, lz);
-
-        // Modifica il blocco
-        chunk.setBlock(lx, y, lz, blockId);
+        // Notify placement
+        if (oldBlockId != blockId) {
+            newBlock.onPlace(this, x, y, z);
+        }
 
         // Fluid Level Init/Reset
         if (newBlock.isLiquid()) {
@@ -848,41 +860,38 @@ public class World implements MeshBuilder.WorldAccess {
         return getBlock(x, y, z);
     }
 
-
     private final Random lootRandom = new Random();
 
     /**
      * Spawn an item entity at position.
      */
-public ItemEntity spawnItem(ItemStack stack, float x, float y, float z) {
-    System.out.println("[World] spawnItem called at " + x + ", " + y + ", " + z);
-    System.out.println("[World] Stack: " + stack);
-    System.out.println("[World] EntityManager: " + entityManager);
-    
-    if (stack == null || stack.isEmpty() || entityManager == null) {
-        System.out.println("[World] ABORT: stack empty or no entityManager!");
-        return null;
-    }
-    
-    ItemEntity item = EntityTypes.ITEM.create();
-    System.out.println("[World] Created ItemEntity: " + item);
-    
-    item.setStack(stack.copy());
-    item.setPosition(x, y, z);
-    
-    float spread = 0.2f;
-    item.setVelocity(
-        (lootRandom.nextFloat() - 0.5f) * spread,
-        0.2f + lootRandom.nextFloat() * 0.1f,
-        (lootRandom.nextFloat() - 0.5f) * spread
-    );
-    
-    entityManager.addEntity(item);
-    System.out.println("[World] Item added to EntityManager!");
-    
-    return item;
-}
+    public ItemEntity spawnItem(ItemStack stack, float x, float y, float z) {
+        System.out.println("[World] spawnItem called at " + x + ", " + y + ", " + z);
+        System.out.println("[World] Stack: " + stack);
+        System.out.println("[World] EntityManager: " + entityManager);
 
+        if (stack == null || stack.isEmpty() || entityManager == null) {
+            System.out.println("[World] ABORT: stack empty or no entityManager!");
+            return null;
+        }
+
+        ItemEntity item = EntityTypes.ITEM.create();
+        System.out.println("[World] Created ItemEntity: " + item);
+
+        item.setStack(stack.copy());
+        item.setPosition(x, y, z);
+
+        float spread = 0.2f;
+        item.setVelocity(
+                (lootRandom.nextFloat() - 0.5f) * spread,
+                0.2f + lootRandom.nextFloat() * 0.1f,
+                (lootRandom.nextFloat() - 0.5f) * spread);
+
+        entityManager.addEntity(item);
+        System.out.println("[World] Item added to EntityManager!");
+
+        return item;
+    }
 
     /**
      * Spawn item at block center.
@@ -902,8 +911,9 @@ public ItemEntity spawnItem(ItemStack stack, float x, float y, float z) {
      * Drop all items from a loot table with fortune level.
      */
     public void dropLoot(LootTable table, float x, float y, float z, int fortuneLevel) {
-        if (table == null || table.isEmpty()) return;
-        
+        if (table == null || table.isEmpty())
+            return;
+
         for (ItemStack stack : table.generateLoot(lootRandom, fortuneLevel)) {
             spawnItem(stack, x, y, z);
         }
@@ -932,16 +942,13 @@ public ItemEntity spawnItem(ItemStack stack, float x, float y, float z) {
         }
     }
 
-
-
     public void setEntityManager(EntityManager entityManager) {
-    this.entityManager = entityManager;
+        this.entityManager = entityManager;
     }
 
     public EntityManager getEntityManager() {
         return entityManager;
     }
-
 
     public int getFluidLevel(int x, int y, int z) {
         Chunk chunk = getChunkIfLoaded(x >> 4, z >> 4);

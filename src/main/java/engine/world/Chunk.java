@@ -419,6 +419,50 @@ public class Chunk {
         }
     }
 
+    // ==================== CUSTOM MESHES ====================
+    private final Map<String, Mesh> customMeshes = new HashMap<>();
+
+    public void uploadCustomMeshes(Map<String, float[]> customData) {
+        // Clear existing custom meshes that are not in the new data
+        // For simplicity, we might just recreate them or update them.
+        // But Meshes are heavy OpenGL objects.
+
+        // Strategy:
+        // 1. For each key in customData:
+        // - If exists in customMeshes, update it.
+        // - If not, create new Mesh and update it.
+        // 2. Remove keys from customMeshes that are NOT in customData.
+
+        // 1. Update/Create
+        for (Map.Entry<String, float[]> entry : customData.entrySet()) {
+            String texture = entry.getKey();
+            float[] data = entry.getValue();
+
+            Mesh mesh = customMeshes.get(texture);
+            if (mesh == null) {
+                mesh = new Mesh();
+                customMeshes.put(texture, mesh);
+            }
+            mesh.upload(data, true); // Assuming custom meshes might need transparency/alpha check? Or just standard.
+            // Using true (dynamic/transparent) to be safe or false?
+            // Most custom models (e.g. torch) might use transparency (cutout).
+        }
+
+        // 2. Remove unused
+        java.util.Iterator<Map.Entry<String, Mesh>> it = customMeshes.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Mesh> entry = it.next();
+            if (!customData.containsKey(entry.getKey())) {
+                entry.getValue().cleanup();
+                it.remove();
+            }
+        }
+    }
+
+    public Map<String, Mesh> getCustomMeshes() {
+        return customMeshes;
+    }
+
     // ==================== CLEANUP ====================
 
     public void cleanup() {
@@ -430,6 +474,11 @@ public class Chunk {
             if (waterLOD[i] != null)
                 waterLOD[i].cleanup();
         }
+        for (Mesh mesh : customMeshes.values()) {
+            mesh.cleanup();
+        }
+        customMeshes.clear();
+
         for (BlockEntity be : blockEntities.values()) {
             be.onRemoved();
         }

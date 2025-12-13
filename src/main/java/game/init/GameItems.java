@@ -57,6 +57,7 @@ public final class GameItems {
 
         public static Item FURNACE;
         public static Item CHEST;
+        public static Item DOOR;
 
         private GameItems() {
         }
@@ -70,7 +71,13 @@ public final class GameItems {
 
                 // ==================== BLOCK ITEMS ====================
                 // Block items automatically use their block's texture from the atlas
+                DOOR = Items.register("game:door",
+                                new BlockItem(GameBlocks.DOOR,
+                                                ItemProperties.create().icon("textures/items/door_wood.png")));
 
+                TORCH = Items.register("game:torch",
+                                new BlockItem(GameBlocks.TORCHDEBUG,
+                                                ItemProperties.create().icon("textures/items/torch.png")));
                 STONE = Items.register("game:stone",
                                 new BlockItem(GameBlocks.STONE));
 
@@ -101,9 +108,6 @@ public final class GameItems {
 
                 POPPY = Items.register("game:poppy",
                                 new BlockItem(GameBlocks.FLOWERDEBUG));
-
-                TORCH = Items.register("game:torch",
-                                new BlockItem(GameBlocks.TORCHDEBUG));
 
                 // Water bucket placeholder (not a direct block item)
                 WATER_BUCKET = Items.register("game:water_bucket",

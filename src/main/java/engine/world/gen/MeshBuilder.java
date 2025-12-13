@@ -116,6 +116,7 @@ public class MeshBuilder {
         ArrayList<Float> solidV = new ArrayList<>();
         ArrayList<Float> transpV = new ArrayList<>();
         ArrayList<Float> waterV = new ArrayList<>();
+        java.util.Map<String, ArrayList<Float>> customBuffers = new java.util.HashMap<>();
 
         boolean skipTransparent = lod >= 2;
         boolean simplifiedLighting = lod >= 1;
@@ -126,12 +127,17 @@ public class MeshBuilder {
                 for (int z = 0; z < chunkSize; z++) {
                     int blockId = chunk.getBlock(x, y, z);
                     Block block = Blocks.get(blockId);
+                    engine.world.block.state.BlockState state = Block.STATE_IDS.get(blockId);
 
                     if (block.isAir())
                         continue;
 
-                    if (block.getProperties().hasCustomModel()) {
-                        renderCustomModel(solidV, transpV, waterV, chunk, world,
+                    // Check for custom model from properties OR blockstate system
+                    boolean hasBlockState = (state != null
+                            && engine.rendering.model.BlockStateLoader.getVariant(state) != null);
+
+                    if (block.getProperties().hasCustomModel() || hasBlockState) {
+                        renderCustomModel(solidV, transpV, waterV, customBuffers, chunk, world,
                                 x, y, z, block, simplifiedLighting, skipTransparent);
                     } else {
                         renderCubeBlock(solidV, transpV, waterV, chunk, world,
@@ -141,10 +147,17 @@ public class MeshBuilder {
             }
         }
 
+        // Convert custom buffers to arrays
+        java.util.Map<String, float[]> customMeshes = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, ArrayList<Float>> entry : customBuffers.entrySet()) {
+            customMeshes.put(entry.getKey(), toFloatArray(entry.getValue()));
+        }
+
         return new MeshData(
                 toFloatArray(solidV),
                 skipTransparent ? new float[0] : toFloatArray(transpV),
-                toFloatArray(waterV));
+                toFloatArray(waterV),
+                customMeshes);
     }
 
     // ==================== CUBE RENDERING ====================
@@ -738,29 +751,47 @@ public class MeshBuilder {
         String cullface;
         boolean shade;
         int tintindex;
+        String texture; // The resolved texture path/name
     }
 
     private void renderCustomModel(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
+            java.util.Map<String, ArrayList<Float>> customBuffers,
             ChunkData chunk, WorldAccess world,
             int bx, int by, int bz, Block block,
             boolean simplifiedLighting, boolean skipTransparent) {
 
-        String modelPath = block.getProperties().getModelPath();
+        // Retrieve state early for models
+        int blockId = getBlockAt(chunk, world, bx, by, bz);
+        engine.world.block.state.BlockState state = Block.STATE_IDS.get(blockId);
+
+        String modelPath = null;
+        float rotX = 0;
+        float rotY = 0;
+
+        if (state != null) {
+            // Try BlockState system first
+            engine.rendering.model.ModelVariant variant = engine.rendering.model.BlockStateLoader.getVariant(state);
+            if (variant != null) {
+                modelPath = variant.getModel();
+                rotX = (float) Math.toRadians(variant.getX());
+                rotY = (float) Math.toRadians(variant.getY());
+            } else {
+                // Fallback to code-based path
+                modelPath = block.getModelPath(state);
+            }
+        } else {
+            modelPath = block.getProperties().getModelPath();
+        }
+
+        if (modelPath == null)
+            modelPath = "missing"; // Default to "missing" if path is null
+
         CompiledModel compiled = getOrCompileModel(modelPath, block);
 
         if (compiled == null || compiled.isCube) {
             renderCubeBlock(solidV, transpV, waterV, chunk, world,
                     bx, by, bz, block, simplifiedLighting, false, skipTransparent);
             return;
-        }
-
-        ArrayList<Float> dst;
-        if (block.isLiquid()) {
-            dst = waterV;
-        } else if (!block.isOpaque() && !skipTransparent) {
-            dst = transpV;
-        } else {
-            dst = solidV;
         }
 
         // Sample light at block center
@@ -770,6 +801,13 @@ public class MeshBuilder {
         for (CompiledFace face : compiled.faces) {
             // Cullface check
             if (face.cullface != null || block.isLiquid()) {
+                // If rotated, cullface check is tricky.
+                // For now, if rotated, we might want to disable cullface or rotate the check?
+                // Simple approach: Skip cullface optimization for rotated models or transform
+                // the normal check.
+                // Leaving as is: might cull wrong faces if rotated.
+                // TODO: Rotate cullface direction.
+
                 int[] normal = getCullfaceNormal(face.cullface);
                 if (!isFaceVisible(chunk, world, bx, by, bz, block,
                         normal[0], normal[1], normal[2], false)) {
@@ -778,14 +816,65 @@ public class MeshBuilder {
             }
 
             float ao = face.shade && !simplifiedLighting ? 0.85f : 1.0f;
-            int faceIdx = normalToFaceIndex(face.normal);
+            int faceIdx = normalToFaceIndex(face.normal); // This also needs rotation if we use it for lighting
 
             // Offset vertices by block position
             float[][] v = new float[4][3];
+
             for (int i = 0; i < 4; i++) {
-                v[i][0] = bx + face.vertices[i][0];
-                v[i][1] = by + face.vertices[i][1];
-                v[i][2] = bz + face.vertices[i][2];
+                float[] vert = face.vertices[i]; // Copy
+
+                // Apply Rotation (Center 0.5, 0.5, 0.5)
+                if (rotX != 0 || rotY != 0) {
+                    float ox = 0.5f;
+                    float oy = 0.5f;
+                    float oz = 0.5f;
+                    float vx = vert[0] - ox;
+                    float vy = vert[1] - oy;
+                    float vz = vert[2] - oz;
+
+                    // Rotate Y
+                    if (rotY != 0) {
+                        float cosY = (float) Math.cos(rotY);
+                        float sinY = (float) Math.sin(rotY);
+                        float rx = vx * cosY - vz * sinY;
+                        float rz = vx * sinY + vz * cosY;
+                        vx = rx;
+                        vz = rz;
+                    }
+
+                    // Rotate X
+                    if (rotX != 0) {
+                        float cosX = (float) Math.cos(rotX);
+                        float sinX = (float) Math.sin(rotX);
+                        float ry = vy * cosX - vz * sinX;
+                        float rz = vy * sinX + vz * cosX;
+                        vy = ry;
+                        vz = rz;
+                    }
+
+                    vert = new float[] { vx + ox, vy + oy, vz + oz };
+                }
+
+                v[i][0] = bx + vert[0];
+                v[i][1] = by + vert[1];
+                v[i][2] = bz + vert[2];
+            }
+
+            // Determine target buffer
+            ArrayList<Float> dst;
+            // If texture is specified and valid, uses custom buffer
+            if (face.texture != null && !face.texture.equals("missing") && !face.texture.isEmpty()) {
+                dst = customBuffers.computeIfAbsent(face.texture, k -> new ArrayList<>());
+            } else {
+                // Fallback to atlas buffers
+                if (block.isLiquid()) {
+                    dst = waterV;
+                } else if (!block.isOpaque() && !skipTransparent) {
+                    dst = transpV;
+                } else {
+                    dst = solidV;
+                }
             }
 
             // Two triangles
@@ -935,6 +1024,9 @@ public class MeshBuilder {
         cf.cullface = face.cullface;
         cf.shade = elem.shade;
         cf.tintindex = face.tintindex;
+
+        // Resolve texture
+        cf.texture = BlockModelLoader.resolveTexture(model, face.texture);
 
         return cf;
     }
@@ -1141,11 +1233,18 @@ public class MeshBuilder {
         public final float[] solidVertices;
         public final float[] transparentVertices;
         public final float[] waterVertices;
+        public final java.util.Map<String, float[]> customMeshes;
 
-        public MeshData(float[] solid, float[] transparent, float[] water) {
+        public MeshData(float[] solid, float[] transparent, float[] water,
+                java.util.Map<String, float[]> customMeshes) {
             this.solidVertices = solid;
             this.transparentVertices = transparent;
             this.waterVertices = water;
+            this.customMeshes = customMeshes != null ? customMeshes : java.util.Collections.emptyMap();
+        }
+
+        public MeshData(float[] solid, float[] transparent, float[] water) {
+            this(solid, transparent, water, null);
         }
     }
 }

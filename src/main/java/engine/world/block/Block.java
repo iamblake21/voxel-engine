@@ -9,6 +9,8 @@ import engine.world.blockentity.BlockEntityType;
 import engine.world.blockentity.ITickableBlockEntity;
 import java.util.Collection;
 import engine.loot.LootTable;
+import engine.utils.IdMapper;
+import engine.world.block.state.BlockState;
 
 import java.util.Optional;
 
@@ -20,7 +22,11 @@ import java.util.Optional;
  */
 public class Block {
 
+    public static final IdMapper<BlockState> STATE_IDS = new IdMapper<>();
+
     private final BlockProperties properties;
+    private final engine.world.block.state.StateDefinition stateDefinition;
+    private engine.world.block.state.BlockState defaultState;
 
     // Set by registry after registration
     private ResourceLocation registryId;
@@ -28,10 +34,34 @@ public class Block {
 
     public Block(BlockProperties properties) {
         this.properties = properties;
+
+        engine.world.block.state.StateDefinition.Builder builder = new engine.world.block.state.StateDefinition.Builder(
+                this);
+        appendProperties(builder);
+        this.stateDefinition = builder.build();
+        this.defaultState = stateDefinition.any();
     }
 
     public Block() {
         this(BlockProperties.create());
+    }
+
+    protected void appendProperties(engine.world.block.state.StateDefinition.Builder builder) {
+        // Override in subclasses to add properties
+    }
+
+    public final engine.world.block.state.StateDefinition getStateDefinition() {
+        return stateDefinition;
+    }
+
+    public final engine.world.block.state.BlockState getDefaultState() {
+        return defaultState;
+    }
+
+    // Used by subclasses to set the default state in constructor if any() is not
+    // enough
+    protected final void setDefaultState(engine.world.block.state.BlockState state) {
+        this.defaultState = state;
     }
 
     // ==================== PROPERTIES ====================
@@ -88,14 +118,13 @@ public class Block {
         return properties.getLightLevel();
     }
 
-        public LootTable getLootTable() {
+    public LootTable getLootTable() {
         return properties.getLootTable();
     }
 
     public boolean hasLoot() {
         return properties.hasLoot();
     }
-
 
     public float getHardness() {
         return properties.hardness;
@@ -229,4 +258,41 @@ public class Block {
         return null;
     }
 
+    /**
+     * Called when the block is placed in the world.
+     */
+    public void onPlace(engine.world.World world, int x, int y, int z) {
+    }
+
+    /**
+     * Called when the block is removed from the world.
+     */
+    public void onRemove(engine.world.World world, int x, int y, int z, engine.world.block.state.BlockState state) {
+    }
+
+    /**
+     * Called when the block is interacted with (right-click).
+     * 
+     * @return true if the interaction was handled, false otherwise.
+     */
+    public boolean onInteract(engine.world.World world, int x, int y, int z, engine.entity.Player player) {
+        return false;
+    }
+
+    /**
+     * Get the state for placement.
+     * Override this to implementing rotation/facing logic.
+     */
+    public engine.world.block.state.BlockState getStateForPlacement(engine.world.World world, engine.world.BlockPos pos,
+            engine.entity.Player player, engine.world.Direction face) {
+        return defaultState;
+    }
+
+    /**
+     * Get the model path for this block state.
+     * By default returns the static property model path.
+     */
+    public String getModelPath(engine.world.block.state.BlockState state) {
+        return properties.getModelPath();
+    }
 }

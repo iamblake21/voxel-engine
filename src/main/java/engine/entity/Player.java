@@ -223,38 +223,26 @@ public class Player extends Entity {
     }
 
     private void handleLeftClick(InputManager input, float deltaTime) {
-        // First check for entity attack
-        if (interactionManager != null && entityManager != null) {
-            // For now, just do block mining
-            // Entity attack can be added later
+        if (interactionManager == null)
+            return;
+
+        // Use unified Raycast from InteractionManager
+        // This ensures the same target selection as the Wireframe and Right-Click
+        engine.interaction.RaycastResult result = interactionManager.performRaycast(this, world, entityManager);
+
+        if (result.isEntity()) {
+            // TODO: Attack entity
+            miningManager.resetBreaking();
+            // Entity attack logic would go here
+            // System.out.println("Attacked entity: " + result.getEntity());
+        } else if (result.isBlock()) {
+            // Mining
+            engine.world.BlockPos pos = result.getBlockPos();
+            miningManager.processMining(this, world, pos.getX(), pos.getY(), pos.getZ(), deltaTime);
+        } else {
+            // Miss
+            miningManager.resetBreaking();
         }
-
-        // Block mining (existing raycast logic)
-        ItemStack selectedStack = inventory.getSelectedStack();
-        float eyeX = x, eyeY = y + config.playerEyeHeight, eyeZ = z;
-        float yawRad = (float) Math.toRadians(yaw);
-        float pitchRad = (float) Math.toRadians(pitch);
-        float dirX = (float) (Math.cos(pitchRad) * Math.cos(yawRad));
-        float dirY = (float) (Math.sin(pitchRad));
-        float dirZ = (float) (Math.cos(pitchRad) * Math.sin(yawRad));
-        float maxDist = 6.0f, step = 0.05f, dist = 0f;
-
-        while (dist <= maxDist) {
-            float cx = eyeX + dirX * dist;
-            float cy = eyeY + dirY * dist;
-            float cz = eyeZ + dirZ * dist;
-            int bx = (int) Math.floor(cx);
-            int by = (int) Math.floor(cy);
-            int bz = (int) Math.floor(cz);
-            int blockId = world.getBlock(bx, by, bz);
-
-            if (!Blocks.isAir(blockId) && !Blocks.isLiquid(blockId)) {
-                miningManager.processMining(this, world, bx, by, bz, deltaTime);
-                return;
-            }
-            dist += step;
-        }
-        miningManager.resetBreaking();
     }
 
     private void handleRightClick() {
