@@ -42,7 +42,7 @@ public class Raycast {
             int blockId = world.getBlock(x, y, z);
             
             // Check if solid (not air, not liquid)
-            if (!Blocks.isAir(blockId) && Blocks.isSolid(blockId)) {
+            if (!Blocks.isAir(blockId) && !Blocks.isLiquid(blockId)) {
                 RayHit hit = new RayHit();
                 hit.hit = true;
                 hit.blockX = x;

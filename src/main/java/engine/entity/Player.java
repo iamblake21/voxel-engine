@@ -248,7 +248,7 @@ public class Player extends Entity {
             int bz = (int) Math.floor(cz);
             int blockId = world.getBlock(bx, by, bz);
 
-            if (Blocks.isSolid(blockId)) {
+            if (!Blocks.isAir(blockId) && !Blocks.isLiquid(blockId)) {
                 miningManager.processMining(this, world, bx, by, bz, deltaTime);
                 return;
             }

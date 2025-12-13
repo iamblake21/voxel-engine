@@ -123,6 +123,8 @@ public class ExampleGame implements IGame {
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 2));
+                player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.TORCH, 34));
+
         // Setup render input handler
         RenderSettings settings = new RenderSettings();
         settings.setViewDistance(config.viewDistance);
