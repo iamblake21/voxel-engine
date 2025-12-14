@@ -24,6 +24,12 @@ public final class GameBlocks {
         public static Block SAND;
         public static Block SNOW;
 
+        // Structure
+        public static Block STONE_BRICKS;
+        public static Block PLANKS_OAK;
+        public static Block GLASS;
+        public static Block LOG_OAK;
+
         // Nature
         public static Block WOOD;
         public static Block LEAVES;
@@ -99,6 +105,30 @@ public final class GameBlocks {
                                                 .side(3, 0) // Grass side
                                                 .build());
 
+                // Stone bricks
+                STONE_BRICKS = Blocks.register("game:stone_bricks",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(4.0f)
+                                                .requiredTool(ToolType.PICKAXE)
+                                                .minTier(0)
+                                                .tile(0, 4)));
+
+                // Planks oak
+                PLANKS_OAK = Blocks.register("game:planks_oak",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(2.0f)
+                                                .requiredTool(ToolType.PICKAXE)
+                                                .tile(2, 4)));
+
+                // Glass
+                GLASS = Blocks.register("game:glass",
+                                new Block(BlockProperties.create()
+                                                .transparentSolid()
+                                                .hardness(0.5f)
+                                                .tile(3, 4)));
+
                 // Sand - beaches and deserts
                 SAND = Blocks.register("game:sand",
                                 new Block(BlockProperties.create()
@@ -108,7 +138,7 @@ public final class GameBlocks {
                                                 .tile(7, 0)));
 
                 // Wood - tree trunks
-                WOOD = Blocks.register("game:wood",
+                WOOD = Blocks.register("game:log_oak",
                                 new Block(BlockProperties.create()
                                                 .standardSolid()
                                                 .hardness(2.0f)

@@ -23,6 +23,7 @@ import static org.lwjgl.glfw.GLFW.*;
 import engine.world.blockentity.ContainerBlockEntity;
 import engine.ui.ContainerGui;
 import engine.world.blockentity.ContainerBlockEntity;
+import engine.world.gen.StructureLoader;
 
 public class ExampleGame implements IGame {
 
@@ -80,6 +81,9 @@ public class ExampleGame implements IGame {
                         .persistent(true)
                         .summonable(true)
                         .build());
+
+        // Load structures
+        StructureLoader.loadStructures();
 
         System.out.println("[Game] Entity types registered");
     }

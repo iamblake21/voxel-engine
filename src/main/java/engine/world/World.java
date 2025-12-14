@@ -14,6 +14,7 @@ import engine.world.blockentity.ITickableBlockEntity;
 
 import engine.entity.EntityManager;
 import engine.entity.EntityTypes;
+import engine.entity.Entity;
 import engine.entity.ItemEntity;
 import engine.loot.LootTable;
 import engine.world.item.ItemStack;
@@ -85,6 +86,7 @@ public class World implements MeshBuilder.WorldAccess {
 
         this.safeRadius = this.config.viewDistance;
         this.preGenRadius = this.config.viewDistance;
+
         System.out.println("[World] Async Pipeline Initialized (Snapshot Mode)" + numWorkers);
     }
 
@@ -365,6 +367,16 @@ public class World implements MeshBuilder.WorldAccess {
                     public boolean canPlace(int cx, int cz) {
                         return true;
                     }
+                },
+                (id, x, y, z) -> {
+                    // Spawn entity
+                    EntityTypes.tryGet(id).ifPresent(type -> {
+                        Entity entity = type.create();
+                        entity.setPosition(x, y, z);
+                        if (entityManager != null) {
+                            entityManager.addEntity(entity);
+                        }
+                    });
                 });
 
         // RIMOSSO: LightPropagator.recomputeChunkSkyLightVertical(this, chunk);

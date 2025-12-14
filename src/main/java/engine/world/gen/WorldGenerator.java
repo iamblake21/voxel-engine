@@ -1,6 +1,7 @@
 package engine.world.gen;
 
 import engine.world.biome.Biome;
+import engine.world.gen.Structure;
 
 /**
  * Main world generator - orchestrates terrain and feature generation.
@@ -43,8 +44,8 @@ public class WorldGenerator {
      * Generate features for a chunk.
      */
     public void generateFeatures(int chunkX, int chunkZ, int[] blockData, int[] heightMap,
-            FeatureGenerator.BlockPlacer placer) {
-        featureGenerator.generateFeatures(chunkX, chunkZ, blockData, heightMap, placer);
+            FeatureGenerator.BlockPlacer placer, Structure.EntityCallback entityCallback) {
+        featureGenerator.generateFeatures(chunkX, chunkZ, blockData, heightMap, placer, entityCallback);
     }
 
     /**

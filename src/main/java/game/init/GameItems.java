@@ -24,6 +24,9 @@ public final class GameItems {
         public static Item LIGHT_BLOCK;
         public static Item POPPY;
         public static Item TORCH;
+        public static Item PLANKS_OAK;
+        public static Item GLASS;
+        public static Item STONE_BRICKS;
 
         // Tools - Wooden
         public static ToolItem WOODEN_PICKAXE;
@@ -96,9 +99,13 @@ public final class GameItems {
 
                 SNOW = Items.register("game:snow",
                                 new BlockItem(GameBlocks.SNOW));
-
-                WOOD = Items.register("game:wood",
+                WOOD = Items.register("game:log_oak",
                                 new BlockItem(GameBlocks.WOOD));
+
+                PLANKS_OAK = Items.register("game:planks_oak",
+                                new BlockItem(GameBlocks.PLANKS_OAK));
+                STONE_BRICKS = Items.register("game:stone_bricks",
+                                new BlockItem(GameBlocks.STONE_BRICKS));
 
                 LEAVES = Items.register("game:leaves",
                                 new BlockItem(GameBlocks.LEAVES));

@@ -58,6 +58,11 @@ public final class GameLootTables {
         // Poppy drops itself
         setBlockLoot(GameBlocks.FLOWERDEBUG, LootTable.singleDrop(GameItems.POPPY));
 
+        setBlockLoot(GameBlocks.PLANKS_OAK, LootTable.singleDrop(GameItems.PLANKS_OAK));
+        setBlockLoot(GameBlocks.LOG_OAK, LootTable.singleDrop(GameItems.WOOD));
+        setBlockLoot(GameBlocks.GLASS, LootTable.singleDrop(GameItems.GLASS));
+        setBlockLoot(GameBlocks.STONE_BRICKS, LootTable.singleDrop(GameItems.STONE_BRICKS));
+
         // Torch drops itself
         setBlockLoot(GameBlocks.TORCHDEBUG, LootTable.singleDrop(GameItems.TORCH));
 

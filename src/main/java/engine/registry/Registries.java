@@ -43,6 +43,10 @@ public final class Registries {
     /** Registry of all block entity types */
     public static final Registry<BlockEntityType<?>> BLOCK_ENTITY_TYPES = new Registry<>("block_entity_types");
 
+    /** Registry of all structures */
+    public static final engine.registry.Registry<engine.world.gen.Structure> STRUCTURES = new engine.registry.Registry<>(
+            "engine:structures");
+
     // ==================== REGISTRY OF REGISTRIES ====================
 
     private static final Map<ResourceLocation, Registry<?>> ALL_REGISTRIES = new LinkedHashMap<>();
@@ -54,6 +58,7 @@ public final class Registries {
         registerRegistry(BIOMES);
         registerRegistry(ENTITY_TYPES);
         registerRegistry(GUIS);
+        registerRegistry(STRUCTURES);
     }
 
     private Registries() {
