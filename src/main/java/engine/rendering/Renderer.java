@@ -506,14 +506,17 @@ public class Renderer {
         renderBlockSelection(world);
         voxelShader.bind();
 
-        // Transparent (back-to-front for correct alpha blending)
+        // Transparent & Water (back-to-front for correct alpha blending)
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_CULL_FACE);
-        glDepthMask(false);
-        voxelShader.setUniform(uWaterPass, 0);
+        // Important: Transparent blocks (like leaves) SHOULD write depth to work
+        // correctly with water
+        // consistently. Our fragment shader uses discard for alpha < 0.1, so holes
+        // won't write depth.
+        glDepthMask(true);
 
-        // Iterate back-to-front
+        // Iterate back-to-front once for all transparent types
         for (int i = visibleChunks.size() - 1; i >= 0; i--) {
             Chunk chunk = visibleChunks.get(i);
             int lod = calculateChunkLOD(chunk);
@@ -521,15 +524,17 @@ public class Renderer {
                     chunk.getX() * config.chunkSize, 0,
                     chunk.getZ() * config.chunkSize);
 
-            // 1. Transparent Mesh
+            // 1. Transparent Mesh (Leaves, Flowers, etc.)
             Mesh transpMesh = chunk.getTransparentMesh(lod);
             if (transpMesh != null && !transpMesh.isEmpty()) {
+                voxelShader.setUniform(uWaterPass, 0); // Treated as normal blocks
+                voxelShader.setUniform(uUseTextureArray, 1);
                 voxelShader.setUniform(uModel, model);
-                atlasTexture.bind(0); // Ensure atlas is bound for standard meshes
+                atlasTexture.bind(0);
                 transpMesh.draw();
             }
 
-            // 2. Custom Meshes (assume they are transparent/cutout)
+            // 2. Custom Meshes (Models)
             for (java.util.Map.Entry<String, engine.rendering.Mesh> entry : chunk.getCustomMeshes().entrySet()) {
                 String texturePath = entry.getKey();
                 engine.rendering.Mesh customMesh = entry.getValue();
@@ -537,6 +542,7 @@ public class Renderer {
                 if (customMesh != null && !customMesh.isEmpty()) {
                     Texture tex = getCustomTexture(texturePath);
                     if (tex != null) {
+                        voxelShader.setUniform(uWaterPass, 0);
                         voxelShader.setUniform(uUseTextureArray, 0); // Disable Atlas
                         tex.bind(1); // Bind to slot 1
                         voxelShader.setUniform(uModel, model);
@@ -545,23 +551,18 @@ public class Renderer {
                     }
                 }
             }
-        }
 
-        // Water (back-to-front)
-        glDepthMask(true);
-        voxelShader.setUniform(uWaterPass, 1);
-        atlasTexture.bind(0); // Rebind atlas for water
-
-        for (int i = visibleChunks.size() - 1; i >= 0; i--) {
-            Chunk chunk = visibleChunks.get(i);
-            int lod = calculateChunkLOD(chunk);
-
+            // 3. Water Mesh
+            // Water is consistently drawn after solids/cutouts in the same chunk.
+            // Since we iterate back-to-front, this is the correct order for "painter's
+            // algorithm"
+            // combined with depth buffering.
             Mesh waterMesh = chunk.getWaterMesh(lod);
             if (waterMesh != null && !waterMesh.isEmpty()) {
-                Mat4 model = Mat4.translate(
-                        chunk.getX() * config.chunkSize, 0,
-                        chunk.getZ() * config.chunkSize);
+                voxelShader.setUniform(uWaterPass, 1); // Water logic
+                voxelShader.setUniform(uUseTextureArray, 1);
                 voxelShader.setUniform(uModel, model);
+                atlasTexture.bind(0);
                 waterMesh.draw();
             }
         }

@@ -640,7 +640,10 @@ public class MeshBuilder {
     }
 
     private boolean isOccluder(int blockId) {
-        return Blocks.get(blockId).isOpaque();
+        Block b = Blocks.get(blockId);
+        // Treat solid transparent blocks (leaves) as occluders for AO to have
+        // self-shadowing
+        return b.isOpaque() || (b.isSolid() && b.isTransparent());
     }
 
     // ==================== SMOOTH LIGHTING ====================
