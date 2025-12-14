@@ -62,9 +62,14 @@ public class FeatureGenerator {
         int centerWorldZ = chunkZ * chunkSize + (chunkSize / 2);
         Biome biome = biomeProvider.getBiome(centerWorldX, centerWorldZ);
 
-        List<WeightedStructure> structures = biome.getStructures();
+        List<WeightedStructure> structures = new ArrayList<>(biome.getStructures());
         if (structures.isEmpty())
             return;
+
+        // SORT: Low density (large/rare structures) first
+        structures.sort((a, b) -> Float.compare(a.getDensity(), b.getDensity()));
+
+        List<engine.utils.Math3D.AABB> allocatedSpace = new ArrayList<>();
 
         // Randomly attempt to place structures
         for (WeightedStructure ws : structures) {
@@ -96,9 +101,94 @@ public class FeatureGenerator {
 
                 int sy = heightMap[rz * chunkSize + rx];
 
+                // === CONSTRAINT CHECKS ===
+
+                // 1. Check Liquid
+                if (structure.shouldDenyLiquid()) {
+                    // Check if spawn point is below/in water
+                    if (sy <= waterLevel) {
+                        continue;
+                    }
+                }
+
+                // 2. Check Valid Ground
+                List<String> validGround = structure.getValidGround();
+                if (validGround != null && !validGround.isEmpty()) {
+                    // Check block BELOW spawn
+                    int groundY = sy - 1;
+                    if (groundY >= 0) {
+                        // We need to get the block ID at this position
+                        // Same problem as callback: we need to READ the block.
+                        // But here we are in the main chunk generation loop, so we have access to
+                        // current chunk data!
+
+                        int wx = worldX;
+                        int wz = worldZ;
+
+                        // Note: rx, rz are local to chunk
+                        int lx = rx;
+                        int lz = rz;
+
+                        // We can read directly from blockData since rx/rz valid range check passed
+                        // BUT blockData assumes linear index: (y * chunkSize + z) * chunkSize + x
+                        // AND it stores numeric IDs. We need string IDs for comparison.
+
+                        int groundBlockId = blockData[(groundY * chunkSize + lz) * chunkSize + lx];
+                        String groundBlockStringId = Blocks.get(groundBlockId).getRegistryId().toString();
+
+                        if (!validGround.contains(groundBlockStringId)) {
+                            continue;
+                        }
+                    }
+                }
+
+                // Collision Check
+                engine.utils.Math3D.AABB boundingBox = structure.getAABB(worldX, sy, worldZ);
+                // Shrink slightly to allow touching? Or keep strict. Strict is safer.
+                boolean collides = false;
+                for (engine.utils.Math3D.AABB existing : allocatedSpace) {
+                    if (boundingBox.intersects(existing)) {
+                        collides = true;
+                        break;
+                    }
+                }
+
+                if (collides) {
+                    continue;
+                }
+
+                // Add to allocated space
+                allocatedSpace.add(boundingBox);
+
                 // Place
                 structure.place(
-                        (wx, wy, wz, bid) -> placeBlock(placer, chunkX, chunkZ, blockData, wx, wy, wz, bid),
+                        new Structure.StructureCallback() {
+                            @Override
+                            public void setBlock(int wx, int wy, int wz, int bid) {
+                                placeBlock(placer, chunkX, chunkZ, blockData, wx, wy, wz, bid);
+                            }
+
+                            @Override
+                            public int getBlock(int wx, int wy, int wz) {
+                                // Best effort read
+                                if (wy < 0 || wy >= chunkHeight)
+                                    return 0; // Air
+
+                                int targetChunkX = floorDiv(wx, chunkSize);
+                                int targetChunkZ = floorDiv(wz, chunkSize);
+                                int lx = mod(wx, chunkSize);
+                                int lz = mod(wz, chunkSize);
+
+                                if (targetChunkX == chunkX && targetChunkZ == chunkZ) {
+                                    return blockData[(wy * chunkSize + lz) * chunkSize + lx];
+                                } else if (placer != null && placer.canPlace(targetChunkX, targetChunkZ)) {
+                                    return placer.getBlock(targetChunkX, targetChunkZ, lx, wy, lz);
+                                }
+                                return 0; // Unknown/Unloaded -> treat as Air? Or Solid?
+                                // Ideally deferred ops handle writes, but for reads we might be out of luck if
+                                // not loaded.
+                            }
+                        },
                         entityCallback,
                         worldX, sy, worldZ);
             }

@@ -98,6 +98,44 @@ public class StructureLoader {
                 }
             }
 
+            // Parse Constraints (Optional)
+            if (json.containsKey("constraints")) {
+                Map<String, Object> constraints = (Map<String, Object>) json.get("constraints");
+
+                List<String> validGround = null;
+                if (constraints.containsKey("valid_ground")) {
+                    List<Object> vgList = (List<Object>) constraints.get("valid_ground");
+                    validGround = new java.util.ArrayList<>();
+                    for (Object o : vgList) {
+                        validGround.add((String) o);
+                    }
+                }
+
+                boolean denyLiquid = false;
+                if (constraints.containsKey("deny_liquid")) {
+                    denyLiquid = (Boolean) constraints.get("deny_liquid");
+                }
+
+                structure.setConstraints(validGround, denyLiquid);
+            }
+
+            // Parse Options (Optional)
+            if (json.containsKey("options")) {
+                Map<String, Object> options = (Map<String, Object>) json.get("options");
+
+                boolean createFoundation = false;
+                if (options.containsKey("create_foundation")) {
+                    createFoundation = (Boolean) options.get("create_foundation");
+                }
+
+                String foundationMaterial = "game:stone";
+                if (options.containsKey("foundation_material")) {
+                    foundationMaterial = (String) options.get("foundation_material");
+                }
+
+                structure.setOptions(createFoundation, foundationMaterial);
+            }
+
             Registries.STRUCTURES.register(id, structure);
             System.out.println("[StructureLoader] Loaded structure: " + id);
 

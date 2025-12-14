@@ -25,6 +25,40 @@ public class Structure {
         this.size = new Vec3i(width, height, depth);
     }
 
+    // Constraints
+    private List<String> validGround = null; // null = any
+    private boolean denyLiquid = false;
+
+    // Options
+    private boolean createFoundation = false;
+    private String foundationMaterial = "game:stone";
+
+    public void setConstraints(List<String> validGround, boolean denyLiquid) {
+        this.validGround = validGround;
+        this.denyLiquid = denyLiquid;
+    }
+
+    public void setOptions(boolean createFoundation, String foundationMaterial) {
+        this.createFoundation = createFoundation;
+        this.foundationMaterial = foundationMaterial;
+    }
+
+    public List<String> getValidGround() {
+        return validGround;
+    }
+
+    public boolean shouldDenyLiquid() {
+        return denyLiquid;
+    }
+
+    public boolean shouldCreateFoundation() {
+        return createFoundation;
+    }
+
+    public String getFoundationMaterial() {
+        return foundationMaterial;
+    }
+
     public void addBlock(int x, int y, int z, String blockId) {
         int stateIndex = palette.indexOf(blockId);
         if (stateIndex == -1) {
@@ -36,6 +70,8 @@ public class Structure {
 
     public interface StructureCallback {
         void setBlock(int worldX, int worldY, int worldZ, int blockId);
+
+        int getBlock(int worldX, int worldY, int worldZ);
     }
 
     public interface EntityCallback {
@@ -53,6 +89,31 @@ public class Structure {
                     startY + sb.y,
                     startZ + sb.z,
                     numericId);
+        }
+
+        // Create Foundation
+        if (createFoundation) {
+            int foundationBlockId = Blocks.get(foundationMaterial).getNumericId();
+            // Find bottom blocks of structure (y=0)
+            for (StructureBlock sb : blocks) {
+                if (sb.y == 0) {
+                    int wx = startX + sb.x;
+                    int wz = startZ + sb.z;
+                    int currentY = startY + sb.y - 1;
+
+                    // Fill down until solid
+                    int maxDepth = 10;
+                    for (int i = 0; i < maxDepth; i++) {
+                        int y = currentY - i;
+                        int existing = callback.getBlock(wx, y, wz);
+                        if (Blocks.isSolid(existing)) {
+                            break; // Hit ground
+                        }
+                        // Replace non-solid (air/water/leaves/etc) with foundation
+                        callback.setBlock(wx, y, wz, foundationBlockId);
+                    }
+                }
+            }
         }
 
         // Spawn Entities
@@ -79,6 +140,12 @@ public class Structure {
 
     public List<StructureEntity> getEntities() {
         return entities;
+    }
+
+    public engine.utils.Math3D.AABB getAABB(int startX, int startY, int startZ) {
+        return new engine.utils.Math3D.AABB(
+                startX, startY, startZ,
+                startX + size.x, startY + size.y, startZ + size.z);
     }
 
     public Vec3i getSize() {

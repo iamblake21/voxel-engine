@@ -1,5 +1,9 @@
 {
-  "size": [5, 7, 5],
+  "size": [5, 12, 5],
+  "constraints": {
+    "valid_ground": ["game:grass", "game:dirt"],
+    "deny_liquid": true
+  },
   "palette": [
     "game:log_oak",
     "game:leaves"
