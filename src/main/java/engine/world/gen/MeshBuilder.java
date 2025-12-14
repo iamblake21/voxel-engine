@@ -132,16 +132,32 @@ public class MeshBuilder {
                     if (block.isAir())
                         continue;
 
+                    // Fetch Biome Color
+                    int color = 0xFFFFFFFF; // Default White
+                    if (block.getProperties().hasTintGrass()) {
+                        int wx = chunk.getWorldX() + x;
+                        int wz = chunk.getWorldZ() + z;
+                        color = world.getBiome(wx, wz).getProperties().getGrassColor();
+                    } else if (block.getProperties().hasTintFoliage()) {
+                        int wx = chunk.getWorldX() + x;
+                        int wz = chunk.getWorldZ() + z;
+                        color = world.getBiome(wx, wz).getProperties().getFoliageColor();
+                    }
+
                     // Check for custom model from properties OR blockstate system
                     boolean hasBlockState = (state != null
                             && engine.rendering.model.BlockStateLoader.getVariant(state) != null);
 
                     if (block.getProperties().hasCustomModel() || hasBlockState) {
+                        // Pass color to renderCustomModel (needs update signature, skipping for now or
+                        // assume white for models)
+                        // TODO: Support tint for models if needed
                         renderCustomModel(solidV, transpV, waterV, customBuffers, chunk, world,
                                 x, y, z, block, simplifiedLighting, skipTransparent);
                     } else {
                         renderCubeBlock(solidV, transpV, waterV, chunk, world,
-                                x, y, z, block, simplifiedLighting, aggressiveCull, skipTransparent);
+                                x, y, z, block, simplifiedLighting, aggressiveCull, skipTransparent, color); // Updated
+                                                                                                             // signature
                     }
                 }
             }
@@ -165,7 +181,7 @@ public class MeshBuilder {
     private void renderCubeBlock(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
             ChunkData chunk, WorldAccess world,
             int x, int y, int z, Block block,
-            boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent) {
+            boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent, int color) {
 
         float[] heights = new float[4];
         if (block.isLiquid()) {
@@ -271,7 +287,7 @@ public class MeshBuilder {
                 Arrays.fill(faceHeights, 1.0f); // Non-liquid blocks are full height
             }
 
-            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting, faceHeights);
+            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting, faceHeights, color);
         }
     }
 
@@ -316,7 +332,7 @@ public class MeshBuilder {
 
     private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
             int bx, int by, int bz, int faceIdx, Block block,
-            boolean simplifiedLighting, float[] heights) {
+            boolean simplifiedLighting, float[] heights, int color) {
 
         int[] n = FACE_NORMAL[faceIdx];
         int nx = n[0], ny = n[1], nz = n[2];
@@ -360,7 +376,10 @@ public class MeshBuilder {
         float[] vCoord = flipV ? new float[] { 1, 1, 0, 0 } : new float[] { 0, 0, 1, 1 };
 
         // 4. Emit triangles with anisotropic fix
-        emitQuad(dst, verts, uv, vCoord, ao, skyLight, blockLight, faceIdx, tileIndex);
+        float r = ((color >> 16) & 0xFF) / 255f;
+        float g = ((color >> 8) & 0xFF) / 255f;
+        float b = (color & 0xFF) / 255f;
+        emitQuad(dst, verts, uv, vCoord, ao, skyLight, blockLight, faceIdx, tileIndex, r, g, b);
     }
 
     private int getFluidLevelAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
@@ -531,27 +550,27 @@ public class MeshBuilder {
      * anisotropy.
      */
     private void emitQuad(ArrayList<Float> dst, float[][] v, float[][] uv, float[] vCoord,
-            float[] ao, float[] sky, float[] blk, int faceIdx, int tileIndex) {
+            float[] ao, float[] sky, float[] blk, int faceIdx, int tileIndex, float r, float g, float b) {
 
         // Choose diagonal that minimizes interpolation artifacts
         if (ao[0] + ao[2] > ao[1] + ao[3]) {
             // Diagonal from v1 to v3: triangles (1,2,3) and (1,3,0)
-            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1]);
-            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2]);
-            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3]);
+            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1], r, g, b);
+            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2], r, g, b);
+            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3], r, g, b);
 
-            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1]);
-            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3]);
-            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0]);
+            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1], r, g, b);
+            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3], r, g, b);
+            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0], r, g, b);
         } else {
             // Diagonal from v0 to v2: triangles (0,1,2) and (0,2,3)
-            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0]);
-            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1]);
-            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2]);
+            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0], r, g, b);
+            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1], r, g, b);
+            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2], r, g, b);
 
-            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0]);
-            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2]);
-            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3]);
+            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0], r, g, b);
+            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2], r, g, b);
+            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3], r, g, b);
         }
     }
 
@@ -790,7 +809,8 @@ public class MeshBuilder {
 
         if (compiled == null || compiled.isCube) {
             renderCubeBlock(solidV, transpV, waterV, chunk, world,
-                    bx, by, bz, block, simplifiedLighting, false, skipTransparent);
+                    bx, by, bz, block, simplifiedLighting, false, skipTransparent, 0xFFFFFFFF); // White tint for model
+                                                                                                // fallback
             return;
         }
 
@@ -878,13 +898,20 @@ public class MeshBuilder {
             }
 
             // Two triangles
-            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-            pushVertex(dst, v[1], face.uvs[1][0], face.uvs[1][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            float r = 1.0f, g = 1.0f, b = 1.0f; // White for custom models for now
+            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+                    g, b);
+            pushVertex(dst, v[1], face.uvs[1][0], face.uvs[1][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+                    g, b);
+            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+                    g, b);
 
-            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
-            pushVertex(dst, v[3], face.uvs[3][0], face.uvs[3][1], ao, faceIdx, face.tileIndex, skyLight, blockLight);
+            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+                    g, b);
+            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+                    g, b);
+            pushVertex(dst, v[3], face.uvs[3][0], face.uvs[3][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+                    g, b);
         }
     }
 
@@ -1174,7 +1201,7 @@ public class MeshBuilder {
 
     private void pushVertex(ArrayList<Float> dst, float[] pos, float u, float v,
             float ao, int faceIdx, int tileIndex,
-            float skyLight, float blockLight) {
+            float skyLight, float blockLight, float r, float g, float b) {
         dst.add(pos[0]);
         dst.add(pos[1]);
         dst.add(pos[2]);
@@ -1185,6 +1212,9 @@ public class MeshBuilder {
         dst.add((float) tileIndex);
         dst.add(skyLight);
         dst.add(blockLight);
+        dst.add(r);
+        dst.add(g);
+        dst.add(b);
     }
 
     private float[] toFloatArray(ArrayList<Float> list) {
@@ -1226,6 +1256,10 @@ public class MeshBuilder {
 
         default int peekFluidLevel(int worldX, int worldY, int worldZ) {
             return 0;
+        }
+
+        default engine.world.biome.Biome getBiome(int worldX, int worldZ) {
+            return engine.world.biome.Biomes.DEFAULT();
         }
     }
 

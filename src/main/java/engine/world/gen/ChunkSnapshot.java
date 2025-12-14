@@ -1,6 +1,7 @@
 package engine.world.gen;
 
 import engine.world.Chunk;
+import engine.world.biome.Biome;
 
 import java.util.Arrays;
 
@@ -35,6 +36,8 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
     // Flag per sapere quali vicini esistono
     private final boolean[] neighborExists;
 
+    private final BiomeProvider biomeProvider;
+
     /**
      * Crea uno snapshot di un chunk e dei suoi vicini.
      * 
@@ -44,11 +47,13 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
      * @param chunkSize   Dimensione del chunk (tipicamente 16)
      * @param chunkHeight Altezza del chunk (tipicamente 256)
      */
-    public ChunkSnapshot(int cx, int cz, Chunk[][] neighbors, int chunkSize, int chunkHeight) {
+    public ChunkSnapshot(int cx, int cz, Chunk[][] neighbors, int chunkSize, int chunkHeight,
+            BiomeProvider biomeProvider) {
         this.centerX = cx;
         this.centerZ = cz;
         this.chunkSize = chunkSize;
         this.chunkHeight = chunkHeight;
+        this.biomeProvider = biomeProvider;
 
         int arraySize = chunkSize * chunkSize * chunkHeight;
 
@@ -301,6 +306,13 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         }
 
         return neighborFluidData[idx][localIndex(localX, globalY, localZ)] & 0xFF;
+    }
+
+    @Override
+    public Biome getBiome(int worldX, int worldZ) {
+        if (biomeProvider == null)
+            return engine.world.biome.Biomes.DEFAULT();
+        return biomeProvider.getBiome(worldX, worldZ);
     }
 
     // =================================================================================

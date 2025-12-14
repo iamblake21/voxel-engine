@@ -810,6 +810,7 @@ public class Renderer {
                 "layout(location=4) in float aTileIndex;\n" +
                 "layout(location=5) in float aSkyLight;\n" + // ✅ NEW
                 "layout(location=6) in float aBlockLight;\n" + // ✅ NEW
+                "layout(location=7) in vec3 aColor;\n" + // ✅ NEW: Vertex Color
                 "\n" +
                 "uniform mat4 uProj, uView, uModel;\n" +
                 "uniform float uTime;\n" +
@@ -825,6 +826,7 @@ public class Renderer {
                 "out vec3 vWP;\n" +
                 "out float vDistFromCamera;\n" +
                 "out float vTileIndex;\n" +
+                "out vec3 vColor;\n" +
                 "out vec3 vNormal;\n" +
                 "\n" +
                 "float noise2D(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n" +
@@ -872,6 +874,7 @@ public class Renderer {
                 "  vWorldXZ = (uWaterPass==1) ? wpO.xz : wp.xz;\n" +
                 "  vWP = wp;\n" +
                 "  vDistFromCamera = length(wp - uCameraPos);\n" +
+                "  vColor = aColor;\n" +
                 "  gl_Position = uProj * uView * wp4;\n" +
                 "}\n";
     }
@@ -886,6 +889,7 @@ public class Renderer {
                 "in vec3 vWP;\n" +
                 "in float vDistFromCamera;\n" +
                 "in float vTileIndex;\n" +
+                "in vec3 vColor;\n" +
 
                 "in vec3 vNormal;\n" +
                 "\n" +
@@ -945,11 +949,7 @@ public class Renderer {
                 "     }\n" +
                 "     if(texColor.a < 0.1) discard;\n" +
                 "\n" +
-                "     vec3 terrainTint = uTint.rgb;\n" +
-                "     if (uUseTextureArray == 1) {\n" +
-                "         if(tileIndex == uTileGrassTopIndex) terrainTint *= uGrassTint;\n" +
-                "         else if(tileIndex == uTileLeavesIndex) terrainTint *= uFoliageTint;\n" +
-                "     }\n" +
+                "     vec3 terrainTint = uTint.rgb * vColor;\n" +
                 "     \n" +
                 "     finalColor = texColor.rgb * terrainTint;\n" +
                 "     \n" +

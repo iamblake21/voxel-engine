@@ -1,0 +1,51 @@
+{
+  "size": [5, 10, 5],
+  "constraints": {
+    "valid_ground": ["game:grass", "game:dirt", "game:snow"],
+    "deny_liquid": true
+  },
+  "palette": [
+    "game:log_oak",
+    "game:leaves"
+  ],
+  "blocks": [
+    {"pos": [2, 0, 2], "state": 0},
+    {"pos": [2, 1, 2], "state": 0},
+    {"pos": [2, 2, 2], "state": 0},
+    {"pos": [2, 3, 2], "state": 0},
+    {"pos": [2, 4, 2], "state": 0},
+    {"pos": [2, 5, 2], "state": 0},
+    {"pos": [2, 6, 2], "state": 0},
+    {"pos": [2, 7, 2], "state": 0},
+    {"pos": [2, 8, 2], "state": 1},
+    {"pos": [2, 9, 2], "state": 1},
+
+    {"pos": [1, 3, 2], "state": 1},
+    {"pos": [3, 3, 2], "state": 1},
+    {"pos": [2, 3, 1], "state": 1},
+    {"pos": [2, 3, 3], "state": 1},
+    {"pos": [1, 3, 1], "state": 1},
+    {"pos": [3, 3, 3], "state": 1},
+    {"pos": [1, 3, 3], "state": 1},
+    {"pos": [3, 3, 1], "state": 1},
+
+    {"pos": [1, 5, 2], "state": 1},
+    {"pos": [3, 5, 2], "state": 1},
+    {"pos": [2, 5, 1], "state": 1},
+    {"pos": [2, 5, 3], "state": 1},
+
+    {"pos": [1, 6, 2], "state": 1},
+    {"pos": [3, 6, 2], "state": 1},
+    {"pos": [2, 6, 1], "state": 1},
+    {"pos": [2, 6, 3], "state": 1},
+    {"pos": [1, 6, 1], "state": 1},
+    {"pos": [3, 6, 3], "state": 1},
+    {"pos": [1, 6, 3], "state": 1},
+    {"pos": [3, 6, 1], "state": 1},
+
+    {"pos": [1, 8, 2], "state": 1},
+    {"pos": [3, 8, 2], "state": 1},
+    {"pos": [2, 8, 1], "state": 1},
+    {"pos": [2, 8, 3], "state": 1}
+  ]
+}

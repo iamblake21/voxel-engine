@@ -9,14 +9,12 @@ import engine.utils.Math3D.Vec3;
 import engine.world.light.LightPropagator;
 import engine.world.fluid.FluidManager;
 import engine.world.blockentity.BlockEntity;
-import engine.world.blockentity.BlockEntityType;
-import engine.world.blockentity.ITickableBlockEntity;
 
 import engine.entity.EntityManager;
 import engine.entity.EntityTypes;
 import engine.entity.Entity;
-import engine.entity.ItemEntity;
-import engine.loot.LootTable;
+import engine.entity.ItemEntity; // Correct import
+import engine.loot.LootTable; // Correct import
 import engine.world.item.ItemStack;
 import java.util.Random;
 
@@ -410,7 +408,7 @@ public class World implements MeshBuilder.WorldAccess {
         ChunkSnapshot snapshot = new ChunkSnapshot(
                 chunk.getX(), chunk.getZ(),
                 neighbors,
-                config.chunkSize, config.worldHeight);
+                config.chunkSize, config.worldHeight, worldGenerator.getBiomeProvider());
 
         chunk.setMeshPending(true);
         genExecutor.submitMeshTask(chunk.getX(), chunk.getZ(), snapshot);
@@ -427,7 +425,7 @@ public class World implements MeshBuilder.WorldAccess {
         ChunkSnapshot snapshot = new ChunkSnapshot(
                 chunk.getX(), chunk.getZ(),
                 neighbors,
-                config.chunkSize, config.worldHeight);
+                config.chunkSize, config.worldHeight, worldGenerator.getBiomeProvider());
 
         chunk.setLightPending(true);
         genExecutor.submitLightTask(chunk.getX(), chunk.getZ(), snapshot);
