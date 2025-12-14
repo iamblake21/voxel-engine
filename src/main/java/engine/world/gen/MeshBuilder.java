@@ -155,7 +155,7 @@ public class MeshBuilder {
                         renderCustomModel(solidV, transpV, waterV, customBuffers, chunk, world,
                                 x, y, z, block, simplifiedLighting, skipTransparent);
                     } else {
-                        renderCubeBlock(solidV, transpV, waterV, chunk, world,
+                        renderCubeBlock(solidV, transpV, waterV, customBuffers, chunk, world,
                                 x, y, z, block, simplifiedLighting, aggressiveCull, skipTransparent, color); // Updated
                                                                                                              // signature
                     }
@@ -179,33 +179,14 @@ public class MeshBuilder {
     // ==================== CUBE RENDERING ====================
 
     private void renderCubeBlock(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
+            java.util.Map<String, ArrayList<Float>> customBuffers,
             ChunkData chunk, WorldAccess world,
             int x, int y, int z, Block block,
             boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent, int color) {
 
         float[] heights = new float[4];
         if (block.isLiquid()) {
-            // For Top Face (POS_Y): v0=(-,-), v1=(+,-), v2=(+,+), v3=(-,+)
-            // U=X, V=Z
-            // v0=x,z (NW corner, neighbors x-1, z-1)
-            // v1=x+1,z (NE corner, neighbors x+1, z-1)
-            // v2=x+1,z+1 (SE corner, neighbors x+1, z+1)
-            // v3=x,z+1 (SW corner, neighbors x-1, z+1)
-
-            // Wait, getCornerHeight params: (x, y, z, cx, cz)
-            // NW: offsets -1, -1 for neighbors relative to corner?
-            // My helper getCornerHeight(.., cx, cz) takes offset DIRECTION for the 3 other
-            // blocks.
-            // Let's redefine getCornerHeight:
-            // It calculates height at the corner defined by (x,z) and (x+ox, z+oz).
-
-            // Let's just calculate the 4 corners for the block (x,y,z).
-            // Corner 0 (0,0) -> touches (BX, BZ). touches (BX-1, BZ-1), (BX, BZ-1), (BX-1,
-            // BZ), (BX, BZ).
-            // Neighbors offsets: {-1, -1}, {0, -1}, {-1, 0}, {0, 0}
-
-            int blockAbove = getBlockAt(chunk, world, x, y + 1, z);
-            boolean isFalling = (blockAbove == block.getNumericId());
+            boolean isFalling = (getBlockAt(chunk, world, x, y + 1, z) == block.getNumericId());
 
             if (isFalling) {
                 Arrays.fill(heights, 1.0f);
@@ -215,10 +196,13 @@ public class MeshBuilder {
                 heights[2] = getVertexFluidHeight(chunk, world, x + 1, y, z + 1); // SE Corner (x+1,z+1)
                 heights[3] = getVertexFluidHeight(chunk, world, x, y, z + 1); // SW Corner (x,z+1)
             }
-
         } else {
             Arrays.fill(heights, 1.0f);
         }
+
+        // Check if this is a grass block for special rendering
+        boolean isGrass = block.getRegistryId() != null && block.getRegistryId().getPath().equals("grass");
+        Block dirtBlock = isGrass ? engine.world.block.Blocks.get("game:dirt") : null;
 
         for (int faceIdx = 0; faceIdx < 6; faceIdx++) {
             int[] n = FACE_NORMAL[faceIdx];
@@ -236,58 +220,75 @@ public class MeshBuilder {
                 target = solidV;
             }
 
-            // Construct specific heights for this face if it's a side face?
-            // If Side Face: 2 top vertices should match top face corners.
-            // Example POS_Z (Front): v0=(1,0,1), v1=(0,0,1), v2=(0,1,1), v3=(1,1,1)
-            // Top verts are v2, v3 (y=1).
-            // v2 is (0,1) -> (x, z+1) -> heights[3] (SW)
-            // v3 is (1,1) -> (x+1, z+1) -> heights[2] (SE)
-            // Bottom verts v0, v1 should be 0.
-
             float[] faceHeights = new float[4];
             if (block.isLiquid()) {
                 if (faceIdx == FACE_POS_Y) { // Top face
-                    faceHeights = heights; // Use the pre-calculated corner heights directly
+                    faceHeights = heights;
                 } else if (faceIdx == FACE_NEG_Y) { // Bottom face
-                    Arrays.fill(faceHeights, 0.0f); // Bottom is always flat at 0
+                    Arrays.fill(faceHeights, 0.0f);
                 } else {
-                    // Side faces.
-                    // Vertices are ordered v0, v1, v2, v3.
-                    // For side faces, v0 and v1 are bottom vertices (y=0), v2 and v3 are top
-                    // vertices (y=1).
-                    // So faceHeights[0] and faceHeights[1] are 0.0f.
-                    // faceHeights[2] and faceHeights[3] need to map to the correct corner heights.
-
+                    // Side faces
                     faceHeights[0] = 0.0f;
                     faceHeights[1] = 0.0f;
 
-                    if (faceIdx == FACE_NEG_Z) { // North face (looking towards -Z)
-                        // v2 maps to NW corner (x, z) -> heights[0]
-                        // v3 maps to NE corner (x+1, z) -> heights[1]
+                    if (faceIdx == FACE_NEG_Z) { // North
                         faceHeights[2] = heights[0];
                         faceHeights[3] = heights[1];
-                    } else if (faceIdx == FACE_POS_Z) { // South face (looking towards +Z)
-                        // v2 maps to SE corner (x+1, z+1) -> heights[2]
-                        // v3 maps to SW corner (x, z+1) -> heights[3]
+                    } else if (faceIdx == FACE_POS_Z) { // South
                         faceHeights[2] = heights[2];
                         faceHeights[3] = heights[3];
-                    } else if (faceIdx == FACE_NEG_X) { // West face (looking towards -X)
-                        // v2 maps to SW corner (x, z+1) -> heights[3]
-                        // v3 maps to NW corner (x, z) -> heights[0]
+                    } else if (faceIdx == FACE_NEG_X) { // West
                         faceHeights[2] = heights[3];
                         faceHeights[3] = heights[0];
-                    } else if (faceIdx == FACE_POS_X) { // East face (looking towards +X)
-                        // v2 maps to NE corner (x+1, z) -> heights[1]
-                        // v3 maps to SE corner (x+1, z+1) -> heights[2]
+                    } else if (faceIdx == FACE_POS_X) { // East
                         faceHeights[2] = heights[1];
                         faceHeights[3] = heights[2];
                     }
                 }
             } else {
-                Arrays.fill(faceHeights, 1.0f); // Non-liquid blocks are full height
+                Arrays.fill(faceHeights, 1.0f);
             }
 
-            addFace(target, chunk, world, x, y, z, faceIdx, block, simplifiedLighting, faceHeights, color);
+            // Handling Grass Block multi-layer rendering
+            if (isGrass) {
+                if (faceIdx == FACE_POS_Y) {
+                    // Top: Biome Color
+                    addFace(target, chunk, world, (float) x, (float) y, (float) z, faceIdx, block, simplifiedLighting,
+                            faceHeights, color, false);
+                } else if (faceIdx == FACE_NEG_Y) {
+                    // Bottom: White (Dirt)
+                    addFace(target, chunk, world, (float) x, (float) y, (float) z, faceIdx, block, simplifiedLighting,
+                            faceHeights, 0xFFFFFFFF, false);
+                } else {
+                    // Sides: Multi-layer
+                    // Layer 0: Dirt (White) -> Solid Buffer
+                    if (dirtBlock != null && !dirtBlock.isAir()) {
+                        addFace(solidV, chunk, world, (float) x, (float) y, (float) z, faceIdx, dirtBlock,
+                                simplifiedLighting, faceHeights, 0xFFFFFFFF, false);
+                    }
+                    // Layer 1: Overlay (Biome Color) -> Custom Texture Buffer
+                    if (!skipTransparent) {
+                        // Use the standalone texture for the overlay
+                        String overlayTexture = "textures/blocks/grass_block_side_overlay.png";
+                        ArrayList<Float> overlayBuffer = customBuffers.computeIfAbsent(overlayTexture,
+                                k -> new ArrayList<>());
+
+                        // Offset overlay slightly to avoid Z-fighting
+                        float offset = 0f;
+                        float ox = x + n[0] * offset;
+                        float oy = y + n[1] * offset;
+                        float oz = z + n[2] * offset;
+
+                        addFace(overlayBuffer, chunk, world, ox, oy, oz, faceIdx, block, simplifiedLighting,
+                                faceHeights, color, true);
+                    }
+                }
+            } else {
+                // Standard block
+                boolean flipV = isGrassSide(block, n[1]);
+                addFace(target, chunk, world, (float) x, (float) y, (float) z, faceIdx, block, simplifiedLighting,
+                        faceHeights, color, flipV);
+            }
         }
     }
 
@@ -331,8 +332,8 @@ public class MeshBuilder {
     // ==================== FACE GENERATION ====================
 
     private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
-            int bx, int by, int bz, int faceIdx, Block block,
-            boolean simplifiedLighting, float[] heights, int color) {
+            float bx, float by, float bz, int faceIdx, Block block,
+            boolean simplifiedLighting, float[] heights, int color, boolean flipV) {
 
         int[] n = FACE_NORMAL[faceIdx];
         int nx = n[0], ny = n[1], nz = n[2];
@@ -345,20 +346,25 @@ public class MeshBuilder {
         float[] skyLight;
         float[] blockLight;
 
+        // Use integer coordinates for lighting lookups
+        int ibx = Math.round(bx);
+        int iby = Math.round(by);
+        int ibz = Math.round(bz);
+
         if (simplifiedLighting) {
             ao = computeSimplifiedAO(ny);
             skyLight = new float[4];
             blockLight = new float[4];
 
-            float sky = getSkyLightAt(chunk, world, bx + nx, by + ny, bz + nz) / 15.0f;
-            float blk = getBlockLightAt(chunk, world, bx + nx, by + ny, bz + nz) / 15.0f;
+            float sky = getSkyLightAt(chunk, world, ibx + nx, iby + ny, ibz + nz) / 15.0f;
+            float blk = getBlockLightAt(chunk, world, ibx + nx, iby + ny, ibz + nz) / 15.0f;
             for (int i = 0; i < 4; i++) {
                 skyLight[i] = sky;
                 blockLight[i] = blk;
             }
         } else {
-            ao = computeSmoothAO(chunk, world, bx, by, bz, faceIdx);
-            SmoothLight light = computeSmoothLight(chunk, world, bx, by, bz, faceIdx);
+            ao = computeSmoothAO(chunk, world, ibx, iby, ibz, faceIdx);
+            SmoothLight light = computeSmoothLight(chunk, world, ibx, iby, ibz, faceIdx);
             skyLight = light.sky;
             blockLight = light.block;
         }
@@ -371,8 +377,7 @@ public class MeshBuilder {
         // UV coordinates (standard order matching vertex order)
         float[][] uv = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
 
-        // Flip V for grass side texture
-        boolean flipV = isGrassSide(block, ny);
+        // Flip V if requested
         float[] vCoord = flipV ? new float[] { 1, 1, 0, 0 } : new float[] { 0, 0, 1, 1 };
 
         // 4. Emit triangles with anisotropic fix
@@ -477,7 +482,7 @@ public class MeshBuilder {
      * v0=(-U,-V), v1=(+U,-V), v2=(+U,+V), v3=(-U,+V)
      * heights: [h0, h1, h2, h3]
      */
-    private float[][] buildFaceVertices(int bx, int by, int bz, int faceIdx, float[] heights) {
+    private float[][] buildFaceVertices(float bx, float by, float bz, int faceIdx, float[] heights) {
         int[] n = FACE_NORMAL[faceIdx];
         int[] u = FACE_TANGENT_U[faceIdx];
         int[] v = FACE_TANGENT_V[faceIdx];
@@ -811,9 +816,8 @@ public class MeshBuilder {
         CompiledModel compiled = getOrCompileModel(modelPath, block);
 
         if (compiled == null || compiled.isCube) {
-            renderCubeBlock(solidV, transpV, waterV, chunk, world,
+            renderCubeBlock(solidV, transpV, waterV, customBuffers, chunk, world,
                     bx, by, bz, block, simplifiedLighting, false, skipTransparent, 0xFFFFFFFF); // White tint for model
-                                                                                                // fallback
             return;
         }
 

@@ -546,7 +546,21 @@ public class Renderer {
                         voxelShader.setUniform(uUseTextureArray, 0); // Disable Atlas
                         tex.bind(1); // Bind to slot 1
                         voxelShader.setUniform(uModel, model);
+
+                        // Fix Z-fighting for overlays (e.g. grass side) using Polygon Offset
+                        // Push fragments towards the camera
+                        boolean isOverlay = texturePath.contains("grass_block_side_overlay");
+                        if (isOverlay) {
+                            glEnable(GL_POLYGON_OFFSET_FILL);
+                            glPolygonOffset(-1.0f, -1.0f);
+                        }
+
                         customMesh.draw();
+
+                        if (isOverlay) {
+                            glDisable(GL_POLYGON_OFFSET_FILL);
+                        }
+
                         voxelShader.setUniform(uUseTextureArray, 1); // Re-enable Atlas
                     }
                 }

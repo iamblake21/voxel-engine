@@ -149,7 +149,7 @@ public final class GameBiomes {
                                 .stoneBlock("game:stone")
                                 .temperature(0.3f)
                                 .humidity(0.4f)
-                                .grassColor(0xFF75C74F) // Green, slightly saturated
+                                .grassColor(0xFF7DFF4F) // Green, slightly saturated
                                 .foliageColor(0xFFF4C2D6)); // Pastel Pink
                 CHERRY_GROVE = Biomes.register("game:cherry_grove", cherryBiome);
                 CHERRY_GROVE.addStructure(new engine.world.gen.WeightedStructure("game:big_oak_tree", 1, 1.0f));
