@@ -47,8 +47,8 @@ public class Renderer {
 
     // Fog settings
     private boolean fogEnabled = true;
-    private float fogStart = 0.85f; // Start fog at 60% of view distance
-    private float fogEnd = 0.95f; // Full fog at 95% of view distance
+    private float fogStart = 0.40f; // Start fog much closer (40%) for smoother fade
+    private float fogEnd = 0.85f; // Full fog at 85% to definitely hide pop-in
 
     // Stats
     private int lastChunksTotal = 0;
@@ -905,12 +905,11 @@ public class Renderer {
                 "in float vDistFromCamera;\n" +
                 "in float vTileIndex;\n" +
                 "in vec3 vColor;\n" +
-
                 "in vec3 vNormal;\n" +
                 "\n" +
                 "uniform sampler2DArray uTex;\n" +
-                "uniform sampler2D uTex2D;\n" + // NEW: 2D Sampler
-                "uniform int uUseTextureArray;\n" + // NEW: Toggle
+                "uniform sampler2D uTex2D;\n" +
+                "uniform int uUseTextureArray;\n" +
                 "uniform vec4 uTint;\n" +
                 "uniform int uTileGrassTopIndex;\n" +
                 "uniform int uTileLeavesIndex;\n" +
@@ -924,21 +923,35 @@ public class Renderer {
                 "uniform float uFogStart;\n" +
                 "uniform float uFogEnd;\n" +
                 "uniform vec3 uSunDir;\n" +
+                "uniform vec3 uSunColor;\n" + // ADDED
+                "uniform vec3 uAmbientColor;\n" + // ADDED
                 "\n" +
                 "out vec4 FragColor;\n" +
                 "\n" +
                 "float calculateFog(float dist) {\n" +
                 "  if (uFogEnabled == 0) return 0.0;\n" +
-                "  float fogFactor = (dist - uFogStart) / (uFogEnd - uFogStart);\n" +
-                "  return clamp(fogFactor, 0.0, 1.0);\n" +
+                // Use smoothstep for a softer, more natural transition than linear clamp
+                "  return smoothstep(uFogStart, uFogEnd, dist);\n" +
                 "}\n" +
                 "\n" +
-                "vec3 getSkyLightColor(vec3 sunDir) {\n" +
-                "  float sunHeight = sunDir.y;\n" +
-                "  vec3 dayColor   = vec3(1.00, 1.00, 1.00);\n" +
-                "  vec3 nightColor = vec3(0.15, 0.20, 0.35);\n" +
-                "  float t = clamp(sunHeight * 2.0 + 0.2, 0.0, 1.0);\n" +
-                "  return mix(nightColor, dayColor, t);\n" +
+                // Same logic as Skybox to ensure perfect blending
+                "vec3 computeSkyColor(vec3 dir, vec3 sunDir, float sunStrength){\n" +
+                "  dir = normalize(dir);\n" +
+                "  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);\n" +
+                "\n" +
+                "  vec3 dayHorizon   = vec3(0.55, 0.75, 0.95);\n" +
+                "  vec3 dayZenith    = vec3(0.10, 0.45, 0.90);\n" +
+                "  vec3 nightHorizon = vec3(0.02, 0.05, 0.10);\n" +
+                "  vec3 nightZenith  = vec3(0.00, 0.02, 0.05);\n" +
+                "\n" +
+                "  float night = 1.0 - clamp(sunStrength * 1.3, 0.0, 1.0);\n" +
+                "  vec3 dayCol   = mix(dayHorizon,   dayZenith,   h);\n" +
+                "  vec3 nightCol = mix(nightHorizon, nightZenith, h);\n" +
+                "  vec3 col = mix(nightCol, dayCol, 1.0 - night);\n" +
+                "\n" +
+                "  float sunAmt = pow(max(dot(dir, -sunDir), 0.0), 512.0);\n" +
+                "  col += uSunColor * sunAmt * 1.5;\n" +
+                "  return col;\n" +
                 "}\n" +
                 "\n" +
                 "void main(){\n" +
@@ -946,9 +959,11 @@ public class Renderer {
                 "  float dist = length(vWP - uCameraPos);\n" +
                 "  float fogAmount = calculateFog(dist);\n" +
                 "\n" +
-                "  float sunHeight = uSunDir.y;\n" +
-                "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" +
-                "  \n" +
+                // Recalculate sun strength for sky color logic
+                "  float sunHeight = max(0.0, uSunDir.y);\n" +
+                "  float sunStrength = pow(sunHeight, 1.2);\n" + // Approximate match to Java side w/ logic
+                "\n" +
+                "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" + // RE-ADDED this line
                 "  float skyLum = vSkyLight * skyIntensity;\n" +
                 "  float blockLum = vBlockLight;\n" +
                 "  float lightLevel = max(skyLum, blockLum);\n" +
@@ -956,7 +971,7 @@ public class Renderer {
                 "  vec4 texColor;\n" +
                 "  vec3 finalColor;\n" +
                 "\n" +
-                "  if (uWaterPass == 0) { // BLOCCHI SOLIDI\n" +
+                "  if (uWaterPass == 0) {\n" +
                 "     if (uUseTextureArray == 1) {\n" +
                 "         texColor = texture(uTex, vec3(vUV, tileIndex));\n" +
                 "     } else {\n" +
@@ -965,20 +980,31 @@ public class Renderer {
                 "     if(texColor.a < 0.1) discard;\n" +
                 "\n" +
                 "     vec3 terrainTint = uTint.rgb * vColor;\n" +
-                "     \n" +
                 "     finalColor = texColor.rgb * terrainTint;\n" +
                 "     \n" +
                 "     lightLevel = max(lightLevel, 0.1);\n" +
                 "     finalColor *= vAO;\n" +
                 "     finalColor *= lightLevel;\n" +
                 "\n" +
-                "  } else { // ACQUA\n" +
+                "  } else {\n" +
                 "     texColor = vec4(0.2, 0.5, 0.9, 0.6);\n" +
                 "     finalColor = texColor.rgb * lightLevel * vAO;\n" +
                 "  }\n" +
                 "\n" +
-                "  vec3 skyColor = getSkyLightColor(uSunDir);\n" +
-                "  vec3 fogColor = skyColor;\n" +
+                "  // Dynamic Fog Color matching Skybox\n" +
+                "  vec3 viewDir = normalize(vWP - uCameraPos);\n" +
+                "  // Tweak: Flatten the gradient for fog so it looks like 'mist' (closer to horizon color)\n" +
+                "  // instead of matching the deep blue zenith exactly.\n" +
+                "  vec3 fogViewDir = viewDir;\n" +
+                "  fogViewDir.y *= 0.3; // Flatten vertical component\n" +
+                "  fogViewDir = normalize(fogViewDir);\n" +
+                "\n" +
+                "  vec3 skyColor = computeSkyColor(viewDir, normalize(uSunDir), sunStrength);\n" +
+                "  vec3 fogCompColor = computeSkyColor(fogViewDir, normalize(uSunDir), sunStrength);\n" +
+                "  \n" +
+                "  // Mix a bit of 'white mist' based on sun height (daytime mist is whitish)\n" +
+                "  vec3 mistColor = vec3(0.9, 0.95, 1.0) * skyIntensity;\n" +
+                "  vec3 fogColor = mix(fogCompColor, mistColor, 0.2); // 20% white haze\n" +
                 "\n" +
                 "  if(uUnderwater == 1){\n" +
                 "      fogColor = vec3(0.1, 0.3, 0.7);\n" +

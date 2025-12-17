@@ -11,6 +11,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import engine.utils.FloatArrayList;
+
 /**
  * Builds chunk meshes from block data with LOD support.
  * 
@@ -91,6 +93,19 @@ public class MeshBuilder {
 
     // ==================== CONSTRUCTOR ====================
 
+    // ==================== CONSTRUCTOR ====================
+
+    // ThreadLocal buffers to avoid allocation churn
+    private static final ThreadLocal<MeshBuffers> THREAD_BUFFERS = ThreadLocal.withInitial(MeshBuffers::new);
+
+    private static class MeshBuffers {
+        final FloatArrayList solid = new FloatArrayList(16384);
+        final FloatArrayList transp = new FloatArrayList(4096);
+        final FloatArrayList water = new FloatArrayList(4096);
+        // Custom buffers maps usually stay small, but we can reuse the map itself
+        final Map<String, FloatArrayList> custom = new HashMap<>();
+    }
+
     public MeshBuilder(int chunkSize, int chunkHeight) {
         this.chunkSize = chunkSize;
         this.chunkHeight = chunkHeight;
@@ -113,10 +128,17 @@ public class MeshBuilder {
     }
 
     public MeshData buildMeshLOD(ChunkData chunk, WorldAccess world, int lod) {
-        ArrayList<Float> solidV = new ArrayList<>();
-        ArrayList<Float> transpV = new ArrayList<>();
-        ArrayList<Float> waterV = new ArrayList<>();
-        java.util.Map<String, ArrayList<Float>> customBuffers = new java.util.HashMap<>();
+        MeshBuffers buffers = THREAD_BUFFERS.get();
+        FloatArrayList solidV = buffers.solid;
+        FloatArrayList transpV = buffers.transp;
+        FloatArrayList waterV = buffers.water;
+        Map<String, FloatArrayList> customBuffers = buffers.custom;
+
+        // Clear and reuse
+        solidV.clear();
+        transpV.clear();
+        waterV.clear();
+        customBuffers.clear();
 
         boolean skipTransparent = lod >= 2;
         boolean simplifiedLighting = lod >= 1;
@@ -165,21 +187,21 @@ public class MeshBuilder {
 
         // Convert custom buffers to arrays
         java.util.Map<String, float[]> customMeshes = new java.util.HashMap<>();
-        for (java.util.Map.Entry<String, ArrayList<Float>> entry : customBuffers.entrySet()) {
-            customMeshes.put(entry.getKey(), toFloatArray(entry.getValue()));
+        for (java.util.Map.Entry<String, FloatArrayList> entry : customBuffers.entrySet()) {
+            customMeshes.put(entry.getKey(), entry.getValue().toArray());
         }
 
         return new MeshData(
-                toFloatArray(solidV),
-                skipTransparent ? new float[0] : toFloatArray(transpV),
-                toFloatArray(waterV),
+                solidV.toArray(),
+                skipTransparent ? new float[0] : transpV.toArray(),
+                waterV.toArray(),
                 customMeshes);
     }
 
     // ==================== CUBE RENDERING ====================
 
-    private void renderCubeBlock(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
-            java.util.Map<String, ArrayList<Float>> customBuffers,
+    private void renderCubeBlock(FloatArrayList solidV, FloatArrayList transpV, FloatArrayList waterV,
+            java.util.Map<String, FloatArrayList> customBuffers,
             ChunkData chunk, WorldAccess world,
             int x, int y, int z, Block block,
             boolean simplifiedLighting, boolean aggressiveCull, boolean skipTransparent, int color) {
@@ -211,7 +233,7 @@ public class MeshBuilder {
                 continue;
             }
 
-            ArrayList<Float> target;
+            FloatArrayList target;
             if (block.isLiquid()) {
                 target = waterV;
             } else if (block.isTransparent()) {
@@ -270,8 +292,8 @@ public class MeshBuilder {
                     if (!skipTransparent) {
                         // Use the standalone texture for the overlay
                         String overlayTexture = "textures/blocks/grass_block_side_overlay.png";
-                        ArrayList<Float> overlayBuffer = customBuffers.computeIfAbsent(overlayTexture,
-                                k -> new ArrayList<>());
+                        FloatArrayList overlayBuffer = customBuffers.computeIfAbsent(overlayTexture,
+                                k -> new FloatArrayList());
 
                         // Offset overlay slightly to avoid Z-fighting
                         float offset = 0f;
@@ -331,7 +353,7 @@ public class MeshBuilder {
 
     // ==================== FACE GENERATION ====================
 
-    private void addFace(ArrayList<Float> dst, ChunkData chunk, WorldAccess world,
+    private void addFace(FloatArrayList dst, ChunkData chunk, WorldAccess world,
             float bx, float by, float bz, int faceIdx, Block block,
             boolean simplifiedLighting, float[] heights, int color, boolean flipV) {
 
@@ -554,7 +576,7 @@ public class MeshBuilder {
      * Emit a quad as two triangles, choosing diagonal based on AO to fix
      * anisotropy.
      */
-    private void emitQuad(ArrayList<Float> dst, float[][] v, float[][] uv, float[] vCoord,
+    private void emitQuad(FloatArrayList dst, float[][] v, float[][] uv, float[] vCoord,
             float[] ao, float[] sky, float[] blk, int faceIdx, int tileIndex, float r, float g, float b) {
 
         // Choose diagonal that minimizes interpolation artifacts
@@ -781,8 +803,8 @@ public class MeshBuilder {
         String texture; // The resolved texture path/name
     }
 
-    private void renderCustomModel(ArrayList<Float> solidV, ArrayList<Float> transpV, ArrayList<Float> waterV,
-            java.util.Map<String, ArrayList<Float>> customBuffers,
+    private void renderCustomModel(FloatArrayList solidV, FloatArrayList transpV, FloatArrayList waterV,
+            java.util.Map<String, FloatArrayList> customBuffers,
             ChunkData chunk, WorldAccess world,
             int bx, int by, int bz, Block block,
             boolean simplifiedLighting, boolean skipTransparent) {
@@ -889,10 +911,10 @@ public class MeshBuilder {
             }
 
             // Determine target buffer
-            ArrayList<Float> dst;
+            FloatArrayList dst;
             // If texture is specified and valid, uses custom buffer
             if (face.texture != null && !face.texture.equals("missing") && !face.texture.isEmpty()) {
-                dst = customBuffers.computeIfAbsent(face.texture, k -> new ArrayList<>());
+                dst = customBuffers.computeIfAbsent(face.texture, k -> new FloatArrayList());
             } else {
                 // Fallback to atlas buffers
                 if (block.isLiquid()) {
@@ -1206,7 +1228,7 @@ public class MeshBuilder {
         return world.peekBlockLight(worldX, y, worldZ);
     }
 
-    private void pushVertex(ArrayList<Float> dst, float[] pos, float u, float v,
+    private void pushVertex(FloatArrayList dst, float[] pos, float u, float v,
             float ao, int faceIdx, int tileIndex,
             float skyLight, float blockLight, float r, float g, float b) {
         dst.add(pos[0]);
@@ -1222,14 +1244,6 @@ public class MeshBuilder {
         dst.add(r);
         dst.add(g);
         dst.add(b);
-    }
-
-    private float[] toFloatArray(ArrayList<Float> list) {
-        float[] arr = new float[list.size()];
-        for (int i = 0; i < arr.length; i++) {
-            arr[i] = list.get(i);
-        }
-        return arr;
     }
 
     // ==================== INTERFACES ====================

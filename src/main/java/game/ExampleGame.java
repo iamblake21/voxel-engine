@@ -7,6 +7,7 @@ import engine.core.RenderInputHandler;
 import engine.rendering.RenderSettings;
 import engine.entity.EntityType;
 import engine.entity.EntityTypes;
+import engine.entity.EntityProperties;
 import engine.entity.NpcEntity;
 import engine.entity.Player;
 import engine.rendering.Renderer;
@@ -58,7 +59,7 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(12)
+                .viewDistance(32)
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
                 .vsync(true)
@@ -80,6 +81,9 @@ public class ExampleGame implements IGame {
                         .size(config.playerWidth, config.playerHeight)
                         .persistent(true)
                         .summonable(true)
+                        .properties(EntityProperties.create()
+                                .humanoid()
+                                .texture("textures/entity/villager.png"))
                         .build());
 
         // Load structures

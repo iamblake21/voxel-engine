@@ -172,6 +172,18 @@ public class WorldGenerationExecutor {
         executor.shutdownNow();
     }
 
+    public int getTerrainQueueSize() {
+        return terrainQueue.size();
+    }
+
+    public int getLightQueueSize() {
+        return lightQueue.size();
+    }
+
+    public int getMeshQueueSize() {
+        return meshQueue.size();
+    }
+
     public int getNumWorkers() {
         return numWorkers;
     }

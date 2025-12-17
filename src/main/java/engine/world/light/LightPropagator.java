@@ -30,19 +30,19 @@ public class LightPropagator {
 
     // Direzioni: +X, -X, +Y, -Y, +Z, -Z
     private static final int[][] DIRS = {
-        {1, 0, 0}, {-1, 0, 0},
-        {0, 1, 0}, {0, -1, 0},
-        {0, 0, 1}, {0, 0, -1}
+            { 1, 0, 0 }, { -1, 0, 0 },
+            { 0, 1, 0 }, { 0, -1, 0 },
+            { 0, 0, 1 }, { 0, 0, -1 }
     };
 
     // =================================================================================
     // NODO CODA (semplice, no packing problematico)
     // =================================================================================
-    
+
     private static class LightNode {
         final int x, y, z;
         final int level;
-        
+
         LightNode(int x, int y, int z, int level) {
             this.x = x;
             this.y = y;
@@ -64,7 +64,7 @@ public class LightPropagator {
             int chunkSize,
             int chunkHeight,
             List<Long> neighborsToPropagate) {
-        
+
         Set<Long> neighborsSet = new HashSet<>();
 
         // === FASE 1: SKYLIGHT ===
@@ -84,9 +84,9 @@ public class LightPropagator {
             int chunkSize,
             int chunkHeight,
             Set<Long> neighborsSet) {
-        
-        ArrayDeque<LightNode> queue = new ArrayDeque<>();
-        
+
+        LightIntQueue queue = new LightIntQueue();
+
         int wx0 = snapshot.getWorldX();
         int wz0 = snapshot.getWorldZ();
 
@@ -94,10 +94,10 @@ public class LightPropagator {
         for (int lx = 0; lx < chunkSize; lx++) {
             for (int lz = 0; lz < chunkSize; lz++) {
                 boolean blocked = false;
-                
+
                 for (int y = chunkHeight - 1; y >= 0; y--) {
                     int blockId = snapshot.getBlock(lx, y, lz);
-                    
+
                     if (Blocks.get(blockId).isOpaque()) {
                         blocked = true;
                         snapshot.setSkyLight(lx, y, lz, 0);
@@ -105,7 +105,7 @@ public class LightPropagator {
                         // Cielo aperto: luce 15
                         snapshot.setSkyLight(lx, y, lz, 15);
                         // Aggiungi alla coda per propagazione orizzontale
-                        queue.add(new LightNode(lx, y, lz, 15));
+                        queue.add(lx, y, lz, 15);
                     } else {
                         // Sotto un blocco opaco: inizia a 0, riceverà luce dai lati
                         snapshot.setSkyLight(lx, y, lz, 0);
@@ -126,10 +126,10 @@ public class LightPropagator {
      */
     private static void importSkyLightFromNeighbors(
             ChunkSnapshot snapshot,
-            ArrayDeque<LightNode> queue,
+            LightIntQueue queue,
             int chunkSize,
             int chunkHeight) {
-        
+
         int wx0 = snapshot.getWorldX();
         int wz0 = snapshot.getWorldZ();
 
@@ -179,17 +179,18 @@ public class LightPropagator {
      */
     private static void tryImportLight(
             ChunkSnapshot snapshot,
-            ArrayDeque<LightNode> queue,
+            LightIntQueue queue,
             int lx, int ly, int lz,
             int incomingLight,
             boolean isSky) {
-        
+
         // Il blocco deve essere trasparente
         int blockId = snapshot.getBlock(lx, ly, lz);
-        if (Blocks.get(blockId).isOpaque()) return;
+        if (Blocks.get(blockId).isOpaque())
+            return;
 
-        int currentLight = isSky ? snapshot.getSkyLight(lx, ly, lz) 
-                                 : snapshot.getBlockLight(lx, ly, lz);
+        int currentLight = isSky ? snapshot.getSkyLight(lx, ly, lz)
+                : snapshot.getBlockLight(lx, ly, lz);
 
         if (incomingLight > currentLight) {
             if (isSky) {
@@ -197,7 +198,7 @@ public class LightPropagator {
             } else {
                 snapshot.setBlockLight(lx, ly, lz, incomingLight);
             }
-            queue.add(new LightNode(lx, ly, lz, incomingLight));
+            queue.add(lx, ly, lz, incomingLight);
         }
     }
 
@@ -207,19 +208,20 @@ public class LightPropagator {
      */
     private static void propagateSkyLightBFS(
             ChunkSnapshot snapshot,
-            ArrayDeque<LightNode> queue,
+            LightIntQueue queue,
             int chunkSize,
             int chunkHeight,
             Set<Long> neighborsSet) {
-        
-        while (!queue.isEmpty()) {
-            LightNode node = queue.poll();
-            int x = node.x;
-            int y = node.y;
-            int z = node.z;
-            int level = node.level;
 
-            if (level <= 0) continue;
+        while (!queue.isEmpty()) {
+            int val = queue.poll();
+            int x = LightIntQueue.unpackX(val);
+            int y = LightIntQueue.unpackY(val);
+            int z = LightIntQueue.unpackZ(val);
+            int level = LightIntQueue.unpackLevel(val);
+
+            if (level <= 0)
+                continue;
 
             for (int d = 0; d < 6; d++) {
                 int nx = x + DIRS[d][0];
@@ -227,7 +229,8 @@ public class LightPropagator {
                 int nz = z + DIRS[d][2];
 
                 // Fuori dai limiti verticali
-                if (ny < 0 || ny >= chunkHeight) continue;
+                if (ny < 0 || ny >= chunkHeight)
+                    continue;
 
                 // Fuori dal chunk -> segnala ai vicini
                 if (nx < 0 || nx >= chunkSize || nz < 0 || nz >= chunkSize) {
@@ -241,23 +244,25 @@ public class LightPropagator {
 
                 // Blocco opaco blocca la luce
                 int blockId = snapshot.getBlock(nx, ny, nz);
-                if (Blocks.get(blockId).isOpaque()) continue;
+                if (Blocks.get(blockId).isOpaque())
+                    continue;
 
                 // === REGOLA SPECIALE SKYLIGHT ===
                 // Verso il basso (d=3, DIRS[3]={0,-1,0}): NON decrementa
                 int newLevel;
-                if (d == 3) {  // DOWN
-                    newLevel = level;  // Mantiene il livello
+                if (d == 3) { // DOWN
+                    newLevel = level; // Mantiene il livello
                 } else {
-                    newLevel = level - 1;  // Decrementa
+                    newLevel = level - 1; // Decrementa
                 }
 
-                if (newLevel <= 0) continue;
+                if (newLevel <= 0)
+                    continue;
 
                 int currentLight = snapshot.getSkyLight(nx, ny, nz);
                 if (newLevel > currentLight) {
                     snapshot.setSkyLight(nx, ny, nz, newLevel);
-                    queue.add(new LightNode(nx, ny, nz, newLevel));
+                    queue.add(nx, ny, nz, newLevel);
                 }
             }
         }
@@ -271,8 +276,8 @@ public class LightPropagator {
             int chunkSize,
             int chunkHeight,
             Set<Long> neighborsSet) {
-        
-        ArrayDeque<LightNode> queue = new ArrayDeque<>();
+
+        LightIntQueue queue = new LightIntQueue();
 
         // STEP 1: Trova tutte le sorgenti di luce
         for (int lx = 0; lx < chunkSize; lx++) {
@@ -280,10 +285,10 @@ public class LightPropagator {
                 for (int y = 0; y < chunkHeight; y++) {
                     int blockId = snapshot.getBlock(lx, y, lz);
                     int emission = Blocks.get(blockId).getLightLevel();
-                    
+
                     if (emission > 0) {
                         snapshot.setBlockLight(lx, y, lz, emission);
-                        queue.add(new LightNode(lx, y, lz, emission));
+                        queue.add(lx, y, lz, emission);
                     }
                 }
             }
@@ -301,10 +306,10 @@ public class LightPropagator {
      */
     private static void importBlockLightFromNeighbors(
             ChunkSnapshot snapshot,
-            ArrayDeque<LightNode> queue,
+            LightIntQueue queue,
             int chunkSize,
             int chunkHeight) {
-        
+
         int wx0 = snapshot.getWorldX();
         int wz0 = snapshot.getWorldZ();
 
@@ -356,19 +361,20 @@ public class LightPropagator {
      */
     private static void propagateBlockLightBFS(
             ChunkSnapshot snapshot,
-            ArrayDeque<LightNode> queue,
+            LightIntQueue queue,
             int chunkSize,
             int chunkHeight,
             Set<Long> neighborsSet) {
-        
-        while (!queue.isEmpty()) {
-            LightNode node = queue.poll();
-            int x = node.x;
-            int y = node.y;
-            int z = node.z;
-            int level = node.level;
 
-            if (level <= 1) continue;  // Non può propagare oltre
+        while (!queue.isEmpty()) {
+            int val = queue.poll();
+            int x = LightIntQueue.unpackX(val);
+            int y = LightIntQueue.unpackY(val);
+            int z = LightIntQueue.unpackZ(val);
+            int level = LightIntQueue.unpackLevel(val);
+
+            if (level <= 1)
+                continue; // Non può propagare oltre
 
             int newLevel = level - 1;
 
@@ -377,7 +383,8 @@ public class LightPropagator {
                 int ny = y + DIRS[d][1];
                 int nz = z + DIRS[d][2];
 
-                if (ny < 0 || ny >= chunkHeight) continue;
+                if (ny < 0 || ny >= chunkHeight)
+                    continue;
 
                 if (nx < 0 || nx >= chunkSize || nz < 0 || nz >= chunkSize) {
                     if (newLevel > 1) {
@@ -389,12 +396,13 @@ public class LightPropagator {
                 }
 
                 int blockId = snapshot.getBlock(nx, ny, nz);
-                if (Blocks.get(blockId).isOpaque()) continue;
+                if (Blocks.get(blockId).isOpaque())
+                    continue;
 
                 int currentLight = snapshot.getBlockLight(nx, ny, nz);
                 if (newLevel > currentLight) {
                     snapshot.setBlockLight(nx, ny, nz, newLevel);
-                    queue.add(new LightNode(nx, ny, nz, newLevel));
+                    queue.add(nx, ny, nz, newLevel);
                 }
             }
         }
@@ -408,10 +416,12 @@ public class LightPropagator {
      * Aggiunge una sorgente di blocklight (es. piazzamento torcia).
      */
     public static void addBlockLight(World world, int wx, int wy, int wz, int lightLevel) {
-        if (lightLevel <= 0) return;
+        if (lightLevel <= 0)
+            return;
 
         Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null) return;
+        if (chunk == null)
+            return;
 
         int lx = wx & CHUNK_MASK;
         int lz = wz & CHUNK_MASK;
@@ -429,13 +439,15 @@ public class LightPropagator {
      */
     public static void removeBlockLight(World world, int wx, int wy, int wz) {
         Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null) return;
+        if (chunk == null)
+            return;
 
         int lx = wx & CHUNK_MASK;
         int lz = wz & CHUNK_MASK;
         int oldLight = chunk.getBlockLight(lx, wy, lz);
 
-        if (oldLight == 0) return;
+        if (oldLight == 0)
+            return;
 
         chunk.setBlockLight(lx, wy, lz, 0);
         removeLightBFS(world, wx, wy, wz, oldLight, false);
@@ -446,7 +458,8 @@ public class LightPropagator {
      */
     public static void removeLightAt(World world, int wx, int wy, int wz, int lightLevel, boolean isSky) {
         Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null) return;
+        if (chunk == null)
+            return;
 
         int lx = wx & CHUNK_MASK;
         int lz = wz & CHUNK_MASK;
@@ -460,18 +473,19 @@ public class LightPropagator {
         removeLightBFS(world, wx, wy, wz, lightLevel, isSky);
     }
 
-
     /**
      * Ricalcola la skylight per una colonna dopo modifica.
      * 
      * Quando tappi un buco nel tetto:
      * 1. Tutta la colonna sotto diventa buia (skylight = 0)
-     * 2. La luce che si era propagata ORIZZONTALMENTE da quella colonna viene rimossa
+     * 2. La luce che si era propagata ORIZZONTALMENTE da quella colonna viene
+     * rimossa
      * 3. La luce dai LATI (altre aperture) viene ri-propagata
      */
     public static void recalculateSkyColumn(World world, int wx, int wz) {
         Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null) return;
+        if (chunk == null)
+            return;
 
         int worldHeight = world.getConfig().worldHeight;
         int lx = wx & CHUNK_MASK;
@@ -488,14 +502,14 @@ public class LightPropagator {
         }
 
         // PASSO 2: Raccogli TUTTI i blocchi che devono perdere luce
-        //          e imposta la colonna ai valori corretti
+        // e imposta la colonna ai valori corretti
         ArrayDeque<LightNode> removalQueue = new ArrayDeque<>();
         ArrayDeque<LightNode> propagateQueue = new ArrayDeque<>();
 
         for (int y = worldHeight - 1; y >= 0; y--) {
             int blockId = chunk.getBlock(lx, y, lz);
             int oldLight = chunk.getSkyLight(lx, y, lz);
-            
+
             if (Blocks.get(blockId).isOpaque()) {
                 // Blocco opaco: luce 0
                 chunk.setSkyLight(lx, y, lz, 0);
@@ -521,13 +535,14 @@ public class LightPropagator {
 
         // PASSO 4: Propaga la luce dalle colonne ancora aperte
         propagateSkyLightWorld(world, propagateQueue);
-        
+
         // PASSO 5: Per i blocchi sotto l'opaco, cerca luce dai lati
         if (firstOpaqueY > 0) {
             for (int y = firstOpaqueY - 1; y >= 0; y--) {
                 int blockId = chunk.getBlock(lx, y, lz);
-                if (Blocks.get(blockId).isOpaque()) continue;
-                
+                if (Blocks.get(blockId).isOpaque())
+                    continue;
+
                 // Se questo blocco è ancora a 0, prova a prendere luce dai vicini
                 if (chunk.getSkyLight(lx, y, lz) == 0) {
                     fillSkyLightFromNeighbors(world, wx, y, wz);
@@ -538,14 +553,15 @@ public class LightPropagator {
 
     /**
      * Rimuove skylight da MULTIPLI punti di partenza con una singola BFS.
-     * Questo evita che la ri-propagazione di una chiamata annulli la rimozione di un'altra.
+     * Questo evita che la ri-propagazione di una chiamata annulli la rimozione di
+     * un'altra.
      */
     private static void removeMultipleSkyLightBFS(World world, ArrayDeque<LightNode> startNodes) {
         int worldHeight = world.getConfig().worldHeight;
-        
+
         ArrayDeque<LightNode> removalQueue = new ArrayDeque<>(startNodes);
         ArrayDeque<LightNode> refillQueue = new ArrayDeque<>();
-        
+
         while (!removalQueue.isEmpty()) {
             LightNode node = removalQueue.poll();
             int x = node.x;
@@ -558,20 +574,23 @@ public class LightPropagator {
                 int ny = y + DIRS[d][1];
                 int nz = z + DIRS[d][2];
 
-                if (ny < 0 || ny >= worldHeight) continue;
+                if (ny < 0 || ny >= worldHeight)
+                    continue;
 
                 Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null) continue;
+                if (nChunk == null)
+                    continue;
 
                 int nlx = nx & CHUNK_MASK;
                 int nlz = nz & CHUNK_MASK;
 
                 int neighborLight = nChunk.getSkyLight(nlx, ny, nlz);
-                if (neighborLight == 0) continue;
+                if (neighborLight == 0)
+                    continue;
 
                 // Determina se questa luce dipendeva da noi
                 boolean shouldRemove = false;
-                
+
                 if (d == 3) {
                     // Direzione GIÙ: la luce non decrementa scendendo,
                     // quindi neighborLight <= level significa che veniva da sopra
@@ -585,7 +604,7 @@ public class LightPropagator {
                     // quindi neighborLight < level significa che veniva da noi
                     shouldRemove = (neighborLight < level);
                 }
-                
+
                 if (shouldRemove) {
                     nChunk.setSkyLight(nlx, ny, nlz, 0);
                     removalQueue.add(new LightNode(nx, ny, nz, neighborLight));
@@ -596,28 +615,29 @@ public class LightPropagator {
                 }
             }
         }
-        
+
         // Ora ri-propaga dalle sorgenti indipendenti
         propagateSkyLightWorld(world, refillQueue);
     }
 
-        /**
+    /**
      * Rimuove la skylight da un punto e TUTTA la luce che si era propagata
      * da quel punto in QUALSIASI direzione (orizzontale, verticale, ovunque).
      * 
      * Usato quando tappi un buco laterale in una stanza.
      */
     public static void removeSkyLightFrom(World world, int wx, int wy, int wz, int oldLight) {
-        if (oldLight <= 0) return;
-        
+        if (oldLight <= 0)
+            return;
+
         int worldHeight = world.getConfig().worldHeight;
-        
+
         ArrayDeque<LightNode> removalQueue = new ArrayDeque<>();
         ArrayDeque<LightNode> refillQueue = new ArrayDeque<>();
-        
+
         // Il blocco di partenza è già stato messo a 0 dal chiamante
         removalQueue.add(new LightNode(wx, wy, wz, oldLight));
-        
+
         while (!removalQueue.isEmpty()) {
             LightNode node = removalQueue.poll();
             int x = node.x;
@@ -630,27 +650,30 @@ public class LightPropagator {
                 int ny = y + DIRS[d][1];
                 int nz = z + DIRS[d][2];
 
-                if (ny < 0 || ny >= worldHeight) continue;
+                if (ny < 0 || ny >= worldHeight)
+                    continue;
 
                 Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null) continue;
+                if (nChunk == null)
+                    continue;
 
                 int nlx = nx & CHUNK_MASK;
                 int nlz = nz & CHUNK_MASK;
 
                 int neighborLight = nChunk.getSkyLight(nlx, ny, nlz);
-                if (neighborLight == 0) continue;
+                if (neighborLight == 0)
+                    continue;
 
                 // Determina se la luce del vicino dipendeva da noi
                 boolean shouldRemove = false;
-                
+
                 if (d == 3) {
                     // Direzione GIÙ (noi → vicino sotto)
                     // La skylight non decrementa scendendo, quindi se il vicino
                     // ha luce <= alla nostra, probabilmente veniva da noi
                     shouldRemove = (neighborLight <= level);
                 } else if (d == 2) {
-                    // Direzione SU (noi → vicino sopra)  
+                    // Direzione SU (noi → vicino sopra)
                     // La luce sale con decremento, quindi neighborLight < level
                     shouldRemove = (neighborLight < level);
                 } else {
@@ -658,7 +681,7 @@ public class LightPropagator {
                     // La luce si propaga con decremento, neighborLight < level
                     shouldRemove = (neighborLight < level);
                 }
-                
+
                 if (shouldRemove) {
                     nChunk.setSkyLight(nlx, ny, nlz, 0);
                     removalQueue.add(new LightNode(nx, ny, nz, neighborLight));
@@ -668,7 +691,7 @@ public class LightPropagator {
                 }
             }
         }
-        
+
         // Ri-propaga dalle sorgenti indipendenti
         propagateSkyLightWorld(world, refillQueue);
     }
@@ -678,16 +701,17 @@ public class LightPropagator {
      */
     private static void removeSkyLightBFS(World world, int startX, int startY, int startZ, int startLevel) {
         int worldHeight = world.getConfig().worldHeight;
-        
+
         ArrayDeque<LightNode> removalQueue = new ArrayDeque<>();
         ArrayDeque<LightNode> refillQueue = new ArrayDeque<>();
-        
+
         Chunk startChunk = world.getChunkAtWorld(startX, startZ);
-        if (startChunk == null) return;
-        
+        if (startChunk == null)
+            return;
+
         startChunk.setSkyLight(startX & CHUNK_MASK, startY, startZ & CHUNK_MASK, 0);
         removalQueue.add(new LightNode(startX, startY, startZ, startLevel));
-        
+
         while (!removalQueue.isEmpty()) {
             LightNode node = removalQueue.poll();
             int x = node.x;
@@ -700,24 +724,27 @@ public class LightPropagator {
                 int ny = y + DIRS[d][1];
                 int nz = z + DIRS[d][2];
 
-                if (ny < 0 || ny >= worldHeight) continue;
+                if (ny < 0 || ny >= worldHeight)
+                    continue;
 
                 Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null) continue;
+                if (nChunk == null)
+                    continue;
 
                 int nlx = nx & CHUNK_MASK;
                 int nlz = nz & CHUNK_MASK;
 
                 int neighborLight = nChunk.getSkyLight(nlx, ny, nlz);
-                if (neighborLight == 0) continue;
+                if (neighborLight == 0)
+                    continue;
 
                 // Per skylight, la regola è diversa:
                 // - Verso il BASSO (d=3): la luce non decrementa, quindi
-                //   neighborLight == level significa che veniva da noi
+                // neighborLight == level significa che veniva da noi
                 // - Altre direzioni: neighborLight < level significa che veniva da noi
-                
+
                 boolean shouldRemove = false;
-                
+
                 if (d == 3) {
                     // Direzione GIÙ: luce uguale o minore viene da sopra (da noi)
                     shouldRemove = (neighborLight <= level);
@@ -729,7 +756,7 @@ public class LightPropagator {
                     // Direzioni orizzontali: regola normale
                     shouldRemove = (neighborLight < level);
                 }
-                
+
                 if (shouldRemove) {
                     nChunk.setSkyLight(nlx, ny, nlz, 0);
                     removalQueue.add(new LightNode(nx, ny, nz, neighborLight));
@@ -739,7 +766,7 @@ public class LightPropagator {
                 }
             }
         }
-        
+
         // Ri-propaga dalle sorgenti indipendenti
         propagateSkyLightWorld(world, refillQueue);
     }
@@ -749,23 +776,25 @@ public class LightPropagator {
      */
     private static void fillSkyLightFromNeighbors(World world, int wx, int wy, int wz) {
         Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null) return;
-        
+        if (chunk == null)
+            return;
+
         int lx = wx & CHUNK_MASK;
         int lz = wz & CHUNK_MASK;
         int worldHeight = world.getConfig().worldHeight;
-        
+
         int maxLight = 0;
-        
+
         for (int[] dir : DIRS) {
             int nx = wx + dir[0];
             int ny = wy + dir[1];
             int nz = wz + dir[2];
-            
-            if (ny < 0 || ny >= worldHeight) continue;
-            
+
+            if (ny < 0 || ny >= worldHeight)
+                continue;
+
             int neighborLight = world.peekSkyLight(nx, ny, nz);
-            
+
             // Se viene dall'alto, non decrementa
             if (dir[1] == 1) {
                 maxLight = Math.max(maxLight, neighborLight);
@@ -773,7 +802,7 @@ public class LightPropagator {
                 maxLight = Math.max(maxLight, neighborLight - 1);
             }
         }
-        
+
         if (maxLight > 0) {
             chunk.setSkyLight(lx, wy, lz, maxLight);
             // Propaga ulteriormente
@@ -806,18 +835,21 @@ public class LightPropagator {
                 int ny = y + dir[1];
                 int nz = z + dir[2];
 
-                if (ny < 0 || ny >= worldHeight) continue;
+                if (ny < 0 || ny >= worldHeight)
+                    continue;
 
                 Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null) continue;
+                if (nChunk == null)
+                    continue;
 
                 int nlx = nx & CHUNK_MASK;
                 int nlz = nz & CHUNK_MASK;
 
                 int neighborLight = isSky ? nChunk.getSkyLight(nlx, ny, nlz)
-                                          : nChunk.getBlockLight(nlx, ny, nlz);
+                        : nChunk.getBlockLight(nlx, ny, nlz);
 
-                if (neighborLight == 0) continue;
+                if (neighborLight == 0)
+                    continue;
 
                 if (neighborLight < level) {
                     // Questa luce dipendeva da noi, rimuovila
@@ -850,14 +882,13 @@ public class LightPropagator {
         }
     }
 
-
-
     /**
      * Riempie luce dai vicini (quando si scava un blocco).
      */
     public static void fillLightFromNeighbors(World world, int wx, int wy, int wz) {
         Chunk chunk = world.getChunkAtWorld(wx, wz);
-        if (chunk == null) return;
+        if (chunk == null)
+            return;
 
         int worldHeight = world.getConfig().worldHeight;
         int lx = wx & CHUNK_MASK;
@@ -871,7 +902,8 @@ public class LightPropagator {
             int ny = wy + dir[1];
             int nz = wz + dir[2];
 
-            if (ny < 0 || ny >= worldHeight) continue;
+            if (ny < 0 || ny >= worldHeight)
+                continue;
 
             int neighborSky = world.peekSkyLight(nx, ny, nz);
             int neighborBlock = world.peekBlockLight(nx, ny, nz);
@@ -915,7 +947,8 @@ public class LightPropagator {
             int z = node.z;
             int level = node.level;
 
-            if (level <= 1) continue;
+            if (level <= 1)
+                continue;
 
             int newLevel = level - 1;
 
@@ -924,13 +957,16 @@ public class LightPropagator {
                 int ny = y + dir[1];
                 int nz = z + dir[2];
 
-                if (ny < 0 || ny >= worldHeight) continue;
+                if (ny < 0 || ny >= worldHeight)
+                    continue;
 
                 int blockId = world.peekBlock(nx, ny, nz);
-                if (Blocks.get(blockId).isOpaque()) continue;
+                if (Blocks.get(blockId).isOpaque())
+                    continue;
 
                 Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null) continue;
+                if (nChunk == null)
+                    continue;
 
                 int nlx = nx & CHUNK_MASK;
                 int nlz = nz & CHUNK_MASK;
@@ -954,30 +990,35 @@ public class LightPropagator {
             int z = node.z;
             int level = node.level;
 
-            if (level <= 0) continue;
+            if (level <= 0)
+                continue;
 
             for (int d = 0; d < 6; d++) {
                 int nx = x + DIRS[d][0];
                 int ny = y + DIRS[d][1];
                 int nz = z + DIRS[d][2];
 
-                if (ny < 0 || ny >= worldHeight) continue;
+                if (ny < 0 || ny >= worldHeight)
+                    continue;
 
                 int blockId = world.peekBlock(nx, ny, nz);
-                if (Blocks.get(blockId).isOpaque()) continue;
+                if (Blocks.get(blockId).isOpaque())
+                    continue;
 
                 Chunk nChunk = world.getChunkIfLoaded(nx >> CHUNK_SHIFT, nz >> CHUNK_SHIFT);
-                if (nChunk == null) continue;
+                if (nChunk == null)
+                    continue;
 
                 // Regola speciale: verso il basso non decrementa
                 int newLevel;
-                if (d == 3) {  // DOWN
+                if (d == 3) { // DOWN
                     newLevel = level;
                 } else {
                     newLevel = level - 1;
                 }
 
-                if (newLevel <= 0) continue;
+                if (newLevel <= 0)
+                    continue;
 
                 int nlx = nx & CHUNK_MASK;
                 int nlz = nz & CHUNK_MASK;
@@ -1001,7 +1042,8 @@ public class LightPropagator {
     @Deprecated
     public static void recomputeChunkSkyLightVertical(World world, Chunk chunk) {
         // NON FARE NULLA - la luce viene calcolata dal LightTask
-        // Questo metodo esiste solo per non rompere il codice esistente durante la transizione
+        // Questo metodo esiste solo per non rompere il codice esistente durante la
+        // transizione
     }
 
     // =================================================================================

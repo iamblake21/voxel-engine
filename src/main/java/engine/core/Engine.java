@@ -25,7 +25,6 @@ public class Engine {
     private final EntityRenderer entityRenderer;
     private final ItemEntityRenderer itemEntityRenderer;
 
-
     private final PhysicsEngine physics;
     private final EntityManager entities;
     private final GameLoop gameLoop;
@@ -118,9 +117,12 @@ public class Engine {
             entityRenderer.begin(entities.getPlayer().getCamera(), sunDir);
 
             for (Entity e : entities.getEntities()) {
-                // Non renderizzare il player stesso per evitare glitch visivi
-                if (e == entities.getPlayer())
-                    continue;
+                // Renderizza il player SOLO se in terza persona
+                if (e == entities.getPlayer()) {
+                    if (!entities.getPlayer().isThirdPerson()) {
+                        continue;
+                    }
+                }
 
                 entityRenderer.renderEntity(e, entities.getPartialTick());
             }
@@ -130,7 +132,7 @@ public class Engine {
         if (entities.getPlayer() != null) {
             Vec3 sunDir = (world != null) ? world.getSunDirection() : null;
             itemEntityRenderer.begin(entities.getPlayer().getCamera(), sunDir);
-            
+
             for (Entity e : entities.getEntities()) {
                 if (e instanceof ItemEntity) {
                     itemEntityRenderer.renderItemEntity((ItemEntity) e, entities.getPartialTick());
@@ -138,7 +140,6 @@ public class Engine {
             }
             itemEntityRenderer.end();
         }
-
 
         // 3. Render Game GUI / Overlay
         if (game != null) {
@@ -205,6 +206,7 @@ public class Engine {
             world.setEntityManager(this.entities);
         }
     }
+
     public boolean isRunning() {
         return running && !window.shouldClose();
     }

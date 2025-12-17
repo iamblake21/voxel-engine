@@ -12,7 +12,7 @@
     "game:planks_oak",
     "game:glass",
     "game:log_oak",
-    "game:air"
+    "game:door"
   ],
   "blocks": [
     {"pos": [0, 0, 0], "state": 0}, {"pos": [1, 0, 0], "state": 0}, {"pos": [2, 0, 0], "state": 0}, {"pos": [3, 0, 0], "state": 0}, {"pos": [4, 0, 0], "state": 0},

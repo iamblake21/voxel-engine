@@ -14,22 +14,32 @@ import engine.utils.Math3D.Vec3;
 import static org.lwjgl.glfw.GLFW.*;
 import engine.interaction.InteractionManager;
 
-public class Player extends Entity {
+public class Player extends LivingEntity {
     private final Config config;
     private final Camera camera;
     private final PlayerInventory inventory;
     private final engine.mechanics.MiningManager miningManager = new engine.mechanics.MiningManager();
 
-    private World world;
-    private PhysicsEngine physics;
-
     private boolean flying = false;
     private boolean flyKeyLatch = false;
+    private boolean thirdPerson = false;
+    private boolean viewKeyLatch = false;
+
+    private PhysicsEngine physics;
+
+    // Remove redundant props fields (LivingEntity handles them, or use specific
+    // ones)
+    // Actually keep them if Player needs overrides or specific tracking,
+    // but typically LivingEntity reads from properties.
+    // However, Player logic uses these fields directly currently.
+    // Let's keep them for now to avoid breaking getters/setters, but sync with
+    // properties.
+    private String modelPath = "models/entity/player.geo.json";
+    private String skinPath = "textures/entity/steve.png";
 
     private InteractionManager interactionManager;
     private EntityManager entityManager;
 
-    // Click cooldowns per evitare spam
     private boolean rightClickLatch = false;
 
     public Player(EntityType<?> type, Config config) {
@@ -37,12 +47,26 @@ public class Player extends Entity {
         this.config = config;
         this.camera = new Camera(config);
         this.inventory = new PlayerInventory();
+        // setSize is handled by EntityType usually, but good to ensure
         this.setSize(0.6f, 1.8f);
+
+        // Load specific Player properties (Model/Skin)
+        // LivingEntity loads MaxHealth/Speed etc.
+        if (type.getProperties() != null) {
+            if (type.getProperties().getModelPath() != null)
+                this.modelPath = type.getProperties().getModelPath();
+            if (type.getProperties().getTexturePath() != null)
+                this.skinPath = type.getProperties().getTexturePath();
+        }
     }
 
     @Override
     public void init(Engine engine) {
         this.world = engine.getWorld();
+        // LivingEntity fields
+        this.world = engine.getWorld();
+
+        // Physics logic delegated to engine usually, but we keep reference
         this.physics = engine.getPhysics();
 
         engine.getRenderer().setCamera(camera);
@@ -92,12 +116,20 @@ public class Player extends Entity {
         }
 
         // 3. FISICA: Delega all'engine universale
+        // 3. FISICA: Delega all'engine universale
         if (physics != null) {
             physics.processEntity(this, world, deltaTime);
         }
 
+        // 4. ANIMAZIONE (From LivingEntity)
+        updateAnimation(deltaTime);
+
         updateCamera();
-        world.maintainChunks(x, z);
+
+        // Chunk maintainance for Player only
+        if (world != null) {
+            world.maintainChunks(x, z);
+        }
     }
 
     private void handleInput(InputManager input, float deltaTime) {
@@ -178,6 +210,15 @@ public class Player extends Entity {
         if (!fDown)
             flyKeyLatch = false;
 
+        // Toggle View (F5)
+        boolean f5Down = input.isKeyDown(GLFW_KEY_F5);
+        if (f5Down && !viewKeyLatch) {
+            thirdPerson = !thirdPerson;
+            viewKeyLatch = true;
+        }
+        if (!f5Down)
+            viewKeyLatch = false;
+
         // Hotbar
         for (int i = 0; i < 9; i++) {
             if (input.isKeyDown(GLFW_KEY_1 + i))
@@ -185,9 +226,95 @@ public class Player extends Entity {
         }
     }
 
+    // Fix Interpolation Lag (Orbit Bug)
+    @Override
+    public float getLerpedYaw(float partialTick) {
+        return yaw;
+    }
+
+    @Override
+    public float getLerpedPitch(float partialTick) {
+        return pitch;
+    }
+
+    @Override
+    public float getLerpedBodyYaw(float partialTick) {
+        return yaw;
+    }
+
     private void updateCamera() {
-        camera.setPosition(x, y + config.playerEyeHeight, z);
-        camera.setRotation(pitch, yaw);
+        if (thirdPerson) {
+            float intendedDist = 4.0f;
+            float actualDist = intendedDist;
+
+            // --- Raycast Collision Check ---
+            // Cast a ray from Head to Camera Position
+            if (world != null) {
+                float headX = x;
+                float headY = y + config.playerEyeHeight;
+                float headZ = z;
+
+                // Angle calculations
+                float pitchRad = (float) Math.toRadians(pitch);
+                float yawRad = (float) Math.toRadians(yaw);
+
+                // Direction Vector (Backward from head)
+                // Camera.java Forward: X=cos(p)cos(y), Y=sin(p), Z=cos(p)sin(y)
+                // Back = -Forward
+                float backX = -(float) (Math.cos(pitchRad) * Math.cos(yawRad));
+                float backY = -(float) Math.sin(pitchRad);
+                float backZ = -(float) (Math.cos(pitchRad) * Math.sin(yawRad));
+
+                // Simple Raycast Step
+                float step = 0.2f;
+                for (float d = 0; d < intendedDist; d += step) {
+                    float checkX = headX + backX * d;
+                    float checkY = headY + backY * d;
+                    float checkZ = headZ + backZ * d;
+
+                    // Check block solid
+                    int bx = (int) Math.floor(checkX);
+                    int by = (int) Math.floor(checkY);
+                    int bz = (int) Math.floor(checkZ);
+
+                    if (Blocks.isSolid(world.getBlock(bx, by, bz))) {
+                        actualDist = d - 0.2f; // Buffer
+                        if (actualDist < 0.5f)
+                            actualDist = 0.5f; // Minimum distance
+                        break;
+                    }
+                }
+            }
+
+            // Recalculate Final Position
+            float pitchRad = (float) Math.toRadians(pitch);
+            float yawRad = (float) Math.toRadians(yaw);
+
+            // Re-use logic: Cam = Head + Backward * actualDist
+            // But we need to decompose for setPosition(x,y,z)
+            // Or just use the already calculated directions
+
+            float backX = -(float) (Math.cos(pitchRad) * Math.cos(yawRad));
+            float backY = -(float) Math.sin(pitchRad);
+            float backZ = -(float) (Math.cos(pitchRad) * Math.sin(yawRad));
+
+            float camX = x + backX * actualDist;
+            // Floor Clamp: Prevent camera from going below player's feet level + margin
+            float minCamY = y + 0.1f;
+            float camY = (y + config.playerEyeHeight) + backY * actualDist;
+            if (camY < minCamY)
+                camY = minCamY;
+
+            float camZ = z + backZ * actualDist;
+
+            camera.setPosition(camX, camY, camZ);
+            camera.setRotation(pitch, yaw);
+        } else {
+            // 1st Person
+            camera.setPosition(x, y + config.playerEyeHeight, z);
+            camera.setRotation(pitch, yaw);
+        }
+
         camera.update(0f);
         if (world != null) {
             world.updateCamera(
@@ -279,5 +406,25 @@ public class Player extends Entity {
 
     public engine.mechanics.MiningManager getMiningManager() {
         return miningManager;
+    }
+
+    public boolean isThirdPerson() {
+        return thirdPerson;
+    }
+
+    public String getModelPath() {
+        return modelPath;
+    }
+
+    public void setModelPath(String modelPath) {
+        this.modelPath = modelPath;
+    }
+
+    public String getSkinPath() {
+        return skinPath;
+    }
+
+    public void setSkinPath(String skinPath) {
+        this.skinPath = skinPath;
     }
 }

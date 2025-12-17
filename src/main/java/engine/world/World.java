@@ -283,6 +283,15 @@ public class World implements MeshBuilder.WorldAccess {
         // ========== FASE 2: PIPELINE ==========
         int tasksSubmitted = 0;
         final int MAX_TASKS_PER_FRAME = 16;
+        final int MAX_PENDING_QUEUE = 120; // 32 workers * 4 tasks buffer
+
+        // Backpressure check
+        if (genExecutor.getLightQueueSize() > MAX_PENDING_QUEUE ||
+                genExecutor.getMeshQueueSize() > MAX_PENDING_QUEUE) {
+            // Pipeline saturated, skip submission for this frame
+            unloadChunksOutsideView(pcx, pcz);
+            return;
+        }
 
         for (Chunk chunk : chunks.values()) {
             if (tasksSubmitted >= MAX_TASKS_PER_FRAME)

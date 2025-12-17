@@ -76,11 +76,13 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
 
                 if (c != null) {
                     neighborExists[idx] = true;
-                    // Copia i dati (snapshot immutabile)
-                    neighborBlocks[idx] = c.getBlockData().clone();
-                    neighborSkyLight[idx] = c.getSkyLightData().clone();
-                    neighborBlockLight[idx] = c.getBlockLightData().clone();
-                    neighborFluidData[idx] = c.getFluidData().clone();
+                    // RAM OPTIMIZATION: Use references instead of cloning!
+                    // Cloning 9 chunks (2.5MB) per task causes OOM.
+                    // Risk: Rare visual artifacts if modifying blocks while meshing.
+                    neighborBlocks[idx] = c.getBlockData();
+                    neighborSkyLight[idx] = c.getSkyLightData();
+                    neighborBlockLight[idx] = c.getBlockLightData();
+                    neighborFluidData[idx] = c.getFluidData();
                 } else {
                     neighborExists[idx] = false;
                     // Chunk non caricato - usa array vuoti (aria, luce 0)
