@@ -669,6 +669,21 @@ public class Renderer {
         return visible;
     }
 
+    // ==================== HAND RENDERING ====================
+    private FirstPersonHandRenderer handRenderer;
+
+    public void setEntityRenderers(engine.entity.render.EntityRenderer er, ItemEntityRenderer ir) {
+        if (this.handRenderer == null) {
+            this.handRenderer = new FirstPersonHandRenderer(er, ir, config);
+        }
+    }
+
+    public void renderHand(engine.entity.Player player, float partialTick) {
+        if (handRenderer != null && player != null) {
+            handRenderer.render(player, partialTick);
+        }
+    }
+
     public void endFrame() {
     }
 

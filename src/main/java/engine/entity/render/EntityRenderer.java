@@ -142,6 +142,61 @@ public class EntityRenderer {
         glCullFace(GL_BACK);
     }
 
+    public void renderSpecificBone(EntityModel model, String boneName, Mat4 transform, Texture tex) {
+        if (model == null) {
+            System.out.println("NULL MODEL for renderSpecificBone");
+            return;
+        }
+
+        ModelBone bone = model.getBone(boneName);
+        if (bone == null) {
+            // Only print for primary checks or limit frequency
+            // System.out.println("Bone missing: " + boneName);
+            return;
+        }
+
+        shader.bind(); // Ensure shader is bound
+        shader.setUniform(uUseTexture, tex != defaultTexture ? 1 : 0);
+        shader.setUniform(uColor, 1f, 1f, 1f, 1f); // Assuming white color for specific bone rendering
+
+        tex.bind(0); // Bind texture to unit 0
+
+        // Recursively render this bone and children with the custom transform
+        // We assume 'transform' is the Model Matrix for the bone's root.
+        renderBoneTree(model, bone, transform);
+    }
+
+    private void renderBoneTree(EntityModel model, ModelBone bone, Mat4 parentTransform) {
+        if (!bone.isVisible())
+            return;
+
+        // Calculate local transform for this bone
+        Mat4 tPivot = Mat4.translate(bone.getPivotX(), bone.getPivotY(), bone.getPivotZ());
+        Mat4 r = rotXYZ((float) Math.toRadians(bone.getRotationX()), (float) Math.toRadians(bone.getRotationY()),
+                (float) Math.toRadians(bone.getRotationZ()));
+        Mat4 tInvPivot = Mat4.translate(-bone.getPivotX(), -bone.getPivotY(), -bone.getPivotZ());
+        Mat4 tPos = Mat4.translate(bone.getPositionX(), bone.getPositionY(), bone.getPositionZ());
+        Mat4 s = Mat4.scale(bone.getScaleX(), bone.getScaleY(), bone.getScaleZ());
+
+        Mat4 localTransform = Mat4.identity();
+        localTransform = Mat4.mul(localTransform, tPos);
+        localTransform = Mat4.mul(localTransform, tPivot);
+        localTransform = Mat4.mul(localTransform, r);
+        localTransform = Mat4.mul(localTransform, s);
+        localTransform = Mat4.mul(localTransform, tInvPivot);
+
+        Mat4 globalTransform = Mat4.mul(parentTransform, localTransform);
+
+        // Render cubes
+        for (ModelCube c : bone.getCubes()) {
+            renderCube(model, c, globalTransform);
+        }
+
+        for (ModelBone child : bone.getChildren()) {
+            renderBoneTree(model, child, globalTransform); // Pass the accumulated transform
+        }
+    }
+
     public void renderEntity(Entity entity, float partialTick) {
         if (entity == null || entity.isRemoved())
             return;
@@ -162,7 +217,7 @@ public class EntityRenderer {
         }
     }
 
-    private EntityModel getModel(Entity e) {
+    public EntityModel getModel(Entity e) {
         String path = null;
         if (e instanceof engine.entity.Player) {
             path = ((engine.entity.Player) e).getModelPath();
@@ -181,7 +236,7 @@ public class EntityRenderer {
         return modelCache.get(path);
     }
 
-    private Texture getTexture(Entity e) {
+    public Texture getTexture(Entity e) {
         String path = null;
         if (e instanceof engine.entity.Player) {
             path = ((engine.entity.Player) e).getSkinPath();

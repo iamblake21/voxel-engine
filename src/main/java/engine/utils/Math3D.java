@@ -118,6 +118,28 @@ public class Math3D {
             r.m[10] = z;
             return r;
         }
+
+        public static Mat4 rotate(float angle, float x, float y, float z) {
+            Mat4 r = new Mat4();
+            float c = (float) Math.cos(Math.toRadians(angle));
+            float s = (float) Math.sin(Math.toRadians(angle));
+            float omc = 1.0f - c;
+
+            r.m[0] = x * x * omc + c;
+            r.m[1] = y * x * omc + z * s;
+            r.m[2] = x * z * omc - y * s;
+
+            r.m[4] = x * y * omc - z * s;
+            r.m[5] = y * y * omc + c;
+            r.m[6] = y * z * omc + x * s;
+
+            r.m[8] = x * z * omc + y * s;
+            r.m[9] = y * z * omc - x * s;
+            r.m[10] = z * z * omc + c;
+
+            r.m[15] = 1.0f;
+            return r;
+        }
     }
 
     /**

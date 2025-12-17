@@ -61,6 +61,7 @@ public class Engine {
         itemEntityRenderer.init(renderer.getAtlasTexture());
 
         entityRenderer.init();
+        renderer.setEntityRenderers(entityRenderer, itemEntityRenderer);
         input.init();
 
         System.out.println("=== Game Initialization ===");
@@ -113,18 +114,21 @@ public class Engine {
 
         // 2. Render Entities
         if (entities.getPlayer() != null) {
+            // Update camera from interpolated player position
+            entities.getPlayer().updateCamera(entities.getPartialTick());
+
             engine.utils.Math3D.Vec3 sunDir = (world != null) ? world.getSunDirection() : null;
             entityRenderer.begin(entities.getPlayer().getCamera(), sunDir);
 
             for (Entity e : entities.getEntities()) {
                 // Renderizza il player SOLO se in terza persona
                 if (e == entities.getPlayer()) {
-                    if (!entities.getPlayer().isThirdPerson()) {
-                        continue;
+                    if (entities.getPlayer().isThirdPerson()) {
+                        entityRenderer.renderEntity(e, entities.getPartialTick());
                     }
+                } else {
+                    entityRenderer.renderEntity(e, entities.getPartialTick());
                 }
-
-                entityRenderer.renderEntity(e, entities.getPartialTick());
             }
             entityRenderer.end();
         }
@@ -139,6 +143,9 @@ public class Engine {
                 }
             }
             itemEntityRenderer.end();
+
+            // 2.5 Render Hand (First Person) - AFTER entities, BEFORE GUI
+            renderer.renderHand(entities.getPlayer(), entities.getPartialTick());
         }
 
         // 3. Render Game GUI / Overlay

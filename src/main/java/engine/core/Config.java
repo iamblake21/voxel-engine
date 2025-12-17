@@ -26,7 +26,7 @@ public class Config {
 
     // Physics settings
     public float gravity = 22f;
-    public float playerSpeed = 40f;
+    public float playerSpeed = 8f;
     public float playerSprintMultiplier = 1.8f;
     public float playerFlySpeed = 42f;
     public float playerHeight = 1.80f;

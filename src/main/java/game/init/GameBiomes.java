@@ -38,7 +38,7 @@ public final class GameBiomes {
                                 .stoneBlock("game:stone"));
                 PLAINS = Biomes.register("game:plains", plainsBiome);
                 PLAINS.addStructure(new engine.world.gen.WeightedStructure("game:big_oak_tree", 1, 3.0f));
-
+                PLAINS.addStructure(new engine.world.gen.WeightedStructure("game:small_house", 1, 1.0f));
                 // Forest
                 Biome forestBiome = new Biome(BiomeProperties.create()
                                 .forest()

@@ -100,11 +100,10 @@ public class World implements MeshBuilder.WorldAccess {
 
         // Fluid Tick (20 TPS)
         fluidTickAccumulator += deltaTime;
-        while (fluidTickAccumulator >= FLUID_TICK_INTERVAL) {
-            fluidTickAccumulator -= FLUID_TICK_INTERVAL;
-            fluidManager.tick();
-            tickBlockEntities();
-        }
+        fluidTickAccumulator -= FLUID_TICK_INTERVAL;
+        fluidManager.tick();
+        tickBlockEntities();
+
     }
 
     /**

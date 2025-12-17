@@ -1,10 +1,6 @@
 package engine.rendering;
 
-import engine.entity.Entity;
 import engine.entity.ItemEntity;
-import engine.rendering.Camera;
-import engine.rendering.Shader;
-import engine.rendering.TextureArray;
 import engine.utils.Math3D.Mat4;
 import engine.utils.Math3D.Vec3;
 import engine.world.block.Block;
@@ -237,8 +233,6 @@ public class ItemEntityRenderer {
         if (stack == null || stack.isEmpty())
             return;
 
-        Item item = stack.getItem();
-
         // Position with bobbing
         float x = entity.getLerpedX(partialTick);
         float y = entity.getLerpedY(partialTick);
@@ -251,11 +245,44 @@ public class ItemEntityRenderer {
         // Spin angle
         float spin = entity.getLerpedSpinAngle(partialTick);
 
+        Mat4 model = Mat4.identity();
+        model = Mat4.mul(model, Mat4.translate(x, y, z));
+        model = Mat4.mul(model, rotateY((float) Math.toRadians(spin)));
+
+        // Use standard scale
+        // model = Mat4.mul(model, Mat4.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE));
+        // NOTE: Scale moved inside renderItem to keep it consistent OR pass it here.
+        // renderItem assumes model matrix is the "Root". Inner scaling for items should
+        // happen there?
+        // Actually, renderItemEntity added "ITEM_SCALE".
+        // Let's pass the matrix pre-scaled or handle scaling for Entity vs Hand
+        // differently?
+        // For Hand, we might want different scale.
+        // Let's keep logic: caller defines transform.
+
+        // Apply ITEM_SCALE here for Entity
+        model = Mat4.mul(model, Mat4.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE));
+
+        renderItem(stack, model);
+    }
+
+    /**
+     * Renders an item stack with a specific model matrix.
+     * Useful for first-person hand rendering.
+     * 
+     * @param stack The item stack to render
+     * @param model The global transform matrix
+     */
+    public void renderItem(ItemStack stack, Mat4 model) {
+        if (stack == null || stack.isEmpty())
+            return;
+        Item item = stack.getItem();
+
         // New Item Model System
         engine.registry.ResourceLocation id = item.getRegistryId();
         // If not registered, fallback (shouldn't happen for spawned entities)
         if (id == null) {
-            renderGenericItem(item, x, y, z, spin);
+            renderGenericItem(item, model);
             return;
         }
 
@@ -265,34 +292,39 @@ public class ItemEntityRenderer {
         if (itemModel != null) {
             // JSON System
             if (itemModel.parent != null && itemModel.parent.startsWith("block/") && item instanceof BlockItem) {
-                renderBlockItem(((BlockItem) item).getBlock(), x, y, z, spin, itemModel.parent);
+                renderBlockItem(((BlockItem) item).getBlock(), model, itemModel.parent);
             } else if (itemModel.textures != null && itemModel.textures.containsKey("layer0")) {
-                renderTexturedItem(itemModel.textures.get("layer0"), x, y, z, spin);
+                renderTexturedItem(itemModel.textures.get("layer0"), model);
             } else {
-                renderGenericItem(item, x, y, z, spin);
+                renderGenericItem(item, model);
             }
         } else {
             // Legacy Fallback
             if (item instanceof BlockItem) {
                 Block block = ((BlockItem) item).getBlock();
-                renderBlockItem(block, x, y, z, spin, null);
+                renderBlockItem(block, model, null);
             } else if (item.getIconTexture() != null) {
-                renderTexturedItem(item.getIconTexture(), x, y, z, spin);
+                renderTexturedItem(item.getIconTexture(), model);
             } else {
-                renderGenericItem(item, x, y, z, spin);
+                renderGenericItem(item, model);
             }
         }
     }
 
-    private void renderTexturedItem(String path, float x, float y, float z, float spin) {
+    public void renderTexturedItem(String path, Mat4 model) {
         engine.rendering.Texture tex = getCustomTexture(path);
 
-        Mat4 model = Mat4.identity();
-        model = Mat4.mul(model, Mat4.translate(x, y, z));
-        model = Mat4.mul(model, rotateY((float) Math.toRadians(spin)));
+        // No identity/translation here, use passed model matrix
+        // Scale was applied out there if needed for Entity, but for Hand we might want
+        // diff scale.
+        // Wait, renderItemEntity applied scale.
+        // But the previous implementation applied scale INSIDE renderTexturedItem:
+        // model = Mat4.mul(model, Mat4.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE));
+        // So `renderItemEntity` applied Translation + Rotation, then called this.
+        // Now `renderItemEntity` applies Translation + Rotation + Scale.
+        // So here we should just use the matrix.
 
-        // Use standard scale
-        model = Mat4.mul(model, Mat4.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE));
+        shader.setUniform(uModel, model);
 
         shader.setUniform(uModel, model);
         glUniform3f(uTint, 1f, 1f, 1f);
@@ -313,24 +345,21 @@ public class ItemEntityRenderer {
         glUniform1i(uUseTextureArray, 1); // Reset to array mode
     }
 
-    private void renderBlockItem(Block block, float x, float y, float z, float spin, String forcedModelPath) {
+    public void renderBlockItem(Block block, Mat4 modelMatrix, String forcedModelPath) {
         // Check for custom model OR forced model
         if (forcedModelPath != null || block.getProperties().hasCustomModel()) {
-            renderCustomModelItem(block, x, y, z, spin, forcedModelPath);
+            renderCustomModelItem(block, modelMatrix, forcedModelPath);
             return;
         }
 
-        renderStandardCube(block, x, y, z, spin);
+        renderStandardCube(block, modelMatrix);
     }
 
-    private void renderStandardCube(Block block, float x, float y, float z, float spin) {
+    private void renderStandardCube(Block block, Mat4 modelMatrix) {
         // Standard cube block
-        Mat4 model = Mat4.identity();
-        model = Mat4.mul(model, Mat4.translate(x, y, z));
-        model = Mat4.mul(model, rotateY((float) Math.toRadians(spin)));
-        model = Mat4.mul(model, Mat4.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE));
+        // Matrix passed is already transformed (Pos + Rot + Scale)
 
-        shader.setUniform(uModel, model);
+        shader.setUniform(uModel, modelMatrix);
         glUniform3f(uTint, 1f, 1f, 1f);
 
         // Render each face with correct tile
@@ -364,23 +393,18 @@ public class ItemEntityRenderer {
         glBindVertexArray(0);
     }
 
-    private void renderCustomModelItem(Block block, float x, float y, float z, float spin, String forcedPath) {
+    private void renderCustomModelItem(Block block, Mat4 modelMatrix, String forcedPath) {
         String modelPath = forcedPath != null ? forcedPath : block.getProperties().getModelPath();
         CompiledItemModel compiled = getOrCompileModel(modelPath, block);
 
         if (compiled == null || compiled.vao == 0) {
             // Fallback to cube - safely call standard cube
             System.err.println("[ItemEntityRenderer] Fallback to standard cube for: " + modelPath);
-            renderStandardCube(block, x, y, z, spin);
+            renderStandardCube(block, modelMatrix);
             return;
         }
 
-        Mat4 model = Mat4.identity();
-        model = Mat4.mul(model, Mat4.translate(x, y, z));
-        model = Mat4.mul(model, rotateY((float) Math.toRadians(spin)));
-        model = Mat4.mul(model, Mat4.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE));
-
-        shader.setUniform(uModel, model);
+        shader.setUniform(uModel, modelMatrix);
         glUniform1i(uTileIndex, compiled.tileIndex);
         glUniform3f(uTint, 1f, 1f, 1f);
 
@@ -428,16 +452,17 @@ public class ItemEntityRenderer {
         }
     }
 
-    private void renderGenericItem(Item item, float x, float y, float z, float spin) {
+    private void renderGenericItem(Item item, Mat4 modelMatrix) {
         // For non-block items, render as a small colored cube
         // In the future, this could render a 2D sprite billboard
 
-        Mat4 model = Mat4.identity();
-        model = Mat4.mul(model, Mat4.translate(x, y, z));
-        model = Mat4.mul(model, rotateY((float) Math.toRadians(spin)));
-        model = Mat4.mul(model, Mat4.scale(ITEM_SCALE * 0.5f, ITEM_SCALE * 0.5f, ITEM_SCALE * 0.5f));
+        // Need to scale down generic items more? Or assume caller handles it?
+        // Original code: scale(ITEM_SCALE * 0.5f)
+        // Passed matrix has ITEM_SCALE.
+        // So we need to apply * 0.5f on top.
+        Mat4 finalModel = Mat4.mul(modelMatrix, Mat4.scale(0.5f, 0.5f, 0.5f));
 
-        shader.setUniform(uModel, model);
+        shader.setUniform(uModel, finalModel);
         glUniform1i(uTileIndex, 0); // Default tile
         glUniform3f(uTint, 0.8f, 0.8f, 0.8f);
 

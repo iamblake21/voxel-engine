@@ -75,7 +75,6 @@ public class Player extends LivingEntity {
             Vec3 spawn = world.findSpawnPosition();
             setPosition(spawn.x, spawn.y + 1, spawn.z);
         }
-        updateCamera();
 
         this.entityManager = engine.getEntityManager();
         this.interactionManager = new InteractionManager();
@@ -96,6 +95,9 @@ public class Player extends LivingEntity {
     public void update(float deltaTime, InputManager input, boolean inputEnabled) {
         if (world == null)
             return;
+
+        // CRITICAL: Save previous state for interpolation
+        preTick();
 
         // 1. INPUT: Definisce VX e VZ
         if (inputEnabled) {
@@ -123,8 +125,6 @@ public class Player extends LivingEntity {
 
         // 4. ANIMAZIONE (From LivingEntity)
         updateAnimation(deltaTime);
-
-        updateCamera();
 
         // Chunk maintainance for Player only
         if (world != null) {
@@ -226,23 +226,13 @@ public class Player extends LivingEntity {
         }
     }
 
-    // Fix Interpolation Lag (Orbit Bug)
-    @Override
-    public float getLerpedYaw(float partialTick) {
-        return yaw;
-    }
+    public void updateCamera(float partialTick) {
+        float lerpX = getLerpedX(partialTick);
+        float lerpY = getLerpedY(partialTick);
+        float lerpZ = getLerpedZ(partialTick);
+        float lerpYaw = getLerpedYaw(partialTick);
+        float lerpPitch = getLerpedPitch(partialTick);
 
-    @Override
-    public float getLerpedPitch(float partialTick) {
-        return pitch;
-    }
-
-    @Override
-    public float getLerpedBodyYaw(float partialTick) {
-        return yaw;
-    }
-
-    private void updateCamera() {
         if (thirdPerson) {
             float intendedDist = 4.0f;
             float actualDist = intendedDist;
@@ -250,17 +240,15 @@ public class Player extends LivingEntity {
             // --- Raycast Collision Check ---
             // Cast a ray from Head to Camera Position
             if (world != null) {
-                float headX = x;
-                float headY = y + config.playerEyeHeight;
-                float headZ = z;
+                float headX = lerpX;
+                float headY = lerpY + config.playerEyeHeight;
+                float headZ = lerpZ;
 
                 // Angle calculations
-                float pitchRad = (float) Math.toRadians(pitch);
-                float yawRad = (float) Math.toRadians(yaw);
+                float pitchRad = (float) Math.toRadians(lerpPitch);
+                float yawRad = (float) Math.toRadians(lerpYaw);
 
                 // Direction Vector (Backward from head)
-                // Camera.java Forward: X=cos(p)cos(y), Y=sin(p), Z=cos(p)sin(y)
-                // Back = -Forward
                 float backX = -(float) (Math.cos(pitchRad) * Math.cos(yawRad));
                 float backY = -(float) Math.sin(pitchRad);
                 float backZ = -(float) (Math.cos(pitchRad) * Math.sin(yawRad));
@@ -287,32 +275,28 @@ public class Player extends LivingEntity {
             }
 
             // Recalculate Final Position
-            float pitchRad = (float) Math.toRadians(pitch);
-            float yawRad = (float) Math.toRadians(yaw);
-
-            // Re-use logic: Cam = Head + Backward * actualDist
-            // But we need to decompose for setPosition(x,y,z)
-            // Or just use the already calculated directions
+            float pitchRad = (float) Math.toRadians(lerpPitch);
+            float yawRad = (float) Math.toRadians(lerpYaw);
 
             float backX = -(float) (Math.cos(pitchRad) * Math.cos(yawRad));
             float backY = -(float) Math.sin(pitchRad);
             float backZ = -(float) (Math.cos(pitchRad) * Math.sin(yawRad));
 
-            float camX = x + backX * actualDist;
+            float camX = lerpX + backX * actualDist;
             // Floor Clamp: Prevent camera from going below player's feet level + margin
-            float minCamY = y + 0.1f;
-            float camY = (y + config.playerEyeHeight) + backY * actualDist;
+            float minCamY = lerpY + 0.1f;
+            float camY = (lerpY + config.playerEyeHeight) + backY * actualDist;
             if (camY < minCamY)
                 camY = minCamY;
 
-            float camZ = z + backZ * actualDist;
+            float camZ = lerpZ + backZ * actualDist;
 
             camera.setPosition(camX, camY, camZ);
-            camera.setRotation(pitch, yaw);
+            camera.setRotation(lerpPitch, lerpYaw);
         } else {
             // 1st Person
-            camera.setPosition(x, y + config.playerEyeHeight, z);
-            camera.setRotation(pitch, yaw);
+            camera.setPosition(lerpX, lerpY + config.playerEyeHeight, lerpZ);
+            camera.setRotation(lerpPitch, lerpYaw);
         }
 
         camera.update(0f);
@@ -350,6 +334,9 @@ public class Player extends LivingEntity {
     }
 
     private void handleLeftClick(InputManager input, float deltaTime) {
+        // Trigger Swing Animation
+        swing();
+
         if (interactionManager == null)
             return;
 
@@ -373,6 +360,9 @@ public class Player extends LivingEntity {
     }
 
     private void handleRightClick() {
+        // Trigger Swing Animation
+        swing();
+
         if (interactionManager == null || entityManager == null) {
             // Fallback to old system
             return;
