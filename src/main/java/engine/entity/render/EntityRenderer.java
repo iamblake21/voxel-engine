@@ -224,14 +224,19 @@ public class EntityRenderer {
                 z = entity.getLerpedZ(partialTick);
         float yaw = entity.getLerpedYaw(partialTick);
 
-        // --- NEW: Block Light Sampling ---
+        // --- Block Light Sampling (RGB packed) ---
         float lightVal = 0.0f;
         if (world != null) {
             int bx = (int) Math.floor(x);
             int by = (int) Math.floor(y + 0.5f); // Sample at eye/center level
             int bz = (int) Math.floor(z);
-            int light = world.peekBlockLight(bx, by, bz);
-            lightVal = light / 15.0f;
+            int packed = world.peekBlockLight(bx, by, bz);
+            // Unpack RGB components (4 bits each, format 0x0RGB)
+            int r = (packed >> 8) & 0xF;
+            int g = (packed >> 4) & 0xF;
+            int b = packed & 0xF;
+            // Use max component for overall intensity (entities don't need colored light)
+            lightVal = Math.max(r, Math.max(g, b)) / 15.0f;
         }
 
         shader.bind(); // Ensure bound (should be bound by begin(), but renderEntity might be called

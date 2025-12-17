@@ -819,9 +819,9 @@ public class Renderer {
                 "layout(location=2) in float aAO;\n" +
                 "layout(location=3) in float aFaceIdx;\n" +
                 "layout(location=4) in float aTileIndex;\n" +
-                "layout(location=5) in float aSkyLight;\n" + // ✅ NEW
-                "layout(location=6) in float aBlockLight;\n" + // ✅ NEW
-                "layout(location=7) in vec3 aColor;\n" + // ✅ NEW: Vertex Color
+                "layout(location=5) in float aSkyLight;\n" +
+                "layout(location=6) in vec3 aBlockLight;\n" + // RGB block light
+                "layout(location=7) in vec3 aColor;\n" +
                 "\n" +
                 "uniform mat4 uProj, uView, uModel;\n" +
                 "uniform float uTime;\n" +
@@ -831,8 +831,8 @@ public class Renderer {
                 "\n" +
                 "out vec2 vUV;\n" +
                 "out float vAO;\n" +
-                "out float vSkyLight;\n" + // ✅ NEW
-                "out float vBlockLight;\n" + // ✅ NEW
+                "out float vSkyLight;\n" +
+                "out vec3 vBlockLight;\n" + // RGB block light
                 "out vec2 vWorldXZ;\n" +
                 "out vec3 vWP;\n" +
                 "out float vDistFromCamera;\n" +
@@ -895,7 +895,7 @@ public class Renderer {
                 "in vec2 vUV;\n" +
                 "in float vAO;\n" +
                 "in float vSkyLight;\n" +
-                "in float vBlockLight;\n" +
+                "in vec3 vBlockLight;\n" + // RGB block light
                 "in vec2 vWorldXZ;\n" +
                 "in vec3 vWP;\n" +
                 "in float vDistFromCamera;\n" +
@@ -959,10 +959,13 @@ public class Renderer {
                 "  float sunHeight = max(0.0, uSunDir.y);\n" +
                 "  float sunStrength = pow(sunHeight, 1.2);\n" + // Approximate match to Java side w/ logic
                 "\n" +
-                "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" + // RE-ADDED this line
+                "  float skyIntensity = clamp(sunHeight * 1.0 + 0.2, 0.2, 1.0);\n" +
                 "  float skyLum = vSkyLight * skyIntensity;\n" +
-                "  float blockLum = vBlockLight;\n" +
-                "  float lightLevel = max(skyLum, blockLum);\n" +
+                "  \n" +
+                "  // RGB Light Mixing: Sky light is white, block light is colored\n" +
+                "  vec3 skyLightVec = vec3(skyLum);\n" +
+                "  vec3 blockColor = vBlockLight;\n" +
+                "  vec3 lightLevel = max(skyLightVec, blockColor); // Per-channel max\n" +
                 "\n" +
                 "  vec4 texColor;\n" +
                 "  vec3 finalColor;\n" +
@@ -978,13 +981,14 @@ public class Renderer {
                 "     vec3 terrainTint = uTint.rgb * vColor;\n" +
                 "     finalColor = texColor.rgb * terrainTint;\n" +
                 "     \n" +
-                "     lightLevel = max(lightLevel, 0.1);\n" +
+                "     lightLevel = max(lightLevel, vec3(0.1)); // Minimum ambient\n" +
                 "     finalColor *= vAO;\n" +
                 "     finalColor *= lightLevel;\n" +
                 "\n" +
                 "  } else {\n" +
                 "     texColor = vec4(0.2, 0.5, 0.9, 0.6);\n" +
-                "     finalColor = texColor.rgb * lightLevel * vAO;\n" +
+                "     vec3 waterLight = max(lightLevel, vec3(0.2));\n" +
+                "     finalColor = texColor.rgb * waterLight * vAO;\n" +
                 "  }\n" +
                 "\n" +
                 "  // Dynamic Fog Color matching Skybox\n" +

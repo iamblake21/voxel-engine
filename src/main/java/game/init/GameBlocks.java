@@ -41,6 +41,9 @@ public final class GameBlocks {
         public static Block LIGHTDEUG;
         public static Block FLOWERDEBUG;
         public static Block TORCHDEBUG;
+        public static Block RED_LAMP;
+        public static Block GREEN_LAMP;
+        public static Block BLUE_LAMP;
 
         // Interactions
         public static Block CHEST;
@@ -185,7 +188,28 @@ public final class GameBlocks {
                                                 .opaque(false)
                                                 .hardness(0.0f) // Instant
                                                 .tile(1, 2)
-                                                .lightLevel(15)));
+                                                .lightColor(15, 11, 6))); // Orange/Yellow torch
+
+                RED_LAMP = Blocks.register("game:red_lamp",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.3f)
+                                                .tile(1, 1) // Uses same texture as light block for now
+                                                .lightColor(15, 0, 0)));
+
+                GREEN_LAMP = Blocks.register("game:green_lamp",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.3f)
+                                                .tile(1, 1)
+                                                .lightColor(0, 15, 0)));
+
+                BLUE_LAMP = Blocks.register("game:blue_lamp",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(0.3f)
+                                                .tile(1, 1)
+                                                .lightColor(0, 0, 15)));
 
                 DOOR = Blocks.register("game:door", new DoorBlock(
                                 BlockProperties.create()

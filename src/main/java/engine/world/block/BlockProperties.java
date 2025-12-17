@@ -42,7 +42,6 @@ public class BlockProperties {
 
     LootTable lootTable = null;
 
-
     public BlockProperties model(String path) {
         this.modelPath = path;
         return this;
@@ -61,7 +60,16 @@ public class BlockProperties {
     // ==================== BUILDER METHODS ====================
 
     public BlockProperties lightLevel(int level) {
-        this.lightLevel = Math.max(0, Math.min(15, level));
+        // Legacy support: white light
+        return lightColor(level, level, level);
+    }
+
+    public BlockProperties lightColor(int r, int g, int b) {
+        int pr = Math.max(0, Math.min(15, r));
+        int pg = Math.max(0, Math.min(15, g));
+        int pb = Math.max(0, Math.min(15, b));
+        // Pack: 0x0RGB
+        this.lightLevel = (pr << 8) | (pg << 4) | pb;
         return this;
     }
 
@@ -168,9 +176,6 @@ public class BlockProperties {
         this.lootTable = lootTable;
         return this;
     }
-
-
-
 
     // ==================== PRESETS ====================
 
@@ -302,7 +307,6 @@ public class BlockProperties {
     public boolean hasLoot() {
         return lootTable != null && !lootTable.isEmpty();
     }
-
 
     /**
      * Copy properties from another BlockProperties

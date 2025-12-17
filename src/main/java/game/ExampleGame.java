@@ -134,6 +134,9 @@ public class ExampleGame implements IGame {
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 2));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.TORCH, 34));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.DOOR, 1));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.RED_LAMP, 12));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.GREEN_LAMP, 12));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.BLUE_LAMP, 12));
 
         // Setup render input handler (Using Field)
         this.renderSettings = new RenderSettings();

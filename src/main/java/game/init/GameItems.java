@@ -24,6 +24,9 @@ public final class GameItems {
         public static Item LIGHT_BLOCK;
         public static Item POPPY;
         public static Item TORCH;
+        public static Item RED_LAMP;
+        public static Item GREEN_LAMP;
+        public static Item BLUE_LAMP;
         public static Item PLANKS_OAK;
         public static Item GLASS;
         public static Item STONE_BRICKS;
@@ -115,6 +118,13 @@ public final class GameItems {
 
                 POPPY = Items.register("game:poppy",
                                 new BlockItem(GameBlocks.FLOWERDEBUG));
+
+                RED_LAMP = Items.register("game:red_lamp",
+                                new BlockItem(GameBlocks.RED_LAMP));
+                GREEN_LAMP = Items.register("game:green_lamp",
+                                new BlockItem(GameBlocks.GREEN_LAMP));
+                BLUE_LAMP = Items.register("game:blue_lamp",
+                                new BlockItem(GameBlocks.BLUE_LAMP));
 
                 // Water bucket placeholder (not a direct block item)
                 WATER_BUCKET = Items.register("game:water_bucket",

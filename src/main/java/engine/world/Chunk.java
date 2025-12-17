@@ -51,7 +51,7 @@ public class Chunk {
     private final Mesh[] solidLOD = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] transparentLOD = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] waterLOD = new Mesh[MAX_LOD_LEVELS];
-    private final byte[] blockLight; // 0..15
+    private final short[] blockLight; // 0..15 per channel (0xRGB)
     private final byte[] skyLight;
     private final byte[] fluidData; // 0..15 (fluid level)
 
@@ -74,7 +74,7 @@ public class Chunk {
 
         this.blocks = new int[SIZE * HEIGHT * SIZE];
         this.heightMap = new int[SIZE * SIZE];
-        this.blockLight = new byte[SIZE * HEIGHT * SIZE];
+        this.blockLight = new short[SIZE * HEIGHT * SIZE];
         this.skyLight = new byte[SIZE * HEIGHT * SIZE];
         this.fluidData = new byte[SIZE * HEIGHT * SIZE];
 
@@ -82,7 +82,7 @@ public class Chunk {
         int airId = Blocks.AIR().getNumericId();
         Arrays.fill(blocks, airId);
         Arrays.fill(heightMap, -1);
-        Arrays.fill(blockLight, (byte) 0);
+        Arrays.fill(blockLight, (short) 0);
         Arrays.fill(skyLight, (byte) 0);
         Arrays.fill(fluidData, (byte) 0);
 
@@ -142,14 +142,14 @@ public class Chunk {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
             return 0;
         }
-        return blockLight[index(x, y, z)] & 0xFF;
+        return blockLight[index(x, y, z)] & 0xFFFF;
     }
 
     public void setBlockLight(int x, int y, int z, int level) {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
             return;
         }
-        blockLight[index(x, y, z)] = (byte) Math.max(0, Math.min(15, level));
+        blockLight[index(x, y, z)] = (short) level;
     }
 
     public int getSkyLight(int x, int y, int z) {
@@ -169,7 +169,7 @@ public class Chunk {
         return skyLight;
     }
 
-    public byte[] getBlockLightData() {
+    public short[] getBlockLightData() {
         return blockLight;
     }
 
@@ -309,7 +309,7 @@ public class Chunk {
     /**
      * Applica i dati di Block Light dal buffer calcolato nel worker thread.
      */
-    public void applyBlockLightData(byte[] blockLightBuffer) {
+    public void applyBlockLightData(short[] blockLightBuffer) {
         if (blockLightBuffer.length != this.blockLight.length)
             return;
 

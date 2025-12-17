@@ -366,7 +366,9 @@ public class MeshBuilder {
         // 2. Compute AO and lighting
         float[] ao;
         float[] skyLight;
-        float[] blockLight;
+        float[] blR;
+        float[] blG;
+        float[] blB;
 
         // Use integer coordinates for lighting lookups
         int ibx = Math.round(bx);
@@ -376,19 +378,30 @@ public class MeshBuilder {
         if (simplifiedLighting) {
             ao = computeSimplifiedAO(ny);
             skyLight = new float[4];
-            blockLight = new float[4];
+            blR = new float[4];
+            blG = new float[4];
+            blB = new float[4];
 
             float sky = getSkyLightAt(chunk, world, ibx + nx, iby + ny, ibz + nz) / 15.0f;
-            float blk = getBlockLightAt(chunk, world, ibx + nx, iby + ny, ibz + nz) / 15.0f;
+            int packedBlk = getBlockLightAt(chunk, world, ibx + nx, iby + ny, ibz + nz);
+
+            float br = ((packedBlk >> 8) & 0xF) / 15.0f;
+            float bg = ((packedBlk >> 4) & 0xF) / 15.0f;
+            float bb = (packedBlk & 0xF) / 15.0f;
+
             for (int i = 0; i < 4; i++) {
                 skyLight[i] = sky;
-                blockLight[i] = blk;
+                blR[i] = br;
+                blG[i] = bg;
+                blB[i] = bb;
             }
         } else {
             ao = computeSmoothAO(chunk, world, ibx, iby, ibz, faceIdx);
             SmoothLight light = computeSmoothLight(chunk, world, ibx, iby, ibz, faceIdx);
             skyLight = light.sky;
-            blockLight = light.block;
+            blR = light.blockR;
+            blG = light.blockG;
+            blB = light.blockB;
         }
 
         // 3. Texture coordinates
@@ -406,7 +419,7 @@ public class MeshBuilder {
         float r = ((color >> 16) & 0xFF) / 255f;
         float g = ((color >> 8) & 0xFF) / 255f;
         float b = (color & 0xFF) / 255f;
-        emitQuad(dst, verts, uv, vCoord, ao, skyLight, blockLight, faceIdx, tileIndex, r, g, b);
+        emitQuad(dst, verts, uv, vCoord, ao, skyLight, blR, blG, blB, faceIdx, tileIndex, r, g, b);
     }
 
     private int getFluidLevelAt(ChunkData chunk, WorldAccess world, int x, int y, int z) {
@@ -577,27 +590,40 @@ public class MeshBuilder {
      * anisotropy.
      */
     private void emitQuad(FloatArrayList dst, float[][] v, float[][] uv, float[] vCoord,
-            float[] ao, float[] sky, float[] blk, int faceIdx, int tileIndex, float r, float g, float b) {
+            float[] ao, float[] sky, float[] blR, float[] blG, float[] blB, int faceIdx, int tileIndex, float r,
+            float g, float b) {
 
         // Choose diagonal that minimizes interpolation artifacts
         if (ao[0] + ao[2] > ao[1] + ao[3]) {
-            // Diagonal from v1 to v3: triangles (1,2,3) and (1,3,0)
-            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1], r, g, b);
-            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2], r, g, b);
-            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3], r, g, b);
+            // Diagonal from v1 to v3
+            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blR[1], blG[1], blB[1], r, g,
+                    b);
+            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blR[2], blG[2], blB[2], r, g,
+                    b);
+            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blR[3], blG[3], blB[3], r, g,
+                    b);
 
-            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1], r, g, b);
-            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3], r, g, b);
-            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0], r, g, b);
+            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blR[1], blG[1], blB[1], r, g,
+                    b);
+            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blR[3], blG[3], blB[3], r, g,
+                    b);
+            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blR[0], blG[0], blB[0], r, g,
+                    b);
         } else {
-            // Diagonal from v0 to v2: triangles (0,1,2) and (0,2,3)
-            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0], r, g, b);
-            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blk[1], r, g, b);
-            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2], r, g, b);
+            // Diagonal from v0 to v2
+            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blR[0], blG[0], blB[0], r, g,
+                    b);
+            pushVertex(dst, v[1], uv[1][0], vCoord[1], ao[1], faceIdx, tileIndex, sky[1], blR[1], blG[1], blB[1], r, g,
+                    b);
+            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blR[2], blG[2], blB[2], r, g,
+                    b);
 
-            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blk[0], r, g, b);
-            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blk[2], r, g, b);
-            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blk[3], r, g, b);
+            pushVertex(dst, v[0], uv[0][0], vCoord[0], ao[0], faceIdx, tileIndex, sky[0], blR[0], blG[0], blB[0], r, g,
+                    b);
+            pushVertex(dst, v[2], uv[2][0], vCoord[2], ao[2], faceIdx, tileIndex, sky[2], blR[2], blG[2], blB[2], r, g,
+                    b);
+            pushVertex(dst, v[3], uv[3][0], vCoord[3], ao[3], faceIdx, tileIndex, sky[3], blR[3], blG[3], blB[3], r, g,
+                    b);
         }
     }
 
@@ -677,11 +703,15 @@ public class MeshBuilder {
 
     private static class SmoothLight {
         final float[] sky;
-        final float[] block;
+        final float[] blockR;
+        final float[] blockG;
+        final float[] blockB;
 
-        SmoothLight(float[] s, float[] b) {
+        SmoothLight(float[] s, float[] br, float[] bg, float[] bb) {
             sky = s;
-            block = b;
+            blockR = br;
+            blockG = bg;
+            blockB = bb;
         }
     }
 
@@ -701,7 +731,9 @@ public class MeshBuilder {
         int az = bz + n[2];
 
         float[] skyOut = new float[4];
-        float[] blockOut = new float[4];
+        float[] blockROut = new float[4];
+        float[] blockGOut = new float[4];
+        float[] blockBOut = new float[4];
 
         // Check side occlusion
         boolean uNegOcc = isOccluder(getBlockAt(chunk, world, ax - u[0], ay - u[1], az - u[2]));
@@ -709,49 +741,73 @@ public class MeshBuilder {
         boolean vNegOcc = isOccluder(getBlockAt(chunk, world, ax - v[0], ay - v[1], az - v[2]));
         boolean vPosOcc = isOccluder(getBlockAt(chunk, world, ax + v[0], ay + v[1], az + v[2]));
 
-        // Center light (always sampled)
-        int centerSky = getSkyLightAt(chunk, world, ax, ay, az);
-        int centerBlock = getBlockLightAt(chunk, world, ax, ay, az);
+        // Gather indices for 9 blocks
+        // 0: Center, 1-4: Sides, 5-8: Corners
+        int[] indices = new int[9];
+        // ... Optimization: just gather values directly
 
-        // Side lights
-        int uNegSky = getSkyLightAt(chunk, world, ax - u[0], ay - u[1], az - u[2]);
-        int uPosSky = getSkyLightAt(chunk, world, ax + u[0], ay + u[1], az + u[2]);
-        int vNegSky = getSkyLightAt(chunk, world, ax - v[0], ay - v[1], az - v[2]);
-        int vPosSky = getSkyLightAt(chunk, world, ax + v[0], ay + v[1], az + v[2]);
+        // Helper to get lights
+        int cSky = getSkyLightAt(chunk, world, ax, ay, az);
+        int cBlk = getBlockLightAt(chunk, world, ax, ay, az); // Packed RGB
 
-        int uNegBlk = getBlockLightAt(chunk, world, ax - u[0], ay - u[1], az - u[2]);
-        int uPosBlk = getBlockLightAt(chunk, world, ax + u[0], ay + u[1], az + u[2]);
-        int vNegBlk = getBlockLightAt(chunk, world, ax - v[0], ay - v[1], az - v[2]);
-        int vPosBlk = getBlockLightAt(chunk, world, ax + v[0], ay + v[1], az + v[2]);
+        int uNSky = getSkyLightAt(chunk, world, ax - u[0], ay - u[1], az - u[2]);
+        int uNBlk = getBlockLightAt(chunk, world, ax - u[0], ay - u[1], az - u[2]);
 
-        // Corner lights
+        int uPSky = getSkyLightAt(chunk, world, ax + u[0], ay + u[1], az + u[2]);
+        int uPBlk = getBlockLightAt(chunk, world, ax + u[0], ay + u[1], az + u[2]);
+
+        int vNSky = getSkyLightAt(chunk, world, ax - v[0], ay - v[1], az - v[2]);
+        int vNBlk = getBlockLightAt(chunk, world, ax - v[0], ay - v[1], az - v[2]);
+
+        int vPSky = getSkyLightAt(chunk, world, ax + v[0], ay + v[1], az + v[2]);
+        int vPBlk = getBlockLightAt(chunk, world, ax + v[0], ay + v[1], az + v[2]);
+
+        // Corners
         int c00Sky = getSkyLightAt(chunk, world, ax - u[0] - v[0], ay - u[1] - v[1], az - u[2] - v[2]);
-        int c10Sky = getSkyLightAt(chunk, world, ax + u[0] - v[0], ay + u[1] - v[1], az + u[2] - v[2]);
-        int c11Sky = getSkyLightAt(chunk, world, ax + u[0] + v[0], ay + u[1] + v[1], az + u[2] + v[2]);
-        int c01Sky = getSkyLightAt(chunk, world, ax - u[0] + v[0], ay - u[1] + v[1], az - u[2] + v[2]);
-
         int c00Blk = getBlockLightAt(chunk, world, ax - u[0] - v[0], ay - u[1] - v[1], az - u[2] - v[2]);
+
+        int c10Sky = getSkyLightAt(chunk, world, ax + u[0] - v[0], ay + u[1] - v[1], az + u[2] - v[2]);
         int c10Blk = getBlockLightAt(chunk, world, ax + u[0] - v[0], ay + u[1] - v[1], az + u[2] - v[2]);
+
+        int c11Sky = getSkyLightAt(chunk, world, ax + u[0] + v[0], ay + u[1] + v[1], az + u[2] + v[2]);
         int c11Blk = getBlockLightAt(chunk, world, ax + u[0] + v[0], ay + u[1] + v[1], az + u[2] + v[2]);
+
+        int c01Sky = getSkyLightAt(chunk, world, ax - u[0] + v[0], ay - u[1] + v[1], az - u[2] + v[2]);
         int c01Blk = getBlockLightAt(chunk, world, ax - u[0] + v[0], ay - u[1] + v[1], az - u[2] + v[2]);
 
         // Vertex 0: -U, -V
-        skyOut[0] = averageLight(centerSky, uNegSky, vNegSky, c00Sky, uNegOcc, vNegOcc);
-        blockOut[0] = averageLight(centerBlock, uNegBlk, vNegBlk, c00Blk, uNegOcc, vNegOcc);
+        skyOut[0] = averageLight(cSky, uNSky, vNSky, c00Sky, uNegOcc, vNegOcc);
+        blockROut[0] = averageLightRGB(cBlk, uNBlk, vNBlk, c00Blk, uNegOcc, vNegOcc, 8); // R
+        blockGOut[0] = averageLightRGB(cBlk, uNBlk, vNBlk, c00Blk, uNegOcc, vNegOcc, 4); // G
+        blockBOut[0] = averageLightRGB(cBlk, uNBlk, vNBlk, c00Blk, uNegOcc, vNegOcc, 0); // B
 
         // Vertex 1: +U, -V
-        skyOut[1] = averageLight(centerSky, uPosSky, vNegSky, c10Sky, uPosOcc, vNegOcc);
-        blockOut[1] = averageLight(centerBlock, uPosBlk, vNegBlk, c10Blk, uPosOcc, vNegOcc);
+        skyOut[1] = averageLight(cSky, uPSky, vNSky, c10Sky, uPosOcc, vNegOcc);
+        blockROut[1] = averageLightRGB(cBlk, uPBlk, vNBlk, c10Blk, uPosOcc, vNegOcc, 8);
+        blockGOut[1] = averageLightRGB(cBlk, uPBlk, vNBlk, c10Blk, uPosOcc, vNegOcc, 4);
+        blockBOut[1] = averageLightRGB(cBlk, uPBlk, vNBlk, c10Blk, uPosOcc, vNegOcc, 0);
 
         // Vertex 2: +U, +V
-        skyOut[2] = averageLight(centerSky, uPosSky, vPosSky, c11Sky, uPosOcc, vPosOcc);
-        blockOut[2] = averageLight(centerBlock, uPosBlk, vPosBlk, c11Blk, uPosOcc, vPosOcc);
+        skyOut[2] = averageLight(cSky, uPSky, vPSky, c11Sky, uPosOcc, vPosOcc);
+        blockROut[2] = averageLightRGB(cBlk, uPBlk, vPBlk, c11Blk, uPosOcc, vPosOcc, 8);
+        blockGOut[2] = averageLightRGB(cBlk, uPBlk, vPBlk, c11Blk, uPosOcc, vPosOcc, 4);
+        blockBOut[2] = averageLightRGB(cBlk, uPBlk, vPBlk, c11Blk, uPosOcc, vPosOcc, 0);
 
         // Vertex 3: -U, +V
-        skyOut[3] = averageLight(centerSky, uNegSky, vPosSky, c01Sky, uNegOcc, vPosOcc);
-        blockOut[3] = averageLight(centerBlock, uNegBlk, vPosBlk, c01Blk, uNegOcc, vPosOcc);
+        skyOut[3] = averageLight(cSky, uNSky, vPSky, c01Sky, uNegOcc, vPosOcc);
+        blockROut[3] = averageLightRGB(cBlk, uNBlk, vPBlk, c01Blk, uNegOcc, vPosOcc, 8);
+        blockGOut[3] = averageLightRGB(cBlk, uNBlk, vPBlk, c01Blk, uNegOcc, vPosOcc, 4);
+        blockBOut[3] = averageLightRGB(cBlk, uNBlk, vPBlk, c01Blk, uNegOcc, vPosOcc, 0);
 
-        return new SmoothLight(skyOut, blockOut);
+        return new SmoothLight(skyOut, blockROut, blockGOut, blockBOut);
+    }
+
+    private float averageLightRGB(int center, int side1, int side2, int corner, boolean occ1, boolean occ2, int shift) {
+        int c = (center >> shift) & 0xF;
+        int s1 = (side1 >> shift) & 0xF;
+        int s2 = (side2 >> shift) & 0xF;
+        int co = (corner >> shift) & 0xF;
+        return averageLight(c, s1, s2, co, occ1, occ2);
     }
 
     /**
@@ -843,9 +899,8 @@ public class MeshBuilder {
             return;
         }
 
-        // Sample light at block center
+        // Sample sky light at block center
         float skyLight = getSkyLightAt(chunk, world, bx, by, bz) / 15.0f;
-        float blockLight = getBlockLightAt(chunk, world, bx, by, bz) / 15.0f;
 
         for (CompiledFace face : compiled.faces) {
             // Cullface check
@@ -928,18 +983,25 @@ public class MeshBuilder {
 
             // Two triangles
             float r = 1.0f, g = 1.0f, b = 1.0f; // White for custom models for now
-            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+
+            // Retrieve packed block light again to ensure we have RGB components
+            int packedBlk = getBlockLightAt(chunk, world, bx, by, bz);
+            float br = ((packedBlk >> 8) & 0xF) / 15.0f;
+            float bg = ((packedBlk >> 4) & 0xF) / 15.0f;
+            float bb = (packedBlk & 0xF) / 15.0f;
+
+            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, br, bg, bb, r,
                     g, b);
-            pushVertex(dst, v[1], face.uvs[1][0], face.uvs[1][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+            pushVertex(dst, v[1], face.uvs[1][0], face.uvs[1][1], ao, faceIdx, face.tileIndex, skyLight, br, bg, bb, r,
                     g, b);
-            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, br, bg, bb, r,
                     g, b);
 
-            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+            pushVertex(dst, v[0], face.uvs[0][0], face.uvs[0][1], ao, faceIdx, face.tileIndex, skyLight, br, bg, bb, r,
                     g, b);
-            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+            pushVertex(dst, v[2], face.uvs[2][0], face.uvs[2][1], ao, faceIdx, face.tileIndex, skyLight, br, bg, bb, r,
                     g, b);
-            pushVertex(dst, v[3], face.uvs[3][0], face.uvs[3][1], ao, faceIdx, face.tileIndex, skyLight, blockLight, r,
+            pushVertex(dst, v[3], face.uvs[3][0], face.uvs[3][1], ao, faceIdx, face.tileIndex, skyLight, br, bg, bb, r,
                     g, b);
         }
     }
@@ -1230,7 +1292,7 @@ public class MeshBuilder {
 
     private void pushVertex(FloatArrayList dst, float[] pos, float u, float v,
             float ao, int faceIdx, int tileIndex,
-            float skyLight, float blockLight, float r, float g, float b) {
+            float skyLight, float blR, float blG, float blB, float r, float g, float b) {
         dst.add(pos[0]);
         dst.add(pos[1]);
         dst.add(pos[2]);
@@ -1240,7 +1302,9 @@ public class MeshBuilder {
         dst.add((float) faceIdx);
         dst.add((float) tileIndex);
         dst.add(skyLight);
-        dst.add(blockLight);
+        dst.add(blR);
+        dst.add(blG);
+        dst.add(blB);
         dst.add(r);
         dst.add(g);
         dst.add(b);
