@@ -97,6 +97,9 @@ public class Engine {
             for (Entity e : entities.getEntities()) {
                 if (e instanceof engine.entity.Player)
                     continue;
+
+                // CRITICAL: Pre-tick at 60Hz (Physics Rate) for correct interpolation
+                e.preTick();
                 physics.processEntity(e, world, deltaTime);
             }
         }
@@ -106,28 +109,35 @@ public class Engine {
         if (!running)
             return;
 
-        // 1. Render World
+        // 1. Render World (Solid Pass)
+        entities.setPartialTick(gameLoop.getTime().getAlpha()); // Sync partial tick
+
+        // Critical: Update Camera BEFORE any rendering so View Matrix is consistent for
+        // all passes
+        if (entities.getPlayer() != null) {
+            entities.getPlayer().updateCamera(entities.getPartialTick());
+        }
         renderer.beginFrame(world);
         if (world != null) {
-            renderer.renderWorld(world);
+            renderer.renderSolid(world);
         }
 
-        // 2. Render Entities
+        // 2. Render Entities (Opaque) - Now between Solid and Transparent
         if (entities.getPlayer() != null) {
-            // Update camera from interpolated player position
-            entities.getPlayer().updateCamera(entities.getPartialTick());
+            // Camera already updated at start of frame
 
-            engine.utils.Math3D.Vec3 sunDir = (world != null) ? world.getSunDirection() : null;
-            entityRenderer.begin(entities.getPlayer().getCamera(), sunDir);
+            // Pass lighting from Renderer to EntityRenderer
+            entityRenderer.begin(entities.getPlayer().getCamera(),
+                    renderer.getSunDir(), renderer.getSunColor(), renderer.getAmbientColor());
 
             for (Entity e : entities.getEntities()) {
                 // Renderizza il player SOLO se in terza persona
                 if (e == entities.getPlayer()) {
                     if (entities.getPlayer().isThirdPerson()) {
-                        entityRenderer.renderEntity(e, entities.getPartialTick());
+                        entityRenderer.renderEntity(e, world, entities.getPartialTick());
                     }
                 } else {
-                    entityRenderer.renderEntity(e, entities.getPartialTick());
+                    entityRenderer.renderEntity(e, world, entities.getPartialTick());
                 }
             }
             entityRenderer.end();
@@ -139,12 +149,23 @@ public class Engine {
 
             for (Entity e : entities.getEntities()) {
                 if (e instanceof ItemEntity) {
-                    itemEntityRenderer.renderItemEntity((ItemEntity) e, entities.getPartialTick());
+                    itemEntityRenderer.renderItemEntity((ItemEntity) e, world, entities.getPartialTick());
                 }
             }
             itemEntityRenderer.end();
+        }
 
-            // 2.5 Render Hand (First Person) - AFTER entities, BEFORE GUI
+        // 3. Render World (Transparent Pass) - Water, Glass
+        if (world != null) {
+            renderer.renderTransparent(world);
+        }
+
+        if (game != null) {
+            game.render3D(renderer, entities.getPartialTick());
+        }
+
+        if (entities.getPlayer() != null) {
+            // 2.5 Render Hand (First Person) - AFTER all world rendering
             renderer.renderHand(entities.getPlayer(), entities.getPartialTick());
         }
 

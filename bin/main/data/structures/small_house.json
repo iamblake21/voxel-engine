@@ -12,7 +12,8 @@
     "game:planks_oak",
     "game:glass",
     "game:log_oak",
-    "game:door"
+    "game:door",
+    "game:door[half=upper]"
   ],
   "blocks": [
     {"pos": [0, 0, 0], "state": 0}, {"pos": [1, 0, 0], "state": 0}, {"pos": [2, 0, 0], "state": 0}, {"pos": [3, 0, 0], "state": 0}, {"pos": [4, 0, 0], "state": 0},
@@ -35,7 +36,7 @@
     {"pos": [0, 2, 1], "state": 1}, {"pos": [4, 2, 1], "state": 1},
     {"pos": [0, 2, 2], "state": 2}, {"pos": [4, 2, 2], "state": 1},
     {"pos": [0, 2, 3], "state": 1}, {"pos": [4, 2, 3], "state": 1},
-    {"pos": [1, 2, 4], "state": 1}, {"pos": [2, 2, 4], "state": 4}, {"pos": [3, 2, 4], "state": 1},
+    {"pos": [1, 2, 4], "state": 1}, {"pos": [2, 2, 4], "state": 5}, {"pos": [3, 2, 4], "state": 1},
 
     {"pos": [0, 3, 0], "state": 0}, {"pos": [1, 3, 0], "state": 0}, {"pos": [2, 3, 0], "state": 0}, {"pos": [3, 3, 0], "state": 0}, {"pos": [4, 3, 0], "state": 0},
     {"pos": [0, 3, 1], "state": 0}, {"pos": [4, 3, 1], "state": 0},

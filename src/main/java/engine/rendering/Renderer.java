@@ -358,31 +358,45 @@ public class Renderer {
     /**
      * Render world - uses Frustum culling, LOD, and Fog!
      */
-    public void renderWorld(World world) {
-        if (camera == null) {
-            System.err.println("Warning: No camera set");
-            return;
-        }
+    // Cached lighting values for EntityRenderer
+    private Vec3 lastSunDir = new Vec3(0, 1, 0);
+    private Vec3 lastSunColor = new Vec3(1, 1, 1);
+    private Vec3 lastAmbientColor = new Vec3(0.4f, 0.4f, 0.4f);
+    private ArrayList<Chunk> currentVisibleChunks = new ArrayList<>();
 
+    public Vec3 getSunDir() {
+        return lastSunDir;
+    }
+
+    public Vec3 getSunColor() {
+        return lastSunColor;
+    }
+
+    public Vec3 getAmbientColor() {
+        return lastAmbientColor;
+    }
+
+    /**
+     * Render SOLID world (Opaque blocks).
+     * Calculates lighting and visible chunks.
+     */
+    public void renderSolid(World world) {
+        if (camera == null)
+            return;
         this.currentWorld = world;
         boolean underwater = isHeadUnderwater(world);
 
-        // Update frustum from camera matrices
-        if (frustumCullingEnabled) {
+        if (frustumCullingEnabled)
             updateFrustum();
-        }
 
-        // --- SKYBOX ---
+        // Skybox covers background, render first
         renderSkybox(world);
-        // --- FINE SKYBOX ---
 
         voxelShader.bind();
-        atlasTexture.bind(0); // TextureArray o Texture classica, il bind non cambia
+        atlasTexture.bind(0);
 
-        // Calculate view distance in world units for fog
         float viewDistanceWorld = config.viewDistance * config.chunkSize;
 
-        // Set uniforms base
         voxelShader.setUniform(uProj, camera.getProjectionMatrix());
         voxelShader.setUniform(uView, camera.getViewMatrix());
         voxelShader.setUniform(uTex, 0);
@@ -390,38 +404,16 @@ public class Renderer {
         voxelShader.setUniform(uCameraPos, camera.getPosition());
         voxelShader.setUniform(uWaterLevel, config.waterLevel);
         voxelShader.setUniform(uUnderwater, underwater ? 1 : 0);
-        voxelShader.setUniform(uUseTextureArray, 1); // Enable Atlas for blocks
-
-        // Rimangono se ti servono nello shader (per l'acqua usi ancora uTilesX/uTilesY)
+        voxelShader.setUniform(uUseTextureArray, 1);
         voxelShader.setUniform(uTilesX, 8);
         voxelShader.setUniform(uTilesY, 8);
-
         voxelShader.setUniform(uGrassTint, 0.54f, 0.78f, 0.38f);
         voxelShader.setUniform(uFoliageTint, 0.52f, 0.75f, 0.35f);
 
-        // --- QUI È IL CAMBIO IMPORTANTE ---
-
-        // Prima avevi:
-        // voxelShader.setUniform2i(uTileGrassTop, 0, 0);
-        // voxelShader.setUniform2i(uTileLeaves, 5, 0);
-        // voxelShader.setUniform2i(uTileWater, 6, 0);
-
-        // Ora calcoliamo gli INDICI layer per l'atlas 8x8:
-        // layerIndex = tileY * tilesX + tileX;
         int tilesX = 8;
+        voxelShader.setUniform(uTileGrassTopIndex, 0 * tilesX + 0);
+        voxelShader.setUniform(uTileLeavesIndex, 0 * tilesX + 5);
 
-        int grassTopIndex = 0 * tilesX + 0; // (tileX=0, tileY=0)
-        int leavesIndex = 0 * tilesX + 5; // (tileX=5, tileY=0)
-        // se ti serve uTileWaterIndex puoi farlo allo stesso modo: int waterIndex = 0 *
-        // tilesX + 6;
-
-        voxelShader.setUniform(uTileGrassTopIndex, grassTopIndex); // <<< nuovo
-        voxelShader.setUniform(uTileLeavesIndex, leavesIndex); // <<< nuovo
-        // niente più setUniform2i(uTileWater,...) perché nel tuo fragment non lo usi
-
-        // --- FINE CAMBIO IMPORTANTE ---
-
-        // Fog uniforms
         float fogColorR = underwater ? 0.10f : clearR;
         float fogColorG = underwater ? 0.32f : clearG;
         float fogColorB = underwater ? 0.70f : clearB;
@@ -430,150 +422,139 @@ public class Renderer {
         voxelShader.setUniform(uFogStart, fogStart * viewDistanceWorld);
         voxelShader.setUniform(uFogEnd, fogEnd * viewDistanceWorld);
 
-        // Get ALL loaded chunks, then filter by frustum
+        // Visibility
         ArrayList<Chunk> allChunks = world.getVisibleChunks(camera.getPosition());
-        ArrayList<Chunk> visibleChunks = filterByFrustum(allChunks);
+        currentVisibleChunks = filterByFrustum(allChunks);
 
-        // Sort by distance (front-to-back for better early-z rejection)
         Vec3 camPos = camera.getPosition();
-        visibleChunks.sort((a, b) -> {
-            float distA = chunkDistanceSq(a, camPos);
-            float distB = chunkDistanceSq(b, camPos);
-            return Float.compare(distA, distB);
-        });
+        currentVisibleChunks.sort((a, b) -> Float.compare(chunkDistanceSq(a, camPos), chunkDistanceSq(b, camPos)));
 
-        // Update stats
         lastChunksTotal = allChunks.size();
-        lastChunksRendered = visibleChunks.size();
+        lastChunksRendered = currentVisibleChunks.size();
         lastChunksCulled = lastChunksTotal - lastChunksRendered;
-
-        // Reset LOD counts
         for (int i = 0; i < 4; i++)
             lodCounts[i] = 0;
 
-        // Render solid (front-to-back)
+        // Render Opaque
         glDisable(GL_BLEND);
         glDepthMask(true);
         voxelShader.setUniform(uWaterPass, 0);
         voxelShader.setUniform(uTint, 1f, 1f, 1f, 1f);
 
-        // Time of day 0..1, se ti serve in altri effetti
+        // Lighting Calculation & Cache
         float timeOfDay = world.getTimeOfDay();
         voxelShader.setUniform(uTimeOfDay, timeOfDay);
 
-        // Direzione del sole calcolata dal World
-        Vec3 sunDir = world.getSunDirection();
-        voxelShader.setUniform(uSunDir, sunDir);
+        lastSunDir = world.getSunDirection();
+        voxelShader.setUniform(uSunDir, lastSunDir);
 
-        // Altezza del sole sopra l'orizzonte (0 = sotto, 1 = molto alto)
-        float sunHeight = Math.max(0f, sunDir.y);
-
-        // Curva un po' morbida: vicino a mezzogiorno più forte, ma non istantaneo
+        float sunHeight = Math.max(0f, lastSunDir.y);
         float sunStrength = (float) Math.pow(sunHeight, 1.2f);
 
-        // Colore base del sole (giallo caldo), poi scalato per intensità
-        float sunR = 1.0f * sunStrength;
-        float sunG = 0.95f * sunStrength;
-        float sunB = 0.85f * sunStrength;
-        Vec3 sunColor = new Vec3(sunR, sunG, sunB);
-        voxelShader.setUniform(uSunColor, sunColor);
+        lastSunColor = new Vec3(1.0f * sunStrength, 0.95f * sunStrength, 0.85f * sunStrength);
+        voxelShader.setUniform(uSunColor, lastSunColor);
 
-        // Ambient: non deve andare a zero totale, altrimenti è pitch black
-        float ambientStrength = 0.35f + 0.35f * sunHeight; // 0.35 notte, ~0.7 giorno
-        Vec3 ambientColor = new Vec3(
-                0.6f * ambientStrength,
-                0.7f * ambientStrength,
-                0.9f * ambientStrength);
-        voxelShader.setUniform(uAmbientColor, ambientColor);
+        float ambientStrength = 0.35f + 0.35f * sunHeight;
+        lastAmbientColor = new Vec3(0.6f * ambientStrength, 0.7f * ambientStrength, 0.9f * ambientStrength);
+        voxelShader.setUniform(uAmbientColor, lastAmbientColor);
 
-        for (Chunk chunk : visibleChunks) {
+        for (Chunk chunk : currentVisibleChunks) {
             int lod = calculateChunkLOD(chunk);
             lodCounts[lod]++;
-
-            // Get mesh for this LOD level
             Mesh solidMesh = chunk.getSolidMesh(lod);
             if (solidMesh != null && !solidMesh.isEmpty()) {
-                Mat4 model = Mat4.translate(
-                        chunk.getX() * config.chunkSize, 0,
-                        chunk.getZ() * config.chunkSize);
+                Mat4 model = Mat4.translate(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
                 voxelShader.setUniform(uModel, model);
                 solidMesh.draw();
             }
         }
 
-        // Block selection
         voxelShader.unbind();
-        renderBlockSelection(world);
-        voxelShader.bind();
+        renderBlockSelection(world); // Render selection on top of solids
+    }
 
-        // Transparent & Water (back-to-front for correct alpha blending)
+    /**
+     * Render TRANSPARENT world (Water, Glass, Leaves).
+     * Must be called AFTER renderSolid and renderEntities.
+     */
+    public void renderTransparent(World world) {
+        if (camera == null)
+            return;
+
+        voxelShader.bind();
+        atlasTexture.bind(0);
+
+        // Restore uniforms needed for transparent pass (Camera, Light, etc are
+        // persistent if shader wasn't unbound/changed too much, but safer to set
+        // Matrix)
+        voxelShader.setUniform(uProj, camera.getProjectionMatrix());
+        voxelShader.setUniform(uView, camera.getViewMatrix());
+        voxelShader.setUniform(uCameraPos, camera.getPosition());
+
+        // Lighting
+        voxelShader.setUniform(uSunDir, lastSunDir);
+        voxelShader.setUniform(uSunColor, lastSunColor);
+        voxelShader.setUniform(uAmbientColor, lastAmbientColor);
+
+        // Fog & Water settings
+        boolean underwater = isHeadUnderwater(world);
+        float fogColorR = underwater ? 0.10f : clearR;
+        float fogColorG = underwater ? 0.32f : clearG;
+        float fogColorB = underwater ? 0.70f : clearB;
+        voxelShader.setUniform(uFogColor, fogColorR, fogColorG, fogColorB);
+        voxelShader.setUniform(uUnderwater, underwater ? 1 : 0);
+        voxelShader.setUniform(uWaterLevel, config.waterLevel);
+
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_CULL_FACE);
-        // Important: Transparent blocks (like leaves) SHOULD write depth to work
-        // correctly with water
-        // consistently. Our fragment shader uses discard for alpha < 0.1, so holes
-        // won't write depth.
         glDepthMask(true);
 
-        // Iterate back-to-front once for all transparent types
-        for (int i = visibleChunks.size() - 1; i >= 0; i--) {
-            Chunk chunk = visibleChunks.get(i);
+        // Back-to-front
+        for (int i = currentVisibleChunks.size() - 1; i >= 0; i--) {
+            Chunk chunk = currentVisibleChunks.get(i);
             int lod = calculateChunkLOD(chunk);
-            Mat4 model = Mat4.translate(
-                    chunk.getX() * config.chunkSize, 0,
-                    chunk.getZ() * config.chunkSize);
+            Mat4 model = Mat4.translate(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
 
-            // 1. Transparent Mesh (Leaves, Flowers, etc.)
+            // 1. Transparent Mesh
             Mesh transpMesh = chunk.getTransparentMesh(lod);
             if (transpMesh != null && !transpMesh.isEmpty()) {
-                voxelShader.setUniform(uWaterPass, 0); // Treated as normal blocks
+                voxelShader.setUniform(uWaterPass, 0);
                 voxelShader.setUniform(uUseTextureArray, 1);
                 voxelShader.setUniform(uModel, model);
                 atlasTexture.bind(0);
                 transpMesh.draw();
             }
 
-            // 2. Custom Meshes (Models)
+            // 2. Custom Meshes
             for (java.util.Map.Entry<String, engine.rendering.Mesh> entry : chunk.getCustomMeshes().entrySet()) {
                 String texturePath = entry.getKey();
                 engine.rendering.Mesh customMesh = entry.getValue();
-
                 if (customMesh != null && !customMesh.isEmpty()) {
                     Texture tex = getCustomTexture(texturePath);
                     if (tex != null) {
                         voxelShader.setUniform(uWaterPass, 0);
-                        voxelShader.setUniform(uUseTextureArray, 0); // Disable Atlas
-                        tex.bind(1); // Bind to slot 1
+                        voxelShader.setUniform(uUseTextureArray, 0);
+                        tex.bind(1);
                         voxelShader.setUniform(uModel, model);
 
-                        // Fix Z-fighting for overlays (e.g. grass side) using Polygon Offset
-                        // Push fragments towards the camera
                         boolean isOverlay = texturePath.contains("grass_block_side_overlay");
                         if (isOverlay) {
                             glEnable(GL_POLYGON_OFFSET_FILL);
                             glPolygonOffset(-1.0f, -1.0f);
                         }
-
                         customMesh.draw();
-
-                        if (isOverlay) {
+                        if (isOverlay)
                             glDisable(GL_POLYGON_OFFSET_FILL);
-                        }
-
-                        voxelShader.setUniform(uUseTextureArray, 1); // Re-enable Atlas
+                        voxelShader.setUniform(uUseTextureArray, 1);
                     }
                 }
             }
 
             // 3. Water Mesh
-            // Water is consistently drawn after solids/cutouts in the same chunk.
-            // Since we iterate back-to-front, this is the correct order for "painter's
-            // algorithm"
-            // combined with depth buffering.
             Mesh waterMesh = chunk.getWaterMesh(lod);
             if (waterMesh != null && !waterMesh.isEmpty()) {
-                voxelShader.setUniform(uWaterPass, 1); // Water logic
+                voxelShader.setUniform(uWaterPass, 1);
                 voxelShader.setUniform(uUseTextureArray, 1);
                 voxelShader.setUniform(uModel, model);
                 atlasTexture.bind(0);

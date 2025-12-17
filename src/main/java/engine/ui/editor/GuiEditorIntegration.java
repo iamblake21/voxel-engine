@@ -36,6 +36,9 @@ public class GuiEditorIntegration {
     // Track F7 key state for toggle
     private boolean f7WasDown = false;
 
+    // Callback for when editor is activated
+    private Runnable onActivate;
+
     public GuiEditorIntegration(int windowWidth, int windowHeight, GuiRenderer guiRenderer) {
         this.guiRenderer = guiRenderer;
         this.editor = new GuiEditorOverlay(windowWidth, windowHeight);
@@ -47,6 +50,10 @@ public class GuiEditorIntegration {
         System.out.println("[GuiEditorIntegration] Ready. Press F7 to toggle editor.");
     }
 
+    public void setOnActivate(Runnable onActivate) {
+        this.onActivate = onActivate;
+    }
+
     /**
      * Update editor state - call every frame
      */
@@ -54,18 +61,13 @@ public class GuiEditorIntegration {
         // Toggle with F7
         boolean f7Down = input.isKeyDown(GLFW_KEY_F7);
         if (f7Down && !f7WasDown) {
+            System.out.println("[GuiEditorIntegration] F7 Pressed. Toggling...");
             editor.toggle();
+            System.out.println("[GuiEditorIntegration] Active: " + editor.isActive());
 
-            // If activating, load a default texture if none loaded
-            if (editor.isActive() && editor.getEditingDefinition().getTexture() == null) {
-                // Try to load existing inventory definition
-                if (Guis.exists("inventory")) {
-                    GuiDefinition existing = Guis.getOrThrow("inventory");
-                    editor.loadDefinition(existing);
-                } else {
-                    // Start with a blank 176x166 GUI (standard Minecraft size)
-                    editor.newDefinition("new_gui", 176, 166);
-                }
+            // Notify callback if needed or just let the main game handle state sync
+            if (onActivate != null && editor.isActive()) {
+                onActivate.run();
             }
         }
         f7WasDown = f7Down;

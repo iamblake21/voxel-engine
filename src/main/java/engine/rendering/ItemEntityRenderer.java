@@ -41,6 +41,7 @@ public class ItemEntityRenderer {
     private int uProj, uView, uModel, uTex, uTileIndex;
     private int uLightLevel, uTint;
     private int uTex2D, uUseTextureArray; // NEW uniforms
+    private int uBlockLight; // NEW
 
     // Constants
     private static final int ATLAS_TILES_X = 8;
@@ -68,6 +69,7 @@ public class ItemEntityRenderer {
         uTileIndex = shader.getUniformLocation("uTileIndex");
         uLightLevel = shader.getUniformLocation("uLightLevel");
         uTint = shader.getUniformLocation("uTint");
+        uBlockLight = shader.getUniformLocation("uBlockLight"); // NEW
 
         createCubeMesh();
         createPlaneMesh();
@@ -225,7 +227,7 @@ public class ItemEntityRenderer {
         glDisable(GL_CULL_FACE); // Disabilita il culling
     }
 
-    public void renderItemEntity(ItemEntity entity, float partialTick) {
+    public void renderItemEntity(ItemEntity entity, engine.world.World world, float partialTick) {
         if (entity == null || entity.isRemoved())
             return;
 
@@ -244,6 +246,24 @@ public class ItemEntityRenderer {
 
         // Spin angle
         float spin = entity.getLerpedSpinAngle(partialTick);
+
+        // --- LIGHTING ---
+        float blockLightVal = 0.0f;
+        if (world != null) {
+            int bx = (int) Math.floor(x);
+            int by = (int) Math.floor(y + 0.25f);
+            int bz = (int) Math.floor(z);
+            blockLightVal = world.peekBlockLight(bx, by, bz) / 15.0f;
+        }
+        // shader.bind(); // Need to bind to set uniform? renderItem binds shader too?
+        // renderItem assumes shader bound?
+        // No, renderItem calls renderStandardCube/etc which calls setUniform.
+        // But renderItemEntity does NOT bind shader explicitly before calling
+        // renderItem?
+        // Wait, renderItemEntity calls renderItem which calls internal methods.
+        // BUT `begin()` binds shader.
+        // We are inside begin/end block. Shader IS bound.
+        glUniform1f(uBlockLight, blockLightVal);
 
         Mat4 model = Mat4.identity();
         model = Mat4.mul(model, Mat4.translate(x, y, z));

@@ -20,6 +20,21 @@ public final class Guis {
      */
     public static GuiDefinition register(String id, GuiDefinition definition) {
         ResourceLocation resLoc = ResourceLocation.of(id);
+
+        // --- DEV MODE: Check for JSON override ---
+        // This allows the In-Game Editor (F7) to persist changes.
+        try {
+            java.nio.file.Path overwritePath = java.nio.file.Paths
+                    .get("src/main/resources/gui/" + resLoc.getPath() + ".json");
+            if (java.nio.file.Files.exists(overwritePath)) {
+                System.out.println("[Guis] Loading override from: " + overwritePath);
+                definition = GuiDefinitionLoader.loadFromFile(overwritePath);
+            }
+        } catch (Exception e) {
+            System.err.println("[Guis] Failed to load override for " + id + ": " + e.getMessage());
+        }
+        // -----------------------------------------
+
         definition.setId(resLoc);
 
         RegistryEntry<GuiDefinition> entry = Registries.GUIS.register(resLoc, definition);
@@ -85,7 +100,7 @@ public final class Guis {
         private final String id;
         private final GuiDefinition definition;
         // Tracciamo l'ultimo slot solo per il metodo .absoluteIndex()
-        private GuiSlotDefinition lastSlot = null; 
+        private GuiSlotDefinition lastSlot = null;
 
         private int slotCounter = 0;
 
@@ -108,10 +123,10 @@ public final class Guis {
         public GuiBuilder slot(String slotId, int x, int y, String type, int index) {
             GuiSlotDefinition newSlot = new GuiSlotDefinition(slotId, x, y, type, index);
             definition.addSlot(newSlot);
-            this.lastSlot = newSlot; 
+            this.lastSlot = newSlot;
             return this;
         }
-        
+
         /**
          * IMPOSTA L'INDICE ASSOLUTO SULL'ULTIMO SLOT AGGIUNTO.
          */
@@ -122,7 +137,6 @@ public final class Guis {
             }
             return this;
         }
-
 
         /**
          * Add a row of slots (9 slots like hotbar or inventory row)
@@ -136,21 +150,21 @@ public final class Guis {
             this.lastSlot = null;
             return this;
         }
-        
+
         /** NUOVO METODO: Aggiunge una riga di slot con indice assoluto esplicito. */
-        public GuiBuilder slotRow(String typePrefix, int startX, int y, String type, int startIndex, int absoluteStart, int count) {
+        public GuiBuilder slotRow(String typePrefix, int startX, int y, String type, int startIndex, int absoluteStart,
+                int count) {
             for (int i = 0; i < count; i++) {
                 String slotId = typePrefix + "_" + (startIndex + i);
-                
+
                 GuiSlotDefinition newSlot = new GuiSlotDefinition(slotId, startX + i * 18, y, type, startIndex + i);
                 newSlot.setAbsoluteIndex(absoluteStart + i); // APPLICA L'INDICE ASSOLUTO ESPLICITO
-                
+
                 definition.addSlot(newSlot);
             }
             this.lastSlot = null;
             return this;
         }
-
 
         /**
          * Add hotbar slots (9 slots) - USA IL NUOVO OVERLOAD
@@ -161,7 +175,8 @@ public final class Guis {
         }
 
         /**
-         * Add main inventory (3 rows of 9 slots) - USA IL VECCHIO OVERLOAD, non usare in GUIs composte.
+         * Add main inventory (3 rows of 9 slots) - USA IL VECCHIO OVERLOAD, non usare
+         * in GUIs composte.
          */
         public GuiBuilder mainInventory(int startX, int startY) {
             for (int row = 0; row < 3; row++) {

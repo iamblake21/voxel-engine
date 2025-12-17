@@ -35,17 +35,25 @@ public final class GameBiomes {
                                 .plains()
                                 .surfaceBlock("game:grass")
                                 .subsurfaceBlock("game:dirt")
-                                .stoneBlock("game:stone"));
+                                .stoneBlock("game:stone")
+                                .temperature(0.8f)
+                                .humidity(0.4f)
+                                .grassColor(0xFF91BD59)
+                                .foliageColor(0xFF77AB2F));
                 PLAINS = Biomes.register("game:plains", plainsBiome);
                 PLAINS.addStructure(new engine.world.gen.WeightedStructure("game:big_oak_tree", 1, 3.0f));
-                PLAINS.addStructure(new engine.world.gen.WeightedStructure("game:small_house", 1, 1.0f));
+                PLAINS.addStructure(new engine.world.gen.WeightedStructure("game:small_house", 1, 0.1f));
                 // Forest
                 Biome forestBiome = new Biome(BiomeProperties.create()
                                 .forest()
                                 .surfaceBlock("game:grass")
                                 .subsurfaceBlock("game:dirt")
                                 .stoneBlock("game:stone")
-                                .treeDensity(0.8f));
+                                .treeDensity(0.8f)
+                                .temperature(0.7f)
+                                .humidity(0.8f)
+                                .grassColor(0xFF79C05A)
+                                .foliageColor(0xFF59AE30));
                 FOREST = Biomes.register("game:forest", forestBiome);
                 FOREST.addStructure(new engine.world.gen.WeightedStructure("game:big_oak_tree", 1, 2f));
 
@@ -55,7 +63,11 @@ public final class GameBiomes {
                                 .surfaceBlock("game:sand")
                                 .subsurfaceBlock("game:sand")
                                 .underwaterBlock("game:sand")
-                                .stoneBlock("game:stone"));
+                                .stoneBlock("game:stone")
+                                .temperature(2.0f)
+                                .humidity(0.0f)
+                                .grassColor(0xFFBFB755)
+                                .foliageColor(0xFFAEAB5E));
                 DESERT = Biomes.register("game:desert", desertBiome);
 
                 // Ocean
@@ -65,7 +77,11 @@ public final class GameBiomes {
                                 .subsurfaceBlock("game:sand")
                                 .underwaterBlock("game:sand")
                                 .stoneBlock("game:stone")
-                                .liquidBlock("game:water"));
+                                .liquidBlock("game:water")
+                                .temperature(0.5f)
+                                .humidity(0.5f)
+                                .grassColor(0xFF91BD59)
+                                .foliageColor(0xFF77AB2F));
                 OCEAN = Biomes.register("game:ocean", oceanBiome);
 
                 // Beach
@@ -77,7 +93,11 @@ public final class GameBiomes {
                                 .grassDensity(0.0f)
                                 .terrain(62f, 2f)
                                 .terrainFrequency(0.002f)
-                                .mountainHeight(0f));
+                                .mountainHeight(0f)
+                                .temperature(0.8f)
+                                .humidity(0.4f)
+                                .grassColor(0xFF91BD59)
+                                .foliageColor(0xFF77AB2F));
                 BEACH = Biomes.register("game:beach", beachBiome);
 
                 // Mountains
@@ -85,7 +105,11 @@ public final class GameBiomes {
                                 .mountains()
                                 .surfaceBlock("game:snow")
                                 .subsurfaceBlock("game:stone")
-                                .stoneBlock("game:stone"));
+                                .stoneBlock("game:stone")
+                                .temperature(0.2f)
+                                .humidity(0.3f)
+                                .grassColor(0xFF8AB689)
+                                .foliageColor(0xFF8AB689));
                 MOUNTAINS = Biomes.register("game:mountains", mountainsBiome);
 
                 // Snowy Taiga
@@ -96,7 +120,9 @@ public final class GameBiomes {
                                 .stoneBlock("game:stone")
                                 .temperature(-0.5f)
                                 .humidity(0.4f)
-                                .treeDensity(0.5f));
+                                .treeDensity(0.5f)
+                                .grassColor(0xFF80B497)
+                                .foliageColor(0xFF80B497));
                 SNOWY_TAIGA = Biomes.register("game:snowy_taiga", snowyTaigaBiome);
                 SNOWY_TAIGA.addStructure(new engine.world.gen.WeightedStructure("game:spruce_tree", 1, 1.0f));
 
@@ -106,10 +132,11 @@ public final class GameBiomes {
                                 .surfaceBlock("game:grass")
                                 .subsurfaceBlock("game:dirt")
                                 .stoneBlock("game:stone")
-                                .temperature(-0.3f)
-                                .humidity(0.7f)
-                                .grassColor(0xFF6BA971) // Brighter, more vivid green
-                                .foliageColor(0xFF5A8E5F));
+                                .temperature(0.25f)
+                                .humidity(0.8f)
+                                // Adjusted from 0xFF6BA971 to be less "minty" and more cohesive
+                                .grassColor(0xFF748858)
+                                .foliageColor(0xFF687942));
                 TAIGA = Biomes.register("game:taiga", taigaBiome);
                 TAIGA.addStructure(new engine.world.gen.WeightedStructure("game:spruce_tree", 1, 3.0f));
 
@@ -146,10 +173,11 @@ public final class GameBiomes {
                                 .surfaceBlock("game:grass")
                                 .subsurfaceBlock("game:dirt")
                                 .stoneBlock("game:stone")
-                                .temperature(0.3f)
+                                .temperature(0.5f)
                                 .humidity(0.4f)
-                                .grassColor(0xFF7DFF4F) // Green, slightly saturated
-                                .foliageColor(0xFFF4C2D6)); // Pastel Pink
+                                // Adjusted from 0xFF7DFF4F (Neon Lime) to Forest-like for better blending
+                                .grassColor(0xFF79C05A)
+                                .foliageColor(0xFFF4C2D6)); // Pastel Pink (Keep)
                 CHERRY_GROVE = Biomes.register("game:cherry_grove", cherryBiome);
                 CHERRY_GROVE.addStructure(new engine.world.gen.WeightedStructure("game:big_oak_tree", 1, 1.0f));
 

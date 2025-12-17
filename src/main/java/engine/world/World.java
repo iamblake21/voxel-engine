@@ -359,7 +359,27 @@ public class World implements MeshBuilder.WorldAccess {
                     public void setBlock(int cx, int cz, int lx, int ly, int lz, int blockId) {
                         Chunk target = getChunkIfLoaded(cx, cz);
                         if (target != null) {
+                            // 1. Set Block (Raw)
                             target.setBlock(lx, ly, lz, blockId);
+
+                            // 2. Create Block Entity (Fixes Chests)
+                            Block block = Blocks.get(blockId);
+                            if (block.hasBlockEntity()) {
+                                BlockEntity be = block.createBlockEntity(new BlockPos(
+                                        cx * config.chunkSize + lx,
+                                        ly,
+                                        cz * config.chunkSize + lz));
+                                if (be != null) {
+                                    target.setBlockEntity(lx, ly, lz, be);
+                                    be.setWorld(World.this);
+                                }
+                            }
+
+                            // 3. Invalidate Neighbor Chunk if modified (Fixes Light/Mesh)
+                            // If we modify a neighbor that was already finished, we must invalidate it.
+                            if (target != chunk && target.getPhase().ordinal() >= Chunk.Phase.LIGHT_DONE.ordinal()) {
+                                invalidateChunkLight(cx, cz);
+                            }
                         }
                     }
 

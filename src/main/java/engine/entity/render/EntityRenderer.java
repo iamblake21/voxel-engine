@@ -23,7 +23,9 @@ public class EntityRenderer {
 
     private Shader shader;
     private int cubeVAO, cubeVBO, cubeVertexCount;
-    private int uProj, uView, uModel, uTex, uColor, uUseTexture, uLightDir, uAmbient, uUVTransform;
+    private int uProj, uView, uModel, uTex, uColor, uUseTexture, uLightDir, uAmbient, uSunColor, uUVTransform,
+            uTorchLevel; // NEW uTorchLevel
+
     private Texture defaultTexture;
     private final Map<String, Texture> textureCache = new HashMap<>();
     private final Map<String, EntityModel> modelCache = new HashMap<>();
@@ -41,7 +43,9 @@ public class EntityRenderer {
         uUseTexture = shader.getUniformLocation("uUseTexture");
         uLightDir = shader.getUniformLocation("uLightDir");
         uAmbient = shader.getUniformLocation("uAmbient");
-        uUVTransform = shader.getUniformLocation("uUVTransform"); // nuovo uniform
+        uSunColor = shader.getUniformLocation("uSunColor");
+        uUVTransform = shader.getUniformLocation("uUVTransform");
+        uTorchLevel = shader.getUniformLocation("uTorchLevel"); // NEW
 
         createCubeMesh();
         defaultTexture = Texture.createSolidColor(1f, 1f, 1f, 1f);
@@ -127,16 +131,29 @@ public class EntityRenderer {
         glBindVertexArray(0);
     }
 
-    public void begin(Camera camera, Vec3 sunDir) {
+    public void begin(Camera camera, Vec3 sunDir, Vec3 sunColor, Vec3 ambientColor) {
         if (!initialized)
             init();
         shader.bind();
         shader.setUniform(uProj, camera.getProjectionMatrix());
         shader.setUniform(uView, camera.getViewMatrix());
         glUniform1i(uTex, 0);
+
         Vec3 ld = (sunDir != null) ? sunDir.normalize() : new Vec3(0.3f, 1f, 0.5f).normalize();
         glUniform3f(uLightDir, ld.x, ld.y, ld.z);
-        glUniform1f(uAmbient, 0.4f);
+
+        if (ambientColor != null) {
+            glUniform3f(uAmbient, ambientColor.x, ambientColor.y, ambientColor.z);
+        } else {
+            glUniform3f(uAmbient, 0.4f, 0.4f, 0.4f);
+        }
+
+        if (sunColor != null) {
+            glUniform3f(uSunColor, sunColor.x, sunColor.y, sunColor.z);
+        } else {
+            glUniform3f(uSunColor, 1.0f, 1.0f, 1.0f);
+        }
+
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
@@ -197,7 +214,7 @@ public class EntityRenderer {
         }
     }
 
-    public void renderEntity(Entity entity, float partialTick) {
+    public void renderEntity(Entity entity, engine.world.World world, float partialTick) {
         if (entity == null || entity.isRemoved())
             return;
         if (entity instanceof ItemEntity)
@@ -206,6 +223,24 @@ public class EntityRenderer {
         float x = entity.getLerpedX(partialTick), y = entity.getLerpedY(partialTick),
                 z = entity.getLerpedZ(partialTick);
         float yaw = entity.getLerpedYaw(partialTick);
+
+        // --- NEW: Block Light Sampling ---
+        float lightVal = 0.0f;
+        if (world != null) {
+            int bx = (int) Math.floor(x);
+            int by = (int) Math.floor(y + 0.5f); // Sample at eye/center level
+            int bz = (int) Math.floor(z);
+            int light = world.peekBlockLight(bx, by, bz);
+            lightVal = light / 15.0f;
+        }
+
+        shader.bind(); // Ensure bound (should be bound by begin(), but renderEntity might be called
+                       // isolated? No, normally batched)
+        // Actually usually renderEntity is called inside loop.
+        // begin() binds shader.
+        // We can just set uniform.
+        glUniform1f(uTorchLevel, lightVal);
+
         EntityModel model = getModel(entity);
         Texture tex = getTexture(entity);
         if (model != null) {
@@ -505,10 +540,19 @@ public class EntityRenderer {
             + "gl_Position=uProj*uView*uModel*vec4(aPos,1.0);"
             + "}";
 
-    private static final String FS = "#version 330 core\n"
-            + "in vec3 vN;in vec2 vUV;uniform sampler2D uTex;uniform vec4 uColor;uniform int uUseTexture;uniform vec3 uLightDir;uniform float uAmbient;out vec4 F;"
-            + "void main(){vec3 n=normalize(vN);float d=max(dot(n,normalize(uLightDir)),0.0);float l=uAmbient+(1.0-uAmbient)*d;vec4 b = uUseTexture==1 ? texture(uTex,vUV) * uColor : uColor;F = vec4(b.rgb*l,b.a);}";
-
-    // Rinomina la vecchia costante VS
     private static final String VS = VS_FIXED; // Usa il Vertex Shader Corretto!
+
+    private static final String FS = "#version 330 core\n"
+            + "in vec3 vN;in vec2 vUV;uniform sampler2D uTex;uniform vec4 uColor;uniform int uUseTexture;uniform vec3 uLightDir;uniform vec3 uSunColor;uniform vec3 uAmbient;\n"
+            + "uniform float uTorchLevel;\n" // NEW: Block light intensity (0.0 - 1.0)
+            + "out vec4 F;"
+            + "void main(){"
+            + "vec3 n=normalize(vN);"
+            + "float d=max(dot(n,normalize(uLightDir)),0.0);"
+            + "vec3 torchColor = vec3(1.0, 0.9, 0.8) * uTorchLevel;" // Warm torch light
+            + "vec3 ambient = max(uAmbient, torchColor);" // Use max of global ambient vs local torch
+            + "vec3 light = ambient + uSunColor * d;"
+            + "vec4 b=uUseTexture==1?texture(uTex,vUV)*uColor:uColor;"
+            + "F=vec4(b.rgb*light,b.a);"
+            + "}";
 }

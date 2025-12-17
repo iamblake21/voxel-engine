@@ -68,6 +68,9 @@ public class LivingEntity extends Entity {
 
     @Override
     public void update(float deltaTime) {
+        // Save previous state for interpolation
+        preTick();
+
         if (dead) {
             deathTime++;
             if (deathTime > 20) {

@@ -82,7 +82,7 @@ public class Structure {
         // Place Blocks
         for (StructureBlock sb : blocks) {
             String blockId = palette.get(sb.stateIndex);
-            int numericId = Blocks.get(blockId).getNumericId();
+            int numericId = engine.world.block.state.BlockStateParser.parse(blockId);
 
             callback.setBlock(
                     startX + sb.x,

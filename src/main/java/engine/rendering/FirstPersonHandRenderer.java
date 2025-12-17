@@ -55,7 +55,7 @@ public class FirstPersonHandRenderer {
         dummyCam.setFov(player.getCamera().getFov());
         dummyCam.updateProjectionMatrix();
 
-        entityRenderer.begin(dummyCam, null);
+        entityRenderer.begin(dummyCam, null, null, null);
 
         // Disable culling for the arm
         glDisable(GL_CULL_FACE);

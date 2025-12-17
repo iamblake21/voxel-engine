@@ -93,6 +93,7 @@ public class BreakProgressRenderer {
         glCullFace(GL_BACK);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_DEPTH_TEST); // Fix: Ensure depth testing is enabled
         glDepthMask(false);
 
         shader.setUniform(uProj, camera.getProjectionMatrix());

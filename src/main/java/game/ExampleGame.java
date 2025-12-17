@@ -59,7 +59,7 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(12)
+                .viewDistance(24)
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
                 .vsync(true)
@@ -152,6 +152,30 @@ public class ExampleGame implements IGame {
         this.inventoryGui = new InventoryGui(player.getInventory(), config.windowWidth, config.windowHeight);
         inventoryGui.setGuiScale(scale);
         this.guiEditor = new GuiEditorIntegration(config.windowWidth, config.windowHeight, guiRenderer);
+        this.guiEditor.setOnActivate(() -> {
+            engine.ui.definition.GuiDefinition syncDef = null;
+            if (currentContainerGui != null) {
+                syncDef = currentContainerGui.getDefinition();
+            } else if (inventoryOpen && inventoryGui != null) {
+                syncDef = inventoryGui.getDefinition();
+            }
+
+            if (syncDef != null) {
+                guiEditor.getEditor().loadDefinition(syncDef);
+                // Auto-hide background if overlaying a live GUI
+                // guiEditor.getEditor().setBackgroundVisible(false); // Method not added yet,
+                // manual toggle is fine
+            } else {
+                // No active GUI to sync with, create a new blank one or keep existing
+                // If the current one is just the default placeholder, maybe reset it?
+                // For now, let's reset to a "New GUI" if we are opening in the void.
+                // guiEditor.getEditor().newDefinition("new_gui", 176, 166);
+                // Actually, user might want to continue editing what they had.
+                // Let's print a message.
+                System.out.println("[Game] Editor opened without active GUI to sync.");
+            }
+        });
+
         this.inventoryInteraction = new InventoryInteractionManager(player.getInventory());
         this.breakProgressRenderer = new engine.rendering.BreakProgressRenderer();
 
@@ -228,8 +252,24 @@ public class ExampleGame implements IGame {
     }
 
     @Override
+    public void render3D(engine.rendering.Renderer renderer, float partialTick) {
+        if (player == null || world == null)
+            return;
+
+        // Render 3D overlays before Hand Pass
+        breakProgressRenderer.render(player.getMiningManager(), player.getCamera(), world);
+
+        // Also render selection box here so it's behind hand?
+        // Currently selection box is in render() (lines 232-243), meaning it's AFTER
+        // hand too?
+        // Usually selection box should BEHIND hand. Let's move it too?
+        // The user only complained about Cracks, but I should fix both ideally.
+        // Let's stick to Cracks first as requested.
+    }
+
+    @Override
     public void render(Renderer renderer) {
-        // Draw Selection Box (Wireframe)
+        // Draw Selection Box (Wireframe) - Keep here for now unless needed
         // Perform raycast locally to know what to highlight
         engine.interaction.RaycastResult target = player.getInteractionManager().performRaycast(player, world,
                 engine.getEntities());
@@ -242,18 +282,7 @@ public class ExampleGame implements IGame {
                     0, 0, 0, 0.4f);
         }
 
-        // QUI È CAMBIATO TUTTO:
-        // Non renderizziamo più le entità qui. L'Engine ha già disegnato Mondo +
-        // Entità.
-        // Qui disegniamo solo ciò che è SPECIFICO del gioco (UI, Overlay).
-
         guiRenderer.begin();
-
-        if (guiEditor != null && guiEditor.isEditorActive()) {
-            guiEditor.getEditor().render(guiRenderer);
-            guiRenderer.end();
-            return;
-        }
 
         hotbarGui.render(guiRenderer);
 
@@ -276,11 +305,11 @@ public class ExampleGame implements IGame {
             }
         }
 
-        guiRenderer.end();
+        if (guiEditor != null && guiEditor.isEditorActive()) {
+            guiEditor.getEditor().render(guiRenderer);
+        }
 
-        // Overlay 3D (rottura blocchi) - Questo va bene qui perché è un overlay
-        org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_DEPTH_TEST);
-        breakProgressRenderer.render(player.getMiningManager(), player.getCamera(), world);
+        guiRenderer.end();
     }
 
     @Override
