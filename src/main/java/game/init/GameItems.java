@@ -1,5 +1,6 @@
 package game.init;
 
+import engine.world.block.Block;
 import engine.world.item.*;
 import engine.world.item.ToolItem.ToolTier;
 import engine.world.item.ToolItem.ToolType;
@@ -65,6 +66,8 @@ public final class GameItems {
         public static Item CHEST;
         public static Item DOOR;
 
+        public static Item WATER_BLOCK;
+
         private GameItems() {
         }
 
@@ -77,6 +80,9 @@ public final class GameItems {
 
                 // ==================== BLOCK ITEMS ====================
                 // Block items automatically use their block's texture from the atlas
+                WATER_BLOCK = Items.register("game:water_block",
+                                new BlockItem(GameBlocks.WATER, ItemProperties.create()));
+
                 DOOR = Items.register("game:door",
                                 new BlockItem(GameBlocks.DOOR,
                                                 ItemProperties.create().icon("textures/items/door_wood.png")));

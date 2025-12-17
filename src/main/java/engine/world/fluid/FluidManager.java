@@ -110,185 +110,180 @@ public class FluidManager {
         int maxLevel = block.getMaxFluidLevel();
         int tickRate = block.getFluidTickRate();
 
-        // Infinite Source Logic
-        // If we are a liquid block (even not full), Check if we have 2+ sources around
-        // us
-        // Only if we are not already full
+        // ====================================================================
+        // RULE 3: INFINITE SOURCE
+        // A flowing block between 2+ sources becomes a source
+        // ====================================================================
         if (currentLevel < maxLevel) {
-            int sourceNeighbors = 0;
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dz = { 0, 0, 1, -1 };
+            int sourceCount = 0;
+            if (isSourceAt(x + 1, y, z, block, maxLevel))
+                sourceCount++;
+            if (isSourceAt(x - 1, y, z, block, maxLevel))
+                sourceCount++;
+            if (isSourceAt(x, y, z + 1, block, maxLevel))
+                sourceCount++;
+            if (isSourceAt(x, y, z - 1, block, maxLevel))
+                sourceCount++;
 
-            for (int i = 0; i < 4; i++) {
-                Block nBlock = world.getBlockType(x + dx[i], y, z + dz[i]);
-                int nLevel = world.getFluidLevel(x + dx[i], y, z + dz[i]);
-                if (nBlock.getNumericId() == block.getNumericId() && nLevel == maxLevel) {
-                    sourceNeighbors++;
-                }
-            }
-
-            if (sourceNeighbors >= 2) {
-                // Become a source
+            if (sourceCount >= 2) {
                 world.setFluidLevel(x, y, z, maxLevel);
-                currentLevel = maxLevel; // Update local var for subsequent logic
+                currentLevel = maxLevel;
             }
         }
 
-        // 1. Calculate the MAX theoretical level this block should have based on
-        // neighbors
-        int maxNeighborLevel = 0;
-
-        // Check UP (waterfall source)
-        Block blockAbove = world.getBlockType(x, y + 1, z);
-        if (blockAbove.getNumericId() == block.getNumericId()) {
-            // If liquid above, we inherit its level (waterfall)
-            maxNeighborLevel = world.getFluidLevel(x, y + 1, z);
-        }
-
-        // Check Neighbors (Horizontal spread)
-        int[] dx = { 1, -1, 0, 0 };
-        int[] dz = { 0, 0, 1, -1 };
-
-        for (int i = 0; i < 4; i++) {
-            Block nBlock = world.getBlockType(x + dx[i], y, z + dz[i]);
-            int nLevel = world.getFluidLevel(x + dx[i], y, z + dz[i]);
-
-            if (nBlock.getNumericId() == block.getNumericId()) {
-                int flowRef = nLevel - viscosity;
-                if (flowRef > maxNeighborLevel) {
-                    maxNeighborLevel = flowRef;
-                }
-            }
-        }
-
-        // 2. Depropagation / State Correction
-        // If we are NOT a source block (created by generation or manual placement
-        // assumed source if maxLevel??
-        // Wait, manual placement needs to be distinguished?
-        // For now, assume if currentLevel is maxLevel AND we are not falling, we MIGHT
-        // be a source.
-        // But how to tell a static source from a filled hole?
-        // Simplification: We only decay if calculated < currentLevel.
-        // But sources shouldn't decay.
-        // Constraint: Sources are only maxLevel. But falling water is also maxLevel.
-        // We need a stable source logic.
-        // PROPOSAL: If it's maxLevel, we assume it's a source UNLESS we explicitly
-        // track "Falling" state differently.
-        // But falling water spreads horizontally too.
-
-        // Let's rely on level:
-        // If currentLevel == maxLevel, we assume it's a Source OR directly under a
-        // source.
-        // If directly under a source/liquid, it's sustained.
-        // If it's a "placed" source, it stays.
-        // How to simulate removal?
-        // If I remove a source, its neighbors (level < max) should decay.
-        // A maxLevel block should NEVER decay by itself in this simple logic unless we
-        // add metadata 'isSource'.
-        // For this task, let's assume maxLevel blocks don't decay (they are sources).
-        // Only flowing blocks (level < max) decay.
-
+        // ====================================================================
+        // DEPROPAGATION: Flowing water dries if not supported by higher neighbor
+        // ====================================================================
         if (currentLevel < maxLevel) {
-            if (maxNeighborLevel < currentLevel) {
-                // Decay
-                int newLevel = maxNeighborLevel; // Drop to what neighbors support
-                if (newLevel <= 0) {
+            int supportLevel = calculateSupportLevel(x, y, z, block, viscosity);
+
+            if (supportLevel < currentLevel) {
+                // Decay to supported level
+                if (supportLevel <= 0) {
                     world.setBlock(x, y, z, Blocks.AIR().getNumericId());
                     world.setFluidLevel(x, y, z, 0);
                 } else {
-                    world.setFluidLevel(x, y, z, newLevel);
+                    world.setFluidLevel(x, y, z, supportLevel);
                     scheduleUpdate(x, y, z, tickRate);
                 }
-
-                // Alert neighbors to check themselves
-                scheduleUpdate(x, y - 1, z, tickRate);
-                scheduleUpdate(x + 1, y, z, tickRate);
-                scheduleUpdate(x - 1, y, z, tickRate);
-                scheduleUpdate(x, y, z + 1, tickRate);
-                scheduleUpdate(x, y, z - 1, tickRate);
+                scheduleNeighbors(x, y, z, tickRate);
                 return;
             }
-        } else {
-            // It is max level.
-            // If it was falling water (fed from above), and source above is gone, it should
-            // probably decay?
-            // But we can't distinguish "Placed Source" from "Falling Water" just by
-            // ID/Level without metadata.
-            // Assumption: Falling water is always treated as Source for downstream, but if
-            // we want it to vanish...
-            // Check if it's "Falling". A full block is falling if block above is same
-            // liquid.
-            // If block above becomes AIR, this block turns into a Source? That's Minecraft
-            // behavior (water source creation).
-            // But we want it to disappear.
-
-            // To properly fix "Falling water stays when source removed":
-            // We need to know if it's a "Source" or "Flow".
-            // Since we lack metadata, let's assume:
-            // MANUAL PLACEMENT sets it as Source (Max Level).
-            // GENERATION sets it as Source.
-            // FALLING updates set it as Max Level.
-
-            // If we remove the top one, the one below is Max Level. It thinks it's a
-            // source.
-            // This is the classic "infinite water column" issue if we don't have 'falling'
-            // bit.
-            // Let's keep it simple: MaxLevel blocks rarely decay unless we add complex
-            // logic.
-            // Fixing "spreading" water failing to dry up is the main goal.
-            // Spreading water has level < maxLevel.
         }
 
-        // 3. Flow Logic (Spreading)
+        // ====================================================================
+        // RULE 1: GRAVITY - Can I fall?
+        // If YES: fall and STOP. No horizontal spread.
+        // ====================================================================
 
-        // Flow Down
-        if (canFlowInto(x, y - 1, z)) {
-            Block blockBelow = world.getBlockType(x, y - 1, z);
-            boolean isLiquidBelow = blockBelow.isLiquid();
-            int levelBelow = world.getFluidLevel(x, y - 1, z);
+        // CRITICAL: Check if there's "fallable" space below (air or lower-level liquid)
+        boolean canFallInto = canFlowInto(x, y - 1, z);
 
-            if (!isLiquidBelow || levelBelow < currentLevel) {
-                world.setBlock(x, y - 1, z, Blocks.getId(block));
-                world.setFluidLevel(x, y - 1, z, currentLevel); // Falling = Current Level (Propagate distance)
-                scheduleUpdate(x, y - 1, z, tickRate);
-            }
+        if (tryFall(x, y, z, block, currentLevel, tickRate)) {
+            return; // Fell! Done with this update.
         }
 
-        // Flow Horizontally
-        if (world.getBlockType(x, y - 1, z).isReplaceable() && !world.getBlockType(x, y - 1, z).isLiquid()) {
-            return; // Fast path: falling water doesn't spread sideways (optimization)
+        // ====================================================================
+        // RULE 2: VISCOSITY - Can't fall, spread horizontally
+        // BUT ONLY if there's SOLID ground below!
+        // If canFallInto is true, it means there's air or liquid below -
+        // we shouldn't spread horizontally in that case (even if tryFall failed
+        // because the liquid below is at same level - it will fall eventually)
+        // ====================================================================
+        if (canFallInto) {
+            // There's air or liquid below. Don't spread horizontally.
+            // Either we just fell, or we're waiting for the liquid below to fall.
+            return;
         }
 
-        int nextLevel = currentLevel - viscosity;
-        if (nextLevel > 0) {
-            flow(x + 1, y, z, block, nextLevel, tickRate);
-            flow(x - 1, y, z, block, nextLevel, tickRate);
-            flow(x, y, z + 1, block, nextLevel, tickRate);
-            flow(x, y, z - 1, block, nextLevel, tickRate);
+        // Only spread if there's truly solid ground below
+        int spreadLevel = currentLevel - viscosity;
+        if (spreadLevel > 0) {
+            trySpread(x + 1, y, z, block, spreadLevel, tickRate);
+            trySpread(x - 1, y, z, block, spreadLevel, tickRate);
+            trySpread(x, y, z + 1, block, spreadLevel, tickRate);
+            trySpread(x, y, z - 1, block, spreadLevel, tickRate);
         }
     }
 
-    private void flow(int x, int y, int z, Block fluidBlock, int level, int delay) {
-        if (canFlowInto(x, y, z)) {
-            Block target = world.getBlockType(x, y, z);
-            int currentTargetLevel = world.getFluidLevel(x, y, z);
+    /**
+     * Check if position has a source block of the given type
+     */
+    private boolean isSourceAt(int x, int y, int z, Block fluidType, int maxLevel) {
+        Block b = world.getBlockType(x, y, z);
+        return b.isLiquid() &&
+                b.getNumericId() == fluidType.getNumericId() &&
+                world.getFluidLevel(x, y, z) == maxLevel;
+    }
 
-            // Don't flow if target is already higher/equal
-            if (target.isLiquid()) {
-                if (target.getNumericId() != fluidBlock.getNumericId()) {
-                    // Evaluate mixing if needed (e.g. water vs lava)
-                    return;
-                }
-                if (currentTargetLevel >= level) {
-                    return;
+    /**
+     * Calculate what level this block should have based on neighbors
+     */
+    private int calculateSupportLevel(int x, int y, int z, Block block, int viscosity) {
+        int maxSupport = 0;
+
+        // Check above (waterfall feeds us)
+        Block above = world.getBlockType(x, y + 1, z);
+        if (above.getNumericId() == block.getNumericId()) {
+            maxSupport = world.getFluidLevel(x, y + 1, z);
+        }
+
+        // Check horizontal neighbors
+        int[] dx = { 1, -1, 0, 0 };
+        int[] dz = { 0, 0, 1, -1 };
+        for (int i = 0; i < 4; i++) {
+            Block neighbor = world.getBlockType(x + dx[i], y, z + dz[i]);
+            if (neighbor.getNumericId() == block.getNumericId()) {
+                int neighborLevel = world.getFluidLevel(x + dx[i], y, z + dz[i]);
+                int flowsTo = neighborLevel - viscosity;
+                if (flowsTo > maxSupport) {
+                    maxSupport = flowsTo;
                 }
             }
-
-            // Update the block
-            world.setBlock(x, y, z, Blocks.getId(fluidBlock));
-            world.setFluidLevel(x, y, z, level);
-            scheduleUpdate(x, y, z, delay);
         }
+
+        return maxSupport;
+    }
+
+    /**
+     * RULE 1: Try to fall. Returns true if we fell.
+     */
+    private boolean tryFall(int x, int y, int z, Block block, int level, int tickRate) {
+        // Can we flow into the block below?
+        if (!canFlowInto(x, y - 1, z)) {
+            return false; // Solid below, can't fall
+        }
+
+        Block below = world.getBlockType(x, y - 1, z);
+
+        // Is it the same liquid at same or higher level?
+        if (below.isLiquid() && below.getNumericId() == block.getNumericId()) {
+            int levelBelow = world.getFluidLevel(x, y - 1, z);
+            if (levelBelow >= level) {
+                return false; // Below is already at same or higher level, can't fall
+            }
+        }
+
+        // FALL!
+        world.setBlock(x, y - 1, z, Blocks.getId(block));
+        world.setFluidLevel(x, y - 1, z, level);
+        scheduleUpdate(x, y - 1, z, tickRate);
+        return true;
+    }
+
+    /**
+     * RULE 2: Try to spread horizontally to a position
+     */
+    private void trySpread(int x, int y, int z, Block block, int level, int tickRate) {
+        if (!canFlowInto(x, y, z)) {
+            return; // Can't flow into solid
+        }
+
+        Block target = world.getBlockType(x, y, z);
+
+        // If target already has same liquid at higher/equal level, skip
+        if (target.isLiquid() && target.getNumericId() == block.getNumericId()) {
+            if (world.getFluidLevel(x, y, z) >= level) {
+                return;
+            }
+        }
+
+        // Spread!
+        world.setBlock(x, y, z, Blocks.getId(block));
+        world.setFluidLevel(x, y, z, level);
+        scheduleUpdate(x, y, z, tickRate);
+    }
+
+    /**
+     * Schedule updates for all neighbors
+     */
+    private void scheduleNeighbors(int x, int y, int z, int delay) {
+        scheduleUpdate(x, y - 1, z, delay);
+        scheduleUpdate(x, y + 1, z, delay);
+        scheduleUpdate(x + 1, y, z, delay);
+        scheduleUpdate(x - 1, y, z, delay);
+        scheduleUpdate(x, y, z + 1, delay);
+        scheduleUpdate(x, y, z - 1, delay);
     }
 
     private boolean canFlowInto(int x, int y, int z) {

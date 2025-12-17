@@ -59,7 +59,7 @@ public class ExampleGame implements IGame {
     public static void main(String[] args) {
         Config config = Config.builder()
                 .windowSize(1280, 720)
-                .viewDistance(24)
+                .viewDistance(32)
                 .worldSeed(System.currentTimeMillis())
                 .debug(true)
                 .vsync(true)
@@ -128,7 +128,7 @@ public class ExampleGame implements IGame {
         villager.setPosition(player.getX() + 3, player.getY() + 10, player.getZ() + 3);
         engine.getEntities().addEntity(villager);
         // Setup Inventario Player (Items di test)
-        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.DIRT, 64));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WATER_BLOCK, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 2));
