@@ -16,6 +16,7 @@ import engine.entity.Entity;
 import engine.entity.ItemEntity; // Correct import
 import engine.loot.LootTable; // Correct import
 import engine.world.item.ItemStack;
+import java.util.Random;
 
 import java.util.*;
 
@@ -714,7 +715,7 @@ public class World implements MeshBuilder.WorldAccess {
             for (int dx = -1; dx <= 1; dx++) {
                 if (dx == 0 && dz == 0)
                     continue; // Skip center chunk
-                invalidateChunkLight(cx + dx, cz + dz);
+                invalidateChunkForRemesh(cx + dx, cz + dz);
             }
         }
     }
