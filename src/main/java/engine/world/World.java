@@ -183,9 +183,8 @@ public class World implements MeshBuilder.WorldAccess {
             return;
         }
 
-        // Applica i buffer di luce calcolati dal worker
-        chunk.applySkyLightData(task.snapshot.getSkyLightWriteBuffer());
-        chunk.applyBlockLightData(task.snapshot.getBlockLightWriteBuffer());
+        // Applica il buffer di luce calcolato dal worker (packed format)
+        chunk.applyLightData(task.snapshot.getLightWriteBuffer());
 
         chunk.setLightPending(false);
 

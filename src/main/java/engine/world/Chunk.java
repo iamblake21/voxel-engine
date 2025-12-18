@@ -51,8 +51,8 @@ public class Chunk {
     private final Mesh[] solidLOD = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] transparentLOD = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] waterLOD = new Mesh[MAX_LOD_LEVELS];
-    private final short[] blockLight; // 0..15 per channel (0xRGB)
-    private final byte[] skyLight;
+    // Packed light: bits 15-4 = RGB blocklight (0xRGB), bits 3-0 = skylight (0-15)
+    private final short[] light;
     private final byte[] fluidData; // 0..15 (fluid level)
 
     public enum Phase {
@@ -74,16 +74,14 @@ public class Chunk {
 
         this.blocks = new int[SIZE * HEIGHT * SIZE];
         this.heightMap = new int[SIZE * SIZE];
-        this.blockLight = new short[SIZE * HEIGHT * SIZE];
-        this.skyLight = new byte[SIZE * HEIGHT * SIZE];
+        this.light = new short[SIZE * HEIGHT * SIZE];
         this.fluidData = new byte[SIZE * HEIGHT * SIZE];
 
         // Initialize with air
         int airId = Blocks.AIR().getNumericId();
         Arrays.fill(blocks, airId);
         Arrays.fill(heightMap, -1);
-        Arrays.fill(blockLight, (short) 0);
-        Arrays.fill(skyLight, (byte) 0);
+        Arrays.fill(light, (short) 0);
         Arrays.fill(fluidData, (byte) 0);
 
         // Initialize empty meshes for all LODs
@@ -137,40 +135,43 @@ public class Chunk {
         return Blocks.get(getBlock(x, y, z));
     }
 
-    // ==================== BLOCK LIGHT ====================
+    // ==================== LIGHT (PACKED FORMAT) ====================
+    // Bit layout: [15:4] = RGB blocklight (0xRGB), [3:0] = skylight (0-15)
+
     public int getBlockLight(int x, int y, int z) {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
             return 0;
         }
-        return blockLight[index(x, y, z)] & 0xFFFF;
+        return (light[index(x, y, z)] >> 4) & 0xFFF;
     }
 
     public void setBlockLight(int x, int y, int z, int level) {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
             return;
         }
-        blockLight[index(x, y, z)] = (short) level;
+        int idx = index(x, y, z);
+        int sky = light[idx] & 0xF;
+        light[idx] = (short) (((level & 0xFFF) << 4) | sky);
     }
 
     public int getSkyLight(int x, int y, int z) {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
             return 0;
-        return skyLight[index(x, y, z)] & 0xFF;
+        return light[index(x, y, z)] & 0xF;
     }
 
     public void setSkyLight(int x, int y, int z, int level) {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
             return;
+        int idx = index(x, y, z);
         int clamped = Math.max(0, Math.min(15, level));
-        skyLight[index(x, y, z)] = (byte) clamped;
+        int rgb = (light[idx] >> 4) & 0xFFF;
+        light[idx] = (short) ((rgb << 4) | clamped);
     }
 
-    public byte[] getSkyLightData() {
-        return skyLight;
-    }
-
-    public short[] getBlockLightData() {
-        return blockLight;
+    /** Returns the packed light array. Format: [15:4] = RGB, [3:0] = sky */
+    public short[] getLightData() {
+        return light;
     }
 
     // ==================== FLUID DATA ====================
@@ -293,31 +294,17 @@ public class Chunk {
         return lod;
     }
 
-    // ==================== NUOVI METODI PER APPLICARE LA LUCE ====================
+    // ==================== METODI PER APPLICARE LA LUCE ====================
 
     /**
-     * Applica i dati di Sky Light dal buffer calcolato nel worker thread.
+     * Applica i dati di luce packed dal buffer calcolato nel worker thread.
+     * Format: [15:4] = RGB blocklight, [3:0] = skylight
      */
-    public void applySkyLightData(byte[] skyLightBuffer) {
-        if (skyLightBuffer.length != this.skyLight.length)
+    public void applyLightData(short[] lightBuffer) {
+        if (lightBuffer.length != this.light.length)
             return;
-
-        // Copia direttamente il buffer aggiornato
-        System.arraycopy(skyLightBuffer, 0, this.skyLight, 0, this.skyLight.length);
+        System.arraycopy(lightBuffer, 0, this.light, 0, this.light.length);
     }
-
-    /**
-     * Applica i dati di Block Light dal buffer calcolato nel worker thread.
-     */
-    public void applyBlockLightData(short[] blockLightBuffer) {
-        if (blockLightBuffer.length != this.blockLight.length)
-            return;
-
-        // Copia direttamente il buffer aggiornato
-        System.arraycopy(blockLightBuffer, 0, this.blockLight, 0, this.blockLight.length);
-    }
-
-    // Il vecchio metodo applyLightData è stato rimosso.
 
     // ==================== COORDINATES ====================
 

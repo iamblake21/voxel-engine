@@ -11,8 +11,9 @@ import java.util.Collection;
 import engine.loot.LootTable;
 import engine.utils.IdMapper;
 import engine.world.block.state.BlockState;
-
+import engine.world.item.ToolItem;
 import java.util.Optional;
+import engine.world.item.ToolItem.ToolType;
 
 /**
  * Represents a block type in the game.
@@ -130,7 +131,7 @@ public class Block {
         return properties.hardness;
     }
 
-    public engine.world.item.ToolItem.ToolType getRequiredToolType() {
+    public ToolType getRequiredToolType() {
         return properties.requiredToolType;
     }
 

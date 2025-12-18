@@ -53,14 +53,13 @@ public class MeshBuildingExecutor {
     // Snapshot immutabile del chunk per evitare race conditions
     private static class ChunkDataSnapshot implements MeshBuilder.ChunkData {
         private final int[] blockData;
-        private final byte[] skyLight;
-        private final short[] blockLight;
+        // Packed light: [15:4] = RGB blocklight, [3:0] = skylight
+        private final short[] light;
         private final int worldX, worldZ;
 
         ChunkDataSnapshot(Chunk chunk) {
             this.blockData = chunk.getBlockData().clone();
-            this.skyLight = chunk.getSkyLightData().clone();
-            this.blockLight = chunk.getBlockLightData().clone();
+            this.light = chunk.getLightData().clone();
             this.worldX = chunk.getWorldX();
             this.worldZ = chunk.getWorldZ();
         }
@@ -82,12 +81,12 @@ public class MeshBuildingExecutor {
 
         @Override
         public int getBlockLight(int x, int y, int z) {
-            return blockLight[(y * 16 + z) * 16 + x] & 0xFFFF;
+            return (light[(y * 16 + z) * 16 + x] >> 4) & 0xFFF;
         }
 
         @Override
         public int getSkyLight(int x, int y, int z) {
-            return skyLight[(y * 16 + z) * 16 + x] & 0xFF;
+            return light[(y * 16 + z) * 16 + x] & 0xF;
         }
     }
 }

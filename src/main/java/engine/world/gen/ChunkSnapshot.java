@@ -10,6 +10,8 @@ import java.util.Arrays;
  * Usato per il calcolo asincrono di luce e mesh.
  * 
  * IMPLEMENTA WorldAccess per essere usato direttamente da MeshBuilder.
+ * 
+ * Light data is packed into shorts: [15:4] = RGB blocklight, [3:0] = skylight
  */
 public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.ChunkData {
 
@@ -23,14 +25,14 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
 
     // Buffer di SCRITTURA per il chunk centrale (modificabili durante il calcolo
     // luce)
-    private final byte[] skyLightWrite;
-    private final short[] blockLightWrite;
+    // Packed format: [15:4] = RGB blocklight (0xRGB), [3:0] = skylight (0-15)
+    private final short[] lightWrite;
 
     // Dati dei 9 chunk (3x3): neighbors[idx] dove idx = (dz+1)*3 + (dx+1)
     // idx 4 = chunk centrale
     private final int[][] neighborBlocks;
-    private final byte[][] neighborSkyLight;
-    private final short[][] neighborBlockLight;
+    // Packed light: [15:4] = RGB blocklight, [3:0] = skylight
+    private final short[][] neighborLight;
     private final byte[][] neighborFluidData;
 
     // Flag per sapere quali vicini esistono
@@ -58,13 +60,11 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         int arraySize = chunkSize * chunkSize * chunkHeight;
 
         // Alloca buffer di scrittura per il chunk centrale
-        this.skyLightWrite = new byte[arraySize];
-        this.blockLightWrite = new short[arraySize];
+        this.lightWrite = new short[arraySize];
 
         // Alloca array per i 9 chunk
         this.neighborBlocks = new int[9][];
-        this.neighborSkyLight = new byte[9][];
-        this.neighborBlockLight = new short[9][];
+        this.neighborLight = new short[9][];
         this.neighborFluidData = new byte[9][];
         this.neighborExists = new boolean[9];
 
@@ -80,15 +80,13 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
                     // Cloning 9 chunks (2.5MB) per task causes OOM.
                     // Risk: Rare visual artifacts if modifying blocks while meshing.
                     neighborBlocks[idx] = c.getBlockData();
-                    neighborSkyLight[idx] = c.getSkyLightData();
-                    neighborBlockLight[idx] = c.getBlockLightData();
+                    neighborLight[idx] = c.getLightData();
                     neighborFluidData[idx] = c.getFluidData();
                 } else {
                     neighborExists[idx] = false;
                     // Chunk non caricato - usa array vuoti (aria, luce 0)
                     neighborBlocks[idx] = new int[arraySize];
-                    neighborSkyLight[idx] = new byte[arraySize];
-                    neighborBlockLight[idx] = new short[arraySize];
+                    neighborLight[idx] = new short[arraySize];
                     neighborFluidData[idx] = new byte[arraySize];
                     Arrays.fill(neighborBlocks[idx], 0); // AIR
                 }
@@ -97,8 +95,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
 
         // Inizializza i buffer di scrittura con i dati del chunk centrale
         int centerIdx = 4; // (0+1)*3 + (0+1) = 4
-        System.arraycopy(neighborSkyLight[centerIdx], 0, skyLightWrite, 0, arraySize);
-        System.arraycopy(neighborBlockLight[centerIdx], 0, blockLightWrite, 0, arraySize);
+        System.arraycopy(neighborLight[centerIdx], 0, lightWrite, 0, arraySize);
     }
 
     // =================================================================================
@@ -131,17 +128,21 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
             return 0;
         }
-        return skyLightWrite[localIndex(x, y, z)] & 0xFF;
+        return lightWrite[localIndex(x, y, z)] & 0xF;
     }
 
     /**
      * Scrive la skylight nel buffer di SCRITTURA (coordinate locali).
+     * Preserves existing RGB blocklight value.
      */
     public void setSkyLight(int x, int y, int z, int level) {
         if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
             return;
         }
-        skyLightWrite[localIndex(x, y, z)] = (byte) Math.max(0, Math.min(15, level));
+        int idx = localIndex(x, y, z);
+        int clamped = Math.max(0, Math.min(15, level));
+        int rgb = (lightWrite[idx] >> 4) & 0xFFF;
+        lightWrite[idx] = (short) ((rgb << 4) | clamped);
     }
 
     /**
@@ -151,18 +152,20 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
             return 0;
         }
-        return blockLightWrite[localIndex(x, y, z)] & 0xFFFF;
+        return (lightWrite[localIndex(x, y, z)] >> 4) & 0xFFF;
     }
 
     /**
      * Scrive la blocklight nel buffer di SCRITTURA (coordinate locali).
+     * Preserves existing skylight value.
      */
     public void setBlockLight(int x, int y, int z, int level) {
         if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
             return;
         }
-        // No clamping to 0-15 because now it's RGB packed (0xFFF max)
-        blockLightWrite[localIndex(x, y, z)] = (short) level;
+        int idx = localIndex(x, y, z);
+        int sky = lightWrite[idx] & 0xF;
+        lightWrite[idx] = (short) (((level & 0xFFF) << 4) | sky);
     }
 
     public int getFluidLevel(int x, int y, int z) {
@@ -238,7 +241,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
 
         // Se è il chunk centrale, leggi dal buffer di scrittura
         if (idx == 4) {
-            return skyLightWrite[localIndex(localX, globalY, localZ)] & 0xFF;
+            return lightWrite[localIndex(localX, globalY, localZ)] & 0xF;
         }
 
         // Altrimenti leggi dai dati originali del vicino
@@ -246,7 +249,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
             return 0;
         }
 
-        return neighborSkyLight[idx][localIndex(localX, globalY, localZ)] & 0xFF;
+        return neighborLight[idx][localIndex(localX, globalY, localZ)] & 0xF;
     }
 
     /**
@@ -274,7 +277,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
 
         // Se è il chunk centrale, leggi dal buffer di scrittura
         if (idx == 4) {
-            return blockLightWrite[localIndex(localX, globalY, localZ)] & 0xFFFF;
+            return (lightWrite[localIndex(localX, globalY, localZ)] >> 4) & 0xFFF;
         }
 
         // Altrimenti leggi dai dati originali del vicino
@@ -282,7 +285,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
             return 0;
         }
 
-        return neighborBlockLight[idx][localIndex(localX, globalY, localZ)] & 0xFFFF;
+        return (neighborLight[idx][localIndex(localX, globalY, localZ)] >> 4) & 0xFFF;
     }
 
     public int peekFluidLevel(int globalX, int globalY, int globalZ) {
@@ -323,17 +326,11 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
     // =================================================================================
 
     /**
-     * Restituisce il buffer di skylight calcolato (da copiare nel Chunk).
+     * Restituisce il buffer di luce calcolato (da copiare nel Chunk).
+     * Format: [15:4] = RGB blocklight, [3:0] = skylight
      */
-    public byte[] getSkyLightWriteBuffer() {
-        return skyLightWrite;
-    }
-
-    /**
-     * Restituisce il buffer di blocklight calcolato (da copiare nel Chunk).
-     */
-    public short[] getBlockLightWriteBuffer() {
-        return blockLightWrite;
+    public short[] getLightWriteBuffer() {
+        return lightWrite;
     }
 
     // =================================================================================
