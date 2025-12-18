@@ -16,7 +16,6 @@ import engine.entity.Entity;
 import engine.entity.ItemEntity; // Correct import
 import engine.loot.LootTable; // Correct import
 import engine.world.item.ItemStack;
-import java.util.Random;
 
 import java.util.*;
 
@@ -704,16 +703,20 @@ public class World implements MeshBuilder.WorldAccess {
             }
         }
         // === INVALIDAZIONE MESH ===
+        // La luce può propagarsi fino a 15 blocchi, quindi può raggiungere
+        // tutti i chunk vicini nella griglia 3x3. Dobbiamo invalidare tutti.
+        // Il chunk corrente viene invalidato completamente (ricalcola luce + mesh)
         invalidateChunkLight(cx, cz);
 
-        if (lx == 0)
-            invalidateChunkLight(cx - 1, cz);
-        if (lx == config.chunkSize - 1)
-            invalidateChunkLight(cx + 1, cz);
-        if (lz == 0)
-            invalidateChunkLight(cx, cz - 1);
-        if (lz == config.chunkSize - 1)
-            invalidateChunkLight(cx, cz + 1);
+        // I vicini hanno già i dati luce aggiornati dalla propagazione real-time,
+        // quindi devono solo rigenerare la mesh (non ricalcolare la luce)
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0)
+                    continue; // Skip center chunk
+                invalidateChunkLight(cx + dx, cz + dz);
+            }
+        }
     }
 
     /**
