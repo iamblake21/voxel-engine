@@ -57,12 +57,22 @@ public class Engine {
         EngineBootstrap.freeze();
 
         window.create();
+        // Sync renderer with actual framebuffer size immediately
+        renderer.resize(window.getFbWidth(), window.getFbHeight());
         renderer.init();
         itemEntityRenderer.init(renderer.getAtlasTexture());
 
         entityRenderer.init();
         renderer.setEntityRenderers(entityRenderer, itemEntityRenderer);
         input.init();
+
+        // Handle window resize
+        window.addResizeCallback((width, height) -> {
+            renderer.resize(width, height);
+            if (entities.getPlayer() != null) {
+                entities.getPlayer().getCamera().updateAspectRatio(width, height);
+            }
+        });
 
         System.out.println("=== Game Initialization ===");
         game.init(this);
@@ -109,6 +119,8 @@ public class Engine {
         if (!running)
             return;
 
+        long tStart = System.nanoTime();
+
         // 1. Render World (Solid Pass)
         entities.setPartialTick(gameLoop.getTime().getAlpha()); // Sync partial tick
 
@@ -121,6 +133,7 @@ public class Engine {
         if (world != null) {
             renderer.renderSolid(world);
         }
+        long tSolid = System.nanoTime();
 
         // 2. Render Entities (Opaque) - Now between Solid and Transparent
         if (entities.getPlayer() != null) {
@@ -154,6 +167,7 @@ public class Engine {
             }
             itemEntityRenderer.end();
         }
+        long tEntities = System.nanoTime();
 
         // 3. Render World (Transparent Pass) - Water, Glass
         if (world != null) {
@@ -168,14 +182,31 @@ public class Engine {
             // 2.5 Render Hand (First Person) - AFTER all world rendering
             renderer.renderHand(entities.getPlayer(), entities.getPartialTick());
         }
+        long tTrans = System.nanoTime();
 
         // 3. Render Game GUI / Overlay
         if (game != null) {
             game.render(renderer);
         }
+        long tGui = System.nanoTime();
 
         renderer.endFrame();
         window.swapBuffers();
+        long tSwap = System.nanoTime();
+
+        // Profiler Output
+        if (gameLoop.getFrameCount() % 60 == 0) {
+            double msSolid = (tSolid - tStart) / 1_000_000.0;
+            double msEnts = (tEntities - tSolid) / 1_000_000.0;
+            double msTrans = (tTrans - tEntities) / 1_000_000.0;
+            double msGui = (tGui - tTrans) / 1_000_000.0;
+            double msSwap = (tSwap - tGui) / 1_000_000.0;
+            double msTotal = (tSwap - tStart) / 1_000_000.0;
+
+            System.out.printf(
+                    "[Profiler] Total: %.2f ms | Solid: %.2f | Ents: %.2f | Trans: %.2f | Gui: %.2f | Swap: %.2f%n",
+                    msTotal, msSolid, msEnts, msTrans, msGui, msSwap);
+        }
     }
 
     public void shutdown() {

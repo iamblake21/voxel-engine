@@ -140,6 +140,52 @@ public class Math3D {
             r.m[15] = 1.0f;
             return r;
         }
+
+        /**
+         * Set this matrix to identity (in-place).
+         */
+        public void setIdentity() {
+            m[0] = 1;
+            m[4] = 0;
+            m[8] = 0;
+            m[12] = 0;
+            m[1] = 0;
+            m[5] = 1;
+            m[9] = 0;
+            m[13] = 0;
+            m[2] = 0;
+            m[6] = 0;
+            m[10] = 1;
+            m[14] = 0;
+            m[3] = 0;
+            m[7] = 0;
+            m[11] = 0;
+            m[15] = 1;
+        }
+
+        /**
+         * Fast set-to-translation (Equivalent to setIdentity() then translate(), but
+         * faster).
+         * Replaces the matrix content.
+         */
+        public void setTranslation(float x, float y, float z) {
+            m[0] = 1;
+            m[4] = 0;
+            m[8] = 0;
+            m[12] = x;
+            m[1] = 0;
+            m[5] = 1;
+            m[9] = 0;
+            m[13] = y;
+            m[2] = 0;
+            m[6] = 0;
+            m[10] = 1;
+            m[14] = z;
+            m[3] = 0;
+            m[7] = 0;
+            m[11] = 0;
+            m[15] = 1;
+        }
     }
 
     /**

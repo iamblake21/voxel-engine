@@ -22,11 +22,20 @@ public class GuiRenderer {
     private int vao, vbo;
     private int defaultTexture;
 
-    private FloatBuffer quadBuffer;
+    // Batching
+    private static final int MAX_QUADS = 2048;
+    private static final int VERTEX_SIZE = 9; // Pos(2) + UV(2) + Color(4) + Layer(1)
+    private static final int VERTICES_PER_QUAD = 6;
+    private FloatBuffer batchBuffer;
+    private int quadCount = 0;
+
+    // Current State for Batching
+    private int currentTextureId = 0;
+    private boolean currentUseArray = false;
 
     // Shader uniform locations
-    private int uProjectionLoc, uTextureLoc, uColorLoc;
-    private int uTextureArrayLoc, uUseTextureArrayLoc, uLayerLoc;
+    private int uProjectionLoc, uTextureLoc;
+    private int uTextureArrayLoc, uUseTextureArrayLoc;
 
     private engine.rendering.TextureArray atlasTexture;
 
@@ -60,27 +69,43 @@ public class GuiRenderer {
 
         uProjectionLoc = glGetUniformLocation(shader.getProgramId(), "uProjection");
         uTextureLoc = glGetUniformLocation(shader.getProgramId(), "uTexture");
-        uColorLoc = glGetUniformLocation(shader.getProgramId(), "uColor");
+        uProjectionLoc = glGetUniformLocation(shader.getProgramId(), "uProjection");
+        uTextureLoc = glGetUniformLocation(shader.getProgramId(), "uTexture");
+        // uColorLoc removed
         uTextureArrayLoc = glGetUniformLocation(shader.getProgramId(), "uTextureArray");
         uUseTextureArrayLoc = glGetUniformLocation(shader.getProgramId(), "uUseTextureArray");
-        uLayerLoc = glGetUniformLocation(shader.getProgramId(), "uLayer");
+        // uLayerLoc removed
 
         vao = glGenVertexArrays();
         vbo = glGenBuffers();
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, 6 * 4 * Float.BYTES, GL_DYNAMIC_DRAW);
+        // Buffer size: MAX_QUADS * 6 vertices * VERTEX_SIZE floats
+        glBufferData(GL_ARRAY_BUFFER, MAX_QUADS * VERTICES_PER_QUAD * VERTEX_SIZE * Float.BYTES, GL_DYNAMIC_DRAW);
 
-        glVertexAttribPointer(0, 2, GL_FLOAT, false, 4 * Float.BYTES, 0);
+        int stride = VERTEX_SIZE * Float.BYTES;
+
+        // 0: Pos (2)
+        glVertexAttribPointer(0, 2, GL_FLOAT, false, stride, 0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, false, 4 * Float.BYTES, 2 * Float.BYTES);
+
+        // 1: UV (2)
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, 2 * Float.BYTES);
         glEnableVertexAttribArray(1);
+
+        // 2: Color (4)
+        glVertexAttribPointer(2, 4, GL_FLOAT, false, stride, 4 * Float.BYTES);
+        glEnableVertexAttribArray(2);
+
+        // 3: Layer (1)
+        glVertexAttribPointer(3, 1, GL_FLOAT, false, stride, 8 * Float.BYTES);
+        glEnableVertexAttribArray(3);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
 
-        quadBuffer = BufferUtils.createFloatBuffer(6 * 4);
+        batchBuffer = BufferUtils.createFloatBuffer(MAX_QUADS * VERTICES_PER_QUAD * VERTEX_SIZE);
 
         // Default Texture Creation
         defaultTexture = glGenTextures();
@@ -102,20 +127,28 @@ public class GuiRenderer {
 
         shader.bind();
 
+        // Always bind Atlas to Unit 1 to satisfy Sampler2DArray validation
+        if (atlasTexture != null) {
+            atlasTexture.bind(1);
+        }
+
         float logicalW = windowWidth / (float) guiScale;
         float logicalH = windowHeight / (float) guiScale;
         float[] projectionMatrix = createOrthoMatrix(0, logicalW, logicalH, 0, -1, 1);
         glUniformMatrix4fv(uProjectionLoc, false, projectionMatrix);
 
-        glUniform4f(uColorLoc, 1, 1, 1, 1);
         glUniform1i(uTextureLoc, 0);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, defaultTexture);
         glUniform1i(uTextureArrayLoc, 1);
-        glUniform1i(uUseTextureArrayLoc, 0);
+
+        // Reset state
+        currentTextureId = 0;
+        currentUseArray = false;
+        quadCount = 0;
+        batchBuffer.clear();
     }
 
     public void end() {
+        flush(); // Draw remaining quads
         shader.unbind();
         glDisable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
@@ -165,43 +198,67 @@ public class GuiRenderer {
         renderRawQuad(x, y, width, height, texture, uMin, vMin, uMax, vMax, 1, 1, 1, 1);
     }
 
+    private void flush() {
+        if (quadCount == 0)
+            return;
+
+        // Bind correct textures
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, currentTextureId != 0 ? currentTextureId : defaultTexture);
+
+        glUniform1i(uUseTextureArrayLoc, currentUseArray ? 1 : 0);
+
+        // Upload and Draw
+        batchBuffer.flip();
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, batchBuffer);
+
+        glDrawArrays(GL_TRIANGLES, 0, quadCount * 6);
+
+        glBindVertexArray(0);
+
+        // Reset
+        batchBuffer.clear();
+        quadCount = 0;
+    }
+
+    private void checkFlush(int textureId, boolean useArray) {
+        // If state changed or buffer full, flush
+        if (textureId != currentTextureId || useArray != currentUseArray || quadCount >= MAX_QUADS) {
+            flush();
+            currentTextureId = textureId;
+            currentUseArray = useArray;
+        }
+    }
+
     /**
      * Metodo interno "raw" che accetta UV custom.
      */
     private void renderRawQuad(float x, float y, float width, float height, GuiTexture texture,
             float uMin, float vMin, float uMax, float vMax,
             float r, float g, float b, float a) {
-        if (texture != null) {
-            texture.bind();
-        } else {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, defaultTexture);
-        }
 
-        glUniform1i(uUseTextureArrayLoc, 0);
-        glUniform4f(uColorLoc, r, g, b, a);
+        int texID = (texture != null) ? texture.getId() : defaultTexture;
+        checkFlush(texID, false);
 
-        quadBuffer.clear();
+        // Add 6 vertices to buffer
+        addVertex(x, y, uMin, vMin, r, g, b, a, 0); // TL
+        addVertex(x, y + height, uMin, vMax, r, g, b, a, 0); // BL
+        addVertex(x + width, y, uMax, vMin, r, g, b, a, 0); // TR
 
-        // Triangolo 1
-        quadBuffer.put(x).put(y).put(uMin).put(vMin); // TL
-        quadBuffer.put(x).put(y + height).put(uMin).put(vMax); // BL
-        quadBuffer.put(x + width).put(y).put(uMax).put(vMin); // TR
+        addVertex(x + width, y, uMax, vMin, r, g, b, a, 0); // TR
+        addVertex(x, y + height, uMin, vMax, r, g, b, a, 0); // BL
+        addVertex(x + width, y + height, uMax, vMax, r, g, b, a, 0); // BR
 
-        // Triangolo 2
-        quadBuffer.put(x + width).put(y).put(uMax).put(vMin); // TR
-        quadBuffer.put(x).put(y + height).put(uMin).put(vMax); // BL
-        quadBuffer.put(x + width).put(y + height).put(uMax).put(vMax); // BR
+        quadCount++;
+    }
 
-        quadBuffer.flip();
-
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, quadBuffer);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        if (texture != null)
-            texture.unbind();
+    private void addVertex(float x, float y, float u, float v, float r, float g, float b, float a, float layer) {
+        batchBuffer.put(x).put(y);
+        batchBuffer.put(u).put(v);
+        batchBuffer.put(r).put(g).put(b).put(a);
+        batchBuffer.put(layer);
     }
 
     /**
@@ -281,7 +338,8 @@ public class GuiRenderer {
             return;
 
         atlasTexture.bind(1);
-        glUniform1i(uUseTextureArrayLoc, 1);
+        // glUniform1i(uUseTextureArrayLoc, 1); // Handled by checkFlush
+        checkFlush(-1, true); // Ensure we are in Array mode
 
         // Radius/Half-width
         float r = size * 0.65f;
@@ -332,12 +390,31 @@ public class GuiRenderer {
         // LEFT FACE
         renderQuadPoly(sideL, xL, yL, xC, yC, xB, yB, xBL, yBL, 0.8f);
 
-        glUniform1i(uUseTextureArrayLoc, 0);
-        atlasTexture.unbind();
+        // renderQuadPoly handles flushing if needed.
+        // We just need to ensure we don't unbind if we are batching?
+        // Actually, we can leave it bound.
+        // glUniform1i(uUseTextureArrayLoc, 0);
+        // atlasTexture.unbind(); // Don't unbind, batching!
     }
 
     // Cache for custom block textures in GUI
     private final java.util.Map<String, GuiTexture> customBlockTextures = new java.util.HashMap<>();
+    private final java.util.Map<String, GuiTexture> textureCache = new java.util.HashMap<>();
+
+    public GuiTexture getTexture(String path) {
+        if (textureCache.containsKey(path)) {
+            return textureCache.get(path);
+        }
+        try {
+            GuiTexture tex = new GuiTexture(path);
+            textureCache.put(path, tex);
+            return tex;
+        } catch (Exception e) {
+            System.err.println("Failed to load GUI texture: " + path);
+            textureCache.put(path, null); // Cache miss to prevent retry
+            return null;
+        }
+    }
 
     private GuiTexture getCustomBlockTexture(String modelPath) {
         if (customBlockTextures.containsKey(modelPath)) {
@@ -389,27 +466,17 @@ public class GuiRenderer {
             GuiTexture customTex = getCustomBlockTexture(modelPath);
 
             if (customTex != null) {
-                customTex.bind();
-                glUniform1i(uUseTextureArrayLoc, 0); // Use 2D sampler (Unit 0 for GUI)
+                checkFlush(customTex.getId(), false);
 
-                glUniform4f(uColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                addVertex(x, y, 0, 0, 1, 1, 1, 1, 0);
+                addVertex(x, y + size, 0, 1, 1, 1, 1, 1, 0);
+                addVertex(x + size, y, 1, 0, 1, 1, 1, 1, 0);
 
-                quadBuffer.clear();
-                quadBuffer.put(x).put(y).put(0).put(0); // TL
-                quadBuffer.put(x).put(y + size).put(0).put(1); // BL
-                quadBuffer.put(x + size).put(y).put(1).put(0); // TR
+                addVertex(x + size, y, 1, 0, 1, 1, 1, 1, 0);
+                addVertex(x, y + size, 0, 1, 1, 1, 1, 1, 0);
+                addVertex(x + size, y + size, 1, 1, 1, 1, 1, 1, 0);
 
-                quadBuffer.put(x + size).put(y).put(1).put(0); // TR
-                quadBuffer.put(x).put(y + size).put(0).put(1); // BL
-                quadBuffer.put(x + size).put(y + size).put(1).put(1); // BR
-
-                quadBuffer.flip();
-                glBindVertexArray(vao);
-                glBindBuffer(GL_ARRAY_BUFFER, vbo);
-                glBufferSubData(GL_ARRAY_BUFFER, 0, quadBuffer);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-
-                customTex.unbind();
+                quadCount++;
                 return;
             }
         }
@@ -418,36 +485,34 @@ public class GuiRenderer {
             return;
 
         atlasTexture.bind(1);
-        glUniform1i(uUseTextureArrayLoc, 1);
+        // Check Flush (Atlas is Texture Unit 1? No, we need to bind actual texture ID
+        // of atlas)
+        // We use a special "textureId" for Atlas state to indicate "We are using
+        // Array".
+        // Say -1.
 
-        // Get texture from "side" face (usually sufficient for simple blocks)
+        checkFlush(0, true);
+
+        // Calculate Layer
         int tileX = block.getTextureTileX(1, 0, 0);
         int tileY = block.getTextureTileY(1, 0, 0);
         int layer = atlasTexture.getLayerIndex(tileX, tileY);
 
-        glUniform1f(uLayerLoc, (float) layer);
+        // Ensure atlas is bound to unit 1 (do this once per batch or lazily?
+        // For now, let's just assume it's bound if we are in this state.
+        // But we need to bind it at least once.
+        atlasTexture.bind(1);
 
-        // Render simple quad
-        // Use full brightness
-        glUniform4f(uColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+        // Add vertices with LAYER
+        addVertex(x, y, 0, 0, 1, 1, 1, 1, layer);
+        addVertex(x, y + size, 0, 1, 1, 1, 1, 1, layer);
+        addVertex(x + size, y, 1, 0, 1, 1, 1, 1, layer);
 
-        quadBuffer.clear();
-        quadBuffer.put(x).put(y).put(0).put(0);
-        quadBuffer.put(x).put(y + size).put(0).put(1);
-        quadBuffer.put(x + size).put(y).put(1).put(0);
+        addVertex(x + size, y, 1, 0, 1, 1, 1, 1, layer);
+        addVertex(x, y + size, 0, 1, 1, 1, 1, 1, layer);
+        addVertex(x + size, y + size, 1, 1, 1, 1, 1, 1, layer);
 
-        quadBuffer.put(x + size).put(y).put(1).put(0);
-        quadBuffer.put(x).put(y + size).put(0).put(1);
-        quadBuffer.put(x + size).put(y + size).put(1).put(1);
-
-        quadBuffer.flip();
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, quadBuffer);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        glUniform1i(uUseTextureArrayLoc, 0);
-        atlasTexture.unbind();
+        quadCount++;
     }
 
     /**
@@ -455,26 +520,21 @@ public class GuiRenderer {
      */
     private void renderQuadPoly(int layer, float x1, float y1, float x2, float y2, float x3, float y3, float x4,
             float y4, float bright) {
-        glUniform1f(uLayerLoc, (float) layer);
-        glUniform4f(uColorLoc, bright, bright, bright, 1.0f);
 
-        quadBuffer.clear();
+        checkFlush(0, true);
+        atlasTexture.bind(1);
 
-        // Triangle 1: P1, P2, P4
-        quadBuffer.put(x1).put(y1).put(0).put(0); // TL
-        quadBuffer.put(x4).put(y4).put(0).put(1); // BL
-        quadBuffer.put(x2).put(y2).put(1).put(0); // TR
+        // Triangle 1
+        addVertex(x1, y1, 0, 0, bright, bright, bright, 1, layer);
+        addVertex(x4, y4, 0, 1, bright, bright, bright, 1, layer);
+        addVertex(x2, y2, 1, 0, bright, bright, bright, 1, layer);
 
-        // Triangle 2: P2, P4, P3
-        quadBuffer.put(x2).put(y2).put(1).put(0); // TR
-        quadBuffer.put(x4).put(y4).put(0).put(1); // BL
-        quadBuffer.put(x3).put(y3).put(1).put(1); // BR
+        // Triangle 2
+        addVertex(x2, y2, 1, 0, bright, bright, bright, 1, layer);
+        addVertex(x4, y4, 0, 1, bright, bright, bright, 1, layer);
+        addVertex(x3, y3, 1, 1, bright, bright, bright, 1, layer);
 
-        quadBuffer.flip();
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, quadBuffer);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        quadCount++;
     }
 
     /**
@@ -521,13 +581,19 @@ public class GuiRenderer {
 
                 layout(location = 0) in vec2 aPosition;
                 layout(location = 1) in vec2 aTexCoord;
+                layout(location = 2) in vec4 aColor;
+                layout(location = 3) in float aLayer;
 
                 uniform mat4 uProjection;
 
                 out vec2 vTexCoord;
+                out vec4 vColor;
+                out float vLayer;
 
                 void main() {
                     vTexCoord = aTexCoord;
+                    vColor = aColor;
+                    vLayer = aLayer;
                     gl_Position = uProjection * vec4(aPosition, 0.0, 1.0);
                 }
                 """;
@@ -538,14 +604,16 @@ public class GuiRenderer {
                 #version 330 core
 
                 in vec2 vTexCoord;
+                in vec4 vColor;
+                in float vLayer;
 
                 uniform sampler2D uTexture;
-                uniform vec4 uColor;
+                // uniform vec4 uColor; // Removed, using attribute
 
                 // Texture Array support
                 uniform sampler2DArray uTextureArray;
                 uniform int uUseTextureArray;
-                uniform float uLayer;
+                // uniform float uLayer; // Removed, using attribute
 
                 out vec4 FragColor;
 
@@ -553,14 +621,14 @@ public class GuiRenderer {
                     vec4 texColor;
 
                     if (uUseTextureArray == 1) {
-                        texColor = texture(uTextureArray, vec3(vTexCoord, uLayer));
+                        texColor = texture(uTextureArray, vec3(vTexCoord, vLayer));
                     } else {
                         texColor = texture(uTexture, vTexCoord);
                     }
 
                     if (texColor.a < 0.1) discard;
 
-                    FragColor = texColor * uColor;
+                    FragColor = texColor * vColor;
                 }
                 """;
     }

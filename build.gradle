@@ -50,9 +50,10 @@ application {
     mainClass = "game.ExampleGame"
 
     // macOS fix (richiesto per GLFW)
+    // macOS fix (richiesto per GLFW)
     applicationDefaultJvmArgs = os.contains("mac")
-            ? ["-XstartOnFirstThread"]
-            : []
+            ? ["-XstartOnFirstThread", "-Xmx4G"]
+            : ["-Xmx4G"]
 }
 
 // Java version

@@ -150,6 +150,10 @@ public class GuiTexture {
         return textureId;
     }
 
+    public int getId() {
+        return textureId;
+    }
+
     public int getWidth() {
         return width;
     }

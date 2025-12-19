@@ -471,4 +471,19 @@ public class Chunk {
         }
         blockEntities.clear();
     }
+
+    public void cleanupLOD(int lod) {
+        lod = clampLod(lod);
+        if (solidLOD[lod] != null)
+            solidLOD[lod].cleanup();
+        if (transparentLOD[lod] != null)
+            transparentLOD[lod].cleanup();
+        if (waterLOD[lod] != null)
+            waterLOD[lod].cleanup();
+
+        // Re-create empty meshes to avoid null checks failing elsewhere if expected
+        solidLOD[lod] = new Mesh();
+        transparentLOD[lod] = new Mesh();
+        waterLOD[lod] = new Mesh();
+    }
 }
