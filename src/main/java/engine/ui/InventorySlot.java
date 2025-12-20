@@ -78,12 +78,15 @@ public class InventorySlot extends GuiComponent {
         String iconPath = stack.getItem().getIconTexture();
         if (iconPath != null) {
             try {
-                GuiTexture itemIcon = new GuiTexture(iconPath);
-                renderer.renderQuad(x + 1, y + 1, 16, 16, itemIcon);
-                itemIcon.cleanup();
+                GuiTexture itemIcon = renderer.getTexture(iconPath);
+                if (itemIcon != null) {
+                    renderer.renderQuad(x + 1, y + 1, 16, 16, itemIcon);
+                } else {
+                    renderFallbackIcon(renderer);
+                }
                 return;
             } catch (Exception e) {
-                // Fallback if texture fails
+                // Fallback if texture fail
             }
         }
 

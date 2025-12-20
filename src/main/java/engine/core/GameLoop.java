@@ -21,6 +21,7 @@ public class GameLoop {
     private int frames = 0;
     private long lastFPSTime = 0;
     private int currentFPS = 0;
+    private long totalFrames = 0;
 
     public GameLoop(Engine engine) {
         this.engine = engine;
@@ -71,8 +72,13 @@ public class GameLoop {
         engine.shutdown();
     }
 
+    public long getFrameCount() {
+        return totalFrames;
+    }
+
     private void updateFPS(long currentTime) {
         frames++;
+        totalFrames++;
 
         if (currentTime - lastFPSTime >= 1_000_000_000L) {
             currentFPS = frames;

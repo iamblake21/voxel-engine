@@ -40,6 +40,10 @@ public class Renderer {
     private final Frustum frustum = new Frustum();
     private boolean frustumCullingEnabled = true;
 
+
+    // Cached objects to avoid allocation
+    private final Mat4 modelMatrix = new Mat4();
+
     // LOD system
     private boolean lodEnabled = true;
     private int currentPlayerChunkX = 0;
@@ -80,8 +84,18 @@ public class Renderer {
     private float clearR = 0.6f, clearG = 0.8f, clearB = 1.0f;
     private World currentWorld;
 
+    private int viewportWidth;
+    private int viewportHeight;
+
     public Renderer(Config config) {
         this.config = config;
+        this.viewportWidth = config.windowWidth;
+        this.viewportHeight = config.windowHeight;
+    }
+
+    public void resize(int width, int height) {
+        this.viewportWidth = width;
+        this.viewportHeight = height;
     }
 
     private void initSkyboxMesh() {
@@ -200,7 +214,9 @@ public class Renderer {
 
         glClearColor(clearR, clearG, clearB, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glViewport(0, 0, config.windowWidth, config.windowHeight);
+        glClearColor(clearR, clearG, clearB, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glViewport(0, 0, viewportWidth, viewportHeight);
 
         // Update player chunk position for LOD calculations
         if (camera != null) {
@@ -463,8 +479,8 @@ public class Renderer {
             lodCounts[lod]++;
             Mesh solidMesh = chunk.getSolidMesh(lod);
             if (solidMesh != null && !solidMesh.isEmpty()) {
-                Mat4 model = Mat4.translate(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
-                voxelShader.setUniform(uModel, model);
+                modelMatrix.setTranslation(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
+                voxelShader.setUniform(uModel, modelMatrix);
                 solidMesh.draw();
             }
         }
@@ -514,14 +530,14 @@ public class Renderer {
         for (int i = currentVisibleChunks.size() - 1; i >= 0; i--) {
             Chunk chunk = currentVisibleChunks.get(i);
             int lod = calculateChunkLOD(chunk);
-            Mat4 model = Mat4.translate(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
+            modelMatrix.setTranslation(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
 
             // 1. Transparent Mesh
             Mesh transpMesh = chunk.getTransparentMesh(lod);
             if (transpMesh != null && !transpMesh.isEmpty()) {
                 voxelShader.setUniform(uWaterPass, 0);
                 voxelShader.setUniform(uUseTextureArray, 1);
-                voxelShader.setUniform(uModel, model);
+                voxelShader.setUniform(uModel, modelMatrix);
                 atlasTexture.bind(0);
                 transpMesh.draw();
             }
@@ -536,7 +552,7 @@ public class Renderer {
                         voxelShader.setUniform(uWaterPass, 0);
                         voxelShader.setUniform(uUseTextureArray, 0);
                         tex.bind(1);
-                        voxelShader.setUniform(uModel, model);
+                        voxelShader.setUniform(uModel, modelMatrix);
 
                         boolean isOverlay = texturePath.contains("grass_block_side_overlay");
                         if (isOverlay) {
@@ -556,7 +572,7 @@ public class Renderer {
             if (waterMesh != null && !waterMesh.isEmpty()) {
                 voxelShader.setUniform(uWaterPass, 1);
                 voxelShader.setUniform(uUseTextureArray, 1);
-                voxelShader.setUniform(uModel, model);
+                voxelShader.setUniform(uModel, modelMatrix);
                 atlasTexture.bind(0);
                 waterMesh.draw();
             }
