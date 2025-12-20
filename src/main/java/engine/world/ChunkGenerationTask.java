@@ -10,7 +10,7 @@ public class ChunkGenerationTask {
     public final Priority priority;
 
     // Results (filled by worker thread)
-    public volatile int[] blockData;
+    public volatile short[] blockData;
     public volatile int[] heightMap;
     public volatile byte[] fluidData;
     public volatile boolean complete = false;

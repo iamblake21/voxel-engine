@@ -41,7 +41,7 @@ public class Chunk {
     private final int chunkZ;
 
     // Raw block data: flattened 3D array [y][z][x]
-    private final int[] blocks;
+    private final short[] blocks;
 
     // Heightmap (topmost solid block per (x,z))
     private final int[] heightMap;
@@ -72,14 +72,14 @@ public class Chunk {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
 
-        this.blocks = new int[SIZE * HEIGHT * SIZE];
+        this.blocks = new short[SIZE * HEIGHT * SIZE];
         this.heightMap = new int[SIZE * SIZE];
         this.light = new short[SIZE * HEIGHT * SIZE];
         this.fluidData = new byte[SIZE * HEIGHT * SIZE];
 
         // Initialize with air
         int airId = Blocks.AIR().getNumericId();
-        Arrays.fill(blocks, airId);
+        Arrays.fill(blocks, (short) airId);
         Arrays.fill(heightMap, -1);
         Arrays.fill(light, (short) 0);
         Arrays.fill(fluidData, (byte) 0);
@@ -127,7 +127,7 @@ public class Chunk {
         if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
             return;
         }
-        blocks[index(x, y, z)] = blockId;
+        blocks[index(x, y, z)] = (short) blockId;
         dirty = true;
     }
 
@@ -217,7 +217,7 @@ public class Chunk {
 
     // ==================== RAW DATA ACCESS ====================
 
-    public int[] getBlockData() {
+    public short[] getBlockData() {
         return blocks;
     }
 

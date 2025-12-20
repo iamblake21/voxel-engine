@@ -36,14 +36,14 @@ public class WorldGenerator {
     /**
      * Generate terrain for a chunk.
      */
-    public void generateTerrain(int chunkX, int chunkZ, int[] blockData, int[] heightMap, byte[] fluidData) {
+    public void generateTerrain(int chunkX, int chunkZ, short[] blockData, int[] heightMap, byte[] fluidData) {
         terrainGenerator.generateTerrain(chunkX, chunkZ, blockData, heightMap, fluidData);
     }
 
     /**
      * Generate features for a chunk.
      */
-    public void generateFeatures(int chunkX, int chunkZ, int[] blockData, int[] heightMap,
+    public void generateFeatures(int chunkX, int chunkZ, short[] blockData, int[] heightMap,
             FeatureGenerator.BlockPlacer placer, Structure.EntityCallback entityCallback) {
         featureGenerator.generateFeatures(chunkX, chunkZ, blockData, heightMap, placer, entityCallback);
     }

@@ -43,7 +43,7 @@ public class FeatureGenerator {
      * Generate features for a chunk.
      * Call AFTER terrain is generated for this chunk and all neighbors.
      */
-    public void generateFeatures(int chunkX, int chunkZ, int[] blockData, int[] heightMap,
+    public void generateFeatures(int chunkX, int chunkZ, short[] blockData, int[] heightMap,
             BlockPlacer placer, Structure.EntityCallback entityCallback) {
         // Legacy/Procedural generation (keeping for now as requested or fallback)
         // generateTrees(chunkX, chunkZ, blockData, heightMap, placer);
@@ -55,7 +55,7 @@ public class FeatureGenerator {
         applyDeferred(chunkX, chunkZ, blockData);
     }
 
-    private void generateStructures(int chunkX, int chunkZ, int[] blockData, int[] heightMap,
+    private void generateStructures(int chunkX, int chunkZ, short[] blockData, int[] heightMap,
             BlockPlacer placer, Structure.EntityCallback entityCallback) {
         // Sample biome at chunk center
         int centerWorldX = chunkX * chunkSize + (chunkSize / 2);
@@ -199,7 +199,7 @@ public class FeatureGenerator {
      * Generate trees based on biome density.
      * Direct port from MinecraftOneFile.ensureFeatures()
      */
-    private void generateTrees(int chunkX, int chunkZ, int[] blockData, int[] heightMap,
+    private void generateTrees(int chunkX, int chunkZ, short[] blockData, int[] heightMap,
             BlockPlacer placer) {
         final int baseX = chunkX * chunkSize;
         final int baseZ = chunkZ * chunkSize;
@@ -279,7 +279,7 @@ public class FeatureGenerator {
      * Place leaf blob for tree.
      * Direct port from MinecraftOneFile.placeLeafBlobWorld()
      */
-    private void placeLeafBlob(BlockPlacer placer, int chunkX, int chunkZ, int[] blockData,
+    private void placeLeafBlob(BlockPlacer placer, int chunkX, int chunkZ, short[] blockData,
             int wxCenter, int wzCenter, int yTop, int leavesId) {
         placeLeafLayer(placer, chunkX, chunkZ, blockData, wxCenter, wzCenter, yTop - 1, 2, true, yTop, leavesId);
         placeLeafLayer(placer, chunkX, chunkZ, blockData, wxCenter, wzCenter, yTop - 2, 2, true, yTop, leavesId);
@@ -287,7 +287,7 @@ public class FeatureGenerator {
         placeLeafLayer(placer, chunkX, chunkZ, blockData, wxCenter, wzCenter, yTop - 3, 1, false, yTop, leavesId);
     }
 
-    private void placeLeafLayer(BlockPlacer placer, int chunkX, int chunkZ, int[] blockData,
+    private void placeLeafLayer(BlockPlacer placer, int chunkX, int chunkZ, short[] blockData,
             int wxCenter, int wzCenter, int y, int R, boolean round,
             int yTop, int leavesId) {
         if (y < 0 || y >= chunkHeight)
@@ -310,7 +310,7 @@ public class FeatureGenerator {
      * Place a block, handling cross-chunk placement.
      */
     private void placeBlock(BlockPlacer placer, int currentChunkX, int currentChunkZ,
-            int[] currentChunkData, int wx, int y, int wz, int blockId) {
+            short[] currentChunkData, int wx, int y, int wz, int blockId) {
         if (y < 0 || y >= chunkHeight)
             return;
 
@@ -323,7 +323,7 @@ public class FeatureGenerator {
             // Same chunk - place directly if not hard
             int existing = currentChunkData[(y * chunkSize + lz) * chunkSize + lx];
             if (!Blocks.isHard(existing)) {
-                currentChunkData[(y * chunkSize + lz) * chunkSize + lx] = blockId;
+                currentChunkData[(y * chunkSize + lz) * chunkSize + lx] = (short) blockId;
             }
         } else {
             // Different chunk - try to place via placer, or defer
@@ -344,7 +344,7 @@ public class FeatureGenerator {
     /**
      * Apply deferred operations to a chunk.
      */
-    private void applyDeferred(int chunkX, int chunkZ, int[] blockData) {
+    private void applyDeferred(int chunkX, int chunkZ, short[] blockData) {
         long key = chunkKey(chunkX, chunkZ);
         List<BlockOp> ops = deferredOps.remove(key);
 
@@ -352,7 +352,7 @@ public class FeatureGenerator {
             for (BlockOp op : ops) {
                 int existing = blockData[(op.y * chunkSize + op.z) * chunkSize + op.x];
                 if (!Blocks.isHard(existing)) {
-                    blockData[(op.y * chunkSize + op.z) * chunkSize + op.x] = op.blockId;
+                    blockData[(op.y * chunkSize + op.z) * chunkSize + op.x] = (short) op.blockId;
                 }
             }
         }

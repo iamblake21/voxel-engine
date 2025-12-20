@@ -40,14 +40,14 @@ public class TerrainGenerator {
     /**
      * Generate terrain for a chunk using 3D density.
      */
-    public void generateTerrain(int chunkX, int chunkZ, int[] blockData, int[] heightMap, byte[] fluidData) {
+    public void generateTerrain(int chunkX, int chunkZ, short[] blockData, int[] heightMap, byte[] fluidData) {
         final int baseX = chunkX * chunkSize;
         final int baseZ = chunkZ * chunkSize;
 
         int airId = Blocks.AIR().getNumericId();
         int stoneId = Blocks.get("game:stone").getNumericId();
 
-        Arrays.fill(blockData, airId);
+        Arrays.fill(blockData, (short) airId);
         Arrays.fill(heightMap, 0);
         if (fluidData != null)
             Arrays.fill(fluidData, (byte) 0);
@@ -86,7 +86,7 @@ public class TerrainGenerator {
     /**
      * Carve caves using spaghetti noise.
      */
-    private void carveCaves(int chunkX, int chunkZ, int[] blockData, int[] heightMap) {
+    private void carveCaves(int chunkX, int chunkZ, short[] blockData, int[] heightMap) {
         final int baseX = chunkX * chunkSize;
         final int baseZ = chunkZ * chunkSize;
         int airId = Blocks.AIR().getNumericId();
@@ -112,7 +112,7 @@ public class TerrainGenerator {
     /**
      * Apply surface blocks based on biome.
      */
-    private void applySurface(int chunkX, int chunkZ, int[] blockData, int[] heightMap) {
+    private void applySurface(int chunkX, int chunkZ, short[] blockData, int[] heightMap) {
         final int baseX = chunkX * chunkSize;
         final int baseZ = chunkZ * chunkSize;
 
@@ -164,7 +164,7 @@ public class TerrainGenerator {
     /**
      * Fill water below sea level.
      */
-    private void fillWater(int chunkX, int chunkZ, int[] blockData, int[] heightMap, byte[] fluidData) {
+    private void fillWater(int chunkX, int chunkZ, short[] blockData, int[] heightMap, byte[] fluidData) {
         int airId = Blocks.AIR().getNumericId();
         Block waterBlock = Blocks.get("game:water");
         int waterId = waterBlock.getNumericId();
@@ -186,18 +186,18 @@ public class TerrainGenerator {
 
     // === BLOCK HELPERS ===
 
-    private int getBlock(int[] data, int x, int y, int z) {
+    private int getBlock(short[] data, int x, int y, int z) {
         if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
             return Blocks.AIR().getNumericId();
         }
         return data[(y * chunkSize + z) * chunkSize + x];
     }
 
-    private void setBlock(int[] data, int x, int y, int z, int blockId) {
+    private void setBlock(short[] data, int x, int y, int z, int blockId) {
         if (x < 0 || x >= chunkSize || y < 0 || y >= chunkHeight || z < 0 || z >= chunkSize) {
             return;
         }
-        data[(y * chunkSize + z) * chunkSize + x] = blockId;
+        data[(y * chunkSize + z) * chunkSize + x] = (short) blockId;
     }
 
     // === GETTERS ===

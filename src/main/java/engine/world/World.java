@@ -275,7 +275,6 @@ public class World implements MeshBuilder.WorldAccess {
                         submitted++;
                 }
             }
-            submitted = preGenerateAhead(pcx, pcz, submitted, maxSubmitPerFrame);
         }
 
         // ========== FASE 2: PIPELINE ==========
@@ -1130,7 +1129,7 @@ public class World implements MeshBuilder.WorldAccess {
             return;
 
         Chunk chunk = new Chunk(cx, cz);
-        int[] blocks = new int[config.chunkSize * config.chunkSize * config.worldHeight];
+        short[] blocks = new short[config.chunkSize * config.chunkSize * config.worldHeight];
         int[] height = new int[config.chunkSize * config.chunkSize];
         byte[] fluid = new byte[config.chunkSize * config.chunkSize * config.worldHeight];
 

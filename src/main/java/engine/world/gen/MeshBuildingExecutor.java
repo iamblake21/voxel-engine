@@ -52,7 +52,7 @@ public class MeshBuildingExecutor {
 
     // Snapshot immutabile del chunk per evitare race conditions
     private static class ChunkDataSnapshot implements MeshBuilder.ChunkData {
-        private final int[] blockData;
+        private final short[] blockData;
         // Packed light: [15:4] = RGB blocklight, [3:0] = skylight
         private final short[] light;
         private final int worldX, worldZ;

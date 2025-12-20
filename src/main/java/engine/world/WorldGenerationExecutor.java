@@ -97,7 +97,7 @@ public class WorldGenerationExecutor {
     private void processTerrainTask(ChunkGenerationTask task) {
         if (task.cancelled)
             return;
-        int[] blocks = new int[chunkSize * chunkSize * chunkHeight];
+        short[] blocks = new short[chunkSize * chunkSize * chunkHeight];
         int[] height = new int[chunkSize * chunkSize];
         byte[] fluid = new byte[chunkSize * chunkSize * chunkHeight];
 

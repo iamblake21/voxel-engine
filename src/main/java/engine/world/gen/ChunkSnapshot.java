@@ -30,7 +30,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
 
     // Dati dei 9 chunk (3x3): neighbors[idx] dove idx = (dz+1)*3 + (dx+1)
     // idx 4 = chunk centrale
-    private final int[][] neighborBlocks;
+    private final short[][] neighborBlocks;
     // Packed light: [15:4] = RGB blocklight, [3:0] = skylight
     private final short[][] neighborLight;
     private final byte[][] neighborFluidData;
@@ -63,7 +63,7 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
         this.lightWrite = new short[arraySize];
 
         // Alloca array per i 9 chunk
-        this.neighborBlocks = new int[9][];
+        this.neighborBlocks = new short[9][];
         this.neighborLight = new short[9][];
         this.neighborFluidData = new byte[9][];
         this.neighborExists = new boolean[9];
@@ -85,10 +85,10 @@ public class ChunkSnapshot implements MeshBuilder.WorldAccess, MeshBuilder.Chunk
                 } else {
                     neighborExists[idx] = false;
                     // Chunk non caricato - usa array vuoti (aria, luce 0)
-                    neighborBlocks[idx] = new int[arraySize];
+                    neighborBlocks[idx] = new short[arraySize];
                     neighborLight[idx] = new short[arraySize];
                     neighborFluidData[idx] = new byte[arraySize];
-                    Arrays.fill(neighborBlocks[idx], 0); // AIR
+                    Arrays.fill(neighborBlocks[idx], (short) 0); // AIR
                 }
             }
         }
