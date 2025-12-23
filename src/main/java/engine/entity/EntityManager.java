@@ -252,6 +252,17 @@ public class EntityManager {
         Iterator<Entity> iter = entities.iterator();
         while (iter.hasNext()) {
             Entity e = iter.next();
+
+            // "Highlander Rule": There can be only one Player.
+            // If we find a Player entity that is NOT the authoritative instance, Nuke it.
+            if (e instanceof Player && e != this.player) {
+                System.out
+                        .println("[EntityManager] CRITICAL: Detected GHOST PLAYER! Nuking it. ID: " + e.getEntityId());
+                entitiesById.remove(e.getEntityId());
+                iter.remove();
+                continue;
+            }
+
             if (e.isRemoved()) {
                 entitiesById.remove(e.getEntityId());
                 iter.remove();

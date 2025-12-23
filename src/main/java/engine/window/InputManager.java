@@ -123,8 +123,8 @@ public class InputManager {
      * Call at END of frame to clear single-press states
      */
     public void endFrame() {
-        // Mark all just-pressed keys for consumption next frame
-        keysToConsume.addAll(keysJustPressed);
+        // Clear single-press states
+        keysJustPressed.clear();
 
         // Clear scroll values so they don't accumulate
         clearScroll();

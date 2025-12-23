@@ -13,6 +13,7 @@ import engine.window.InputManager;
 import engine.utils.Math3D.Vec3;
 import static org.lwjgl.glfw.GLFW.*;
 import engine.interaction.InteractionManager;
+import engine.world.item.nbt.NBTTagCompound;
 
 public class Player extends LivingEntity {
     private final Config config;
@@ -373,6 +374,28 @@ public class Player extends LivingEntity {
 
         if (!handled) {
             // Nothing was interacted with
+        }
+    }
+
+    // ==================== SERIALIZATION ====================
+
+    @Override
+    protected void saveAdditional(NBTTagCompound tag) {
+        super.saveAdditional(tag);
+        // Save inventory
+        if (inventory != null) {
+            NBTTagCompound invTag = new NBTTagCompound();
+            inventory.writeToNBT(invTag);
+            tag.setTag("Inventory", invTag);
+        }
+    }
+
+    @Override
+    protected void loadAdditional(NBTTagCompound tag) {
+        super.loadAdditional(tag);
+        // Load inventory
+        if (tag.hasKey("Inventory") && inventory != null) {
+            inventory.readFromNBT(tag.getTag("Inventory"));
         }
     }
 

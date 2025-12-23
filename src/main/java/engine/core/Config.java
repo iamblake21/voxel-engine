@@ -41,6 +41,7 @@ public class Config {
 
     // Generation settings
     public long worldSeed = 55555;
+    public String worldName = "New World";
     public boolean generateTrees = true;
     public float treeDensity = 0.28f;
     public boolean generateCaves = true;

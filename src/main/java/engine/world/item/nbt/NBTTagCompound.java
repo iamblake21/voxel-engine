@@ -139,6 +139,52 @@ public class NBTTagCompound {
         }
     }
 
+    // ==================== RAW ACCESS (For Serialization) ====================
+
+    public Object getRaw(String key) {
+        return data.get(key);
+    }
+
+    public void setRaw(String key, Object value) {
+        data.put(key, value);
+    }
+
+    public void setLong(String key, long value) {
+        data.put(key, value);
+    }
+
+    public long getLong(String key) {
+        Object value = data.get(key);
+        return value instanceof Number ? ((Number) value).longValue() : 0L;
+    }
+
+    public void setByte(String key, byte value) {
+        data.put(key, value);
+    }
+
+    public byte getByte(String key) {
+        Object value = data.get(key);
+        return value instanceof Number ? ((Number) value).byteValue() : (byte) 0;
+    }
+
+    public void setByteArray(String key, byte[] value) {
+        data.put(key, value);
+    }
+
+    public byte[] getByteArray(String key) {
+        Object value = data.get(key);
+        return value instanceof byte[] ? (byte[]) value : new byte[0];
+    }
+
+    public void setDouble(String key, double value) {
+        data.put(key, value);
+    }
+
+    public double getDouble(String key) {
+        Object value = data.get(key);
+        return value instanceof Number ? ((Number) value).doubleValue() : 0.0;
+    }
+
     @Override
     public String toString() {
         return "NBT" + data.toString();

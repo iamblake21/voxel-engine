@@ -12,6 +12,7 @@ import engine.world.blockentity.BlockEntity;
 
 import engine.entity.EntityManager;
 import engine.entity.EntityTypes;
+import engine.entity.Player;
 import engine.entity.Entity;
 import engine.entity.ItemEntity; // Correct import
 import engine.loot.LootTable; // Correct import
@@ -25,7 +26,7 @@ public class World implements MeshBuilder.WorldAccess {
     private final Config config;
     private final Map<Long, Chunk> chunks = new HashMap<>();
 
-    private final WorldGenerator worldGenerator;
+    private WorldGenerator worldGenerator;
     private final MeshBuilder meshBuilder; // Usato solo per operazioni main-thread se necessario
 
     // Async generation
@@ -56,16 +57,29 @@ public class World implements MeshBuilder.WorldAccess {
 
     private EntityManager entityManager;
 
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
+
+    public EntityManager getEntityManager() {
+        return entityManager;
+    }
+
     // Day/Night Cycle
     private static final float DAY_LENGTH_SECONDS = 600f;
     private float timeOfDay = 0f;
     private float dayTicks = 0f;
+
+    private final engine.world.storage.WorldStorage worldStorage;
 
     public World(Config config) {
         this.config = config;
         this.dayTicks = DAY_LENGTH_SECONDS * 0.5f;
         this.maxLoadDistance = config.viewDistance;
         this.preGenRadius = Math.min(16, config.viewDistance / 2);
+
+        this.worldStorage = new engine.world.storage.WorldStorage(new java.io.File("."));
+        this.worldStorage.prepareWorld(config.worldName);
 
         this.worldGenerator = new WorldGenerator(
                 config.worldSeed,
@@ -76,16 +90,69 @@ public class World implements MeshBuilder.WorldAccess {
         this.fluidManager = new FluidManager(this);
 
         int numWorkers = Math.max(2, Runtime.getRuntime().availableProcessors());
+
+        // Try to load level.dat
+        engine.world.item.nbt.NBTTagCompound levelData = worldStorage.loadLevelData();
+        if (levelData != null) {
+            System.out.println("[World] Loaded level.dat");
+            this.gameTime = levelData.getFloat("Time");
+            this.dayTicks = levelData.getFloat("DayTime");
+
+            // CRITICAL: Restore Seed!
+            // If we don't restore the seed, new chunks will be generated with a DIFFERENT
+            // seed
+            // than the old ones, causing massive terrain discontinuities ("walls").
+            long savedSeed = levelData.getLong("Seed");
+            if (savedSeed != 0) {
+                System.out.println("[World] Restoring Saved Seed: " + savedSeed);
+                // Re-initialize generator with the CORRECT seed
+                this.worldGenerator = new WorldGenerator(
+                        savedSeed,
+                        config.chunkSize,
+                        config.worldHeight,
+                        config.waterLevel);
+            }
+        }
+
         this.genExecutor = new WorldGenerationExecutor(
                 worldGenerator,
                 config.chunkSize,
                 config.worldHeight,
-                numWorkers);
+                numWorkers,
+                this,
+                worldStorage);
 
         this.safeRadius = this.config.viewDistance;
         this.preGenRadius = this.config.viewDistance;
 
         System.out.println("[World] Async Pipeline Initialized (Snapshot Mode)" + numWorkers);
+    }
+
+    // ... update method ...
+
+    private boolean submitChunkIfNeeded(int cx, int cz, ChunkGenerationTask.Priority priority) {
+        long key = chunkKey(cx, cz);
+        Chunk chunk = chunks.get(key);
+        if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) {
+            if (!pendingChunks.contains(key)) {
+                // Submit to executor (handles check disk -> check generate)
+                if (genExecutor.submit(cx, cz, priority)) {
+                    pendingChunks.add(key);
+                    if (chunk == null)
+                        chunks.put(key, new Chunk(cx, cz)); // Placeholder
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public void saveWorld() {
+        worldStorage.saveWorld(this, config.worldName);
+    }
+
+    public Collection<Chunk> getChunks() {
+        return chunks.values();
     }
 
     // ==================== UPDATE & LOOP ====================
@@ -95,6 +162,12 @@ public class World implements MeshBuilder.WorldAccess {
         dayTicks += deltaTime;
         timeOfDay = (dayTicks / DAY_LENGTH_SECONDS);
         timeOfDay = timeOfDay - (float) Math.floor(timeOfDay);
+
+        // Ensure chunks are loaded around the player
+        if (entityManager != null && entityManager.getPlayer() != null) {
+            Player p = entityManager.getPlayer();
+            maintainChunks(p.getX(), p.getZ());
+        }
 
         pollCompletedChunks();
 
@@ -157,6 +230,20 @@ public class World implements MeshBuilder.WorldAccess {
     private void integrateCompletedTerrain(ChunkGenerationTask task) {
         long key = chunkKey(task.chunkX, task.chunkZ);
         pendingChunks.remove(key);
+
+        if (task.loadedChunk != null) {
+            // Chunk loaded from disk!
+            chunks.put(key, task.loadedChunk);
+            // It has data, but maybe needs Mesh.
+            // Phase is strictly what was saved.
+            // If it was LIGHT_DONE, we just need to ensure neighborhood checks trigger
+            // mesh.
+
+            // To be safe, ensure neighbors are notified or invalidate if needed.
+            // Usually invalidating triggers Remesh if neighbors are ready.
+            invalidateChunkForRemesh(task.chunkX, task.chunkZ);
+            return;
+        }
 
         Chunk chunk = chunks.get(key);
         if (chunk == null) {
@@ -812,20 +899,20 @@ public class World implements MeshBuilder.WorldAccess {
         cameraUpdated = true;
     }
 
-    private boolean submitChunkIfNeeded(int cx, int cz, ChunkGenerationTask.Priority priority) {
-        long key = chunkKey(cx, cz);
-        Chunk chunk = chunks.get(key);
-        if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) {
-            if (!pendingChunks.contains(key)) {
-                if (genExecutor.submit(cx, cz, priority)) {
-                    pendingChunks.add(key);
-                    if (chunk == null)
-                        chunks.put(key, new Chunk(cx, cz));
-                    return true;
-                }
-            }
-        }
-        return false;
+    public long getSeed() {
+        return config.worldSeed;
+    }
+
+    public float getTime() {
+        return gameTime;
+    }
+
+    public float getDayTime() {
+        return dayTicks;
+    }
+
+    public Player getPlayer() {
+        return entityManager != null ? entityManager.getPlayer() : null;
     }
 
     private void unloadChunksOutsideView(int pcx, int pcz) {
@@ -980,14 +1067,6 @@ public class World implements MeshBuilder.WorldAccess {
         if (block.hasLoot()) {
             dropLoot(block.getLootTable(), x, y, z, fortuneLevel);
         }
-    }
-
-    public void setEntityManager(EntityManager entityManager) {
-        this.entityManager = entityManager;
-    }
-
-    public EntityManager getEntityManager() {
-        return entityManager;
     }
 
     public int getFluidLevel(int x, int y, int z) {

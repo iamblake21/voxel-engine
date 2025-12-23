@@ -279,16 +279,16 @@ public class GuiRenderer {
         float spacing = size * 0.7f; // Spacing between chars
 
         for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
+            char ch = text.charAt(i);
 
-            if (c >= 'a' && c <= 'z') {
-                c = (char) (c - 'a' + 'A'); // To Uppercase
+            if (ch >= 'a' && ch <= 'z') {
+                ch = (char) (ch - 'a' + 'A'); // To Uppercase
             }
 
-            if (c >= '0' && c <= '9') {
-                renderDigit(c - '0', currentX, y, size, r, g, b, a);
-            } else if (c >= 'A' && c <= 'Z') {
-                renderDigit(c - 'A' + 10, currentX, y, size, r, g, b, a);
+            if (ch >= '0' && ch <= '9') {
+                renderDigit(ch - '0', currentX, y, size, r, g, b, a);
+            } else if (ch >= 'A' && ch <= 'Z') {
+                renderDigit(ch - 'A' + 10, currentX, y, size, r, g, b, a);
             } else {
                 // Placeholder for unknown chars (leave space or draw dot?)
                 // renderRect(currentX, y, size / 2, size, r, g, b, a);

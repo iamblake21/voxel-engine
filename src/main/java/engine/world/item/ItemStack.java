@@ -1,6 +1,8 @@
 package engine.world.item;
 
 import engine.world.item.nbt.NBTTagCompound;
+import engine.registry.ResourceLocation;
+import java.util.Optional;
 
 /**
  * Represents a stack of items with count, damage, and NBT data.
@@ -22,7 +24,6 @@ public class ItemStack {
     public ItemStack(Item item) {
         this(item, 1);
     }
-    
 
     public ItemStack(Item item, int count) {
         this(item, count, 0);
@@ -89,16 +90,16 @@ public class ItemStack {
     }
 
     /**
- * Check if this stack can be merged with another.
- */
-public boolean canStackWith(ItemStack other) {
-    if (this.isEmpty() || other.isEmpty()) return false;
-    if (this.item != other.item) return false;
-    // Add NBT/damage check here if needed
-    return true;
-}
-
-
+     * Check if this stack can be merged with another.
+     */
+    public boolean canStackWith(ItemStack other) {
+        if (this.isEmpty() || other.isEmpty())
+            return false;
+        if (this.item != other.item)
+            return false;
+        // Add NBT/damage check here if needed
+        return true;
+    }
 
     /**
      * Check if two stacks can be merged (same item, damage, NBT)
@@ -201,6 +202,41 @@ public boolean canStackWith(ItemStack other) {
     }
 
     // ==================== NBT DATA ====================
+
+    public NBTTagCompound save(NBTTagCompound tag) {
+        ResourceLocation id = item.getRegistryId();
+        tag.setString("id", id.toString());
+        tag.setInt("Count", count);
+        tag.setInt("Damage", damage);
+
+        if (nbt != null) {
+            tag.setTag("tag", nbt.copy());
+        }
+        return tag;
+    }
+
+    public static ItemStack load(NBTTagCompound tag) {
+        if (!tag.hasKey("id")) {
+            return EMPTY;
+        }
+
+        String idStr = tag.getString("id");
+        Optional<Item> item = Item.get(idStr);
+        if (!item.isPresent()) {
+            return EMPTY; // Item no longer exists
+        }
+
+        int count = tag.getInt("Count");
+        int damage = tag.getInt("Damage");
+
+        ItemStack stack = new ItemStack(item.get(), count, damage);
+
+        if (tag.hasKey("tag")) {
+            stack.setNBT(tag.getTag("tag").copy());
+        }
+
+        return stack;
+    }
 
     public boolean hasNBT() {
         return nbt != null && !nbt.isEmpty();

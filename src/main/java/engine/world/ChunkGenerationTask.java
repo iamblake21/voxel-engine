@@ -1,5 +1,7 @@
 package engine.world;
 
+import engine.world.Chunk;
+
 /**
  * Represents a chunk generation task to be executed on a worker thread.
  */
@@ -15,6 +17,9 @@ public class ChunkGenerationTask {
     public volatile byte[] fluidData;
     public volatile boolean complete = false;
     public volatile boolean cancelled = false;
+
+    // Loaded from disk
+    public volatile Chunk loadedChunk;
 
     public enum Priority {
         CRITICAL, // Pre-generation ahead of camera - highest priority

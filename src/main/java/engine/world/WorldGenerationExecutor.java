@@ -16,6 +16,8 @@ public class WorldGenerationExecutor {
     private final WorldGenerator worldGenerator;
     private final int chunkSize;
     private final int chunkHeight;
+    private final World world;
+    private final engine.world.storage.WorldStorage worldStorage;
 
     // Code separate per Terreno e Mesh
     private final PriorityBlockingQueue<ChunkGenerationTask> terrainQueue;
@@ -30,11 +32,14 @@ public class WorldGenerationExecutor {
 
     private volatile boolean shutdown = false;
 
-    public WorldGenerationExecutor(WorldGenerator worldGenerator, int chunkSize, int chunkHeight, int numWorkers) {
+    public WorldGenerationExecutor(WorldGenerator worldGenerator, int chunkSize, int chunkHeight, int numWorkers,
+            World world, engine.world.storage.WorldStorage worldStorage) {
         this.worldGenerator = worldGenerator;
         this.chunkSize = chunkSize;
         this.chunkHeight = chunkHeight;
         this.numWorkers = Math.max(1, numWorkers);
+        this.world = world;
+        this.worldStorage = worldStorage;
 
         this.terrainQueue = new PriorityBlockingQueue<>(64, Comparator.comparingInt(t -> t.priority.ordinal()));
         this.lightQueue = new ConcurrentLinkedQueue<>();
@@ -97,6 +102,24 @@ public class WorldGenerationExecutor {
     private void processTerrainTask(ChunkGenerationTask task) {
         if (task.cancelled)
             return;
+
+        // 1. Try Load from Disk
+        if (worldStorage != null) {
+            try {
+                Chunk loaded = worldStorage.loadChunk(world, task.chunkX, task.chunkZ);
+                if (loaded != null) {
+                    task.loadedChunk = loaded;
+                    task.complete = true;
+                    completedTerrain.offer(task);
+                    activeTasksMap.remove(task.getChunkKey());
+                    return;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        // 2. Generate if not found
         short[] blocks = new short[chunkSize * chunkSize * chunkHeight];
         int[] height = new int[chunkSize * chunkSize];
         byte[] fluid = new byte[chunkSize * chunkSize * chunkHeight];
