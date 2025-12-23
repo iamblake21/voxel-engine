@@ -38,6 +38,7 @@ public final class GameInit {
         GameEntities.register(); // When entities are implemented
         GameBlockEntities.register(); // When block entities are implemented
         GameLootTables.register(); // <-- NEW: Register loot tables
+        GameRecipes.register();
 
         registered = true;
 

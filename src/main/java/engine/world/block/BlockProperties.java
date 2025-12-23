@@ -35,6 +35,11 @@ public class BlockProperties {
 
     String modelPath = null;
 
+    // Custom textures (bypass atlas)
+    String textureTop = null;
+    String textureBottom = null;
+    String textureSide = null;
+
     // Mining Properties
     float hardness = 1.0f; // Seconds to break with correct tool
     engine.world.item.ToolItem.ToolType requiredToolType = null; // Null means any tool (or hand)
@@ -175,6 +180,44 @@ public class BlockProperties {
     public BlockProperties loot(LootTable lootTable) {
         this.lootTable = lootTable;
         return this;
+    }
+
+    public BlockProperties textureTop(String path) {
+        this.textureTop = path;
+        return this;
+    }
+
+    public BlockProperties textureBottom(String path) {
+        this.textureBottom = path;
+        return this;
+    }
+
+    public BlockProperties textureSide(String path) {
+        this.textureSide = path;
+        return this;
+    }
+
+    public BlockProperties textureAll(String path) {
+        this.textureTop = path;
+        this.textureBottom = path;
+        this.textureSide = path;
+        return this;
+    }
+
+    public String getTextureTop() {
+        return textureTop;
+    }
+
+    public String getTextureBottom() {
+        return textureBottom;
+    }
+
+    public String getTextureSide() {
+        return textureSide;
+    }
+
+    public boolean hasCustomTextures() {
+        return textureTop != null || textureBottom != null || textureSide != null;
     }
 
     // ==================== PRESETS ====================

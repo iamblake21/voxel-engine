@@ -387,30 +387,83 @@ public class ItemEntityRenderer {
     }
 
     private void renderCubeFaces(Block block) {
-        // We need to render each face with potentially different textures
-        // For simplicity, use the default texture for all faces
-        // Multi-texture blocks will need special handling
-
-        int tileX = block.getTextureTileX(0, 1, 0); // Top face as default
-        int tileY = block.getTextureTileY(0, 1, 0);
-        int tileIndex = tileY * ATLAS_TILES_X + tileX;
-
-        // For multi-texture blocks, we'd need to render 6 separate quads
-        // For now, use a single tile for the whole cube
-        glUniform1i(uTileIndex, tileIndex);
-
-        // Apply tint for grass/leaves
-        if (block.getProperties().hasTintGrass()) {
-            glUniform3f(uTint, 0.54f, 0.78f, 0.38f);
-        } else if (block.getProperties().hasTintFoliage()) {
-            glUniform3f(uTint, 0.52f, 0.75f, 0.35f);
+        if (block.getProperties().hasCustomTextures()) {
+            renderCustomTextureFaces(block);
         } else {
-            glUniform3f(uTint, 1f, 1f, 1f);
-        }
+            // Standard atlas rendering
+            int tileX = block.getTextureTileX(0, 1, 0); // Top face as default
+            int tileY = block.getTextureTileY(0, 1, 0);
+            int tileIndex = tileY * ATLAS_TILES_X + tileX;
 
+            glUniform1i(uTileIndex, tileIndex);
+
+            // Apply tint for grass/leaves
+            if (block.getProperties().hasTintGrass()) {
+                glUniform3f(uTint, 0.54f, 0.78f, 0.38f);
+            } else if (block.getProperties().hasTintFoliage()) {
+                glUniform3f(uTint, 0.52f, 0.75f, 0.35f);
+            } else {
+                glUniform3f(uTint, 1f, 1f, 1f);
+            }
+
+            glBindVertexArray(cubeVAO);
+            glDrawArrays(GL_TRIANGLES, 0, cubeVertexCount);
+            glBindVertexArray(0);
+        }
+    }
+
+    private void renderCustomTextureFaces(Block block) {
         glBindVertexArray(cubeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, cubeVertexCount);
+
+        // Disable array texture mode
+        glUniform1i(uUseTextureArray, 0);
+        glUniform3f(uTint, 1f, 1f, 1f); // Reset tint
+
+        String top = block.getProperties().getTextureTop();
+        String bottom = block.getProperties().getTextureBottom();
+        String side = block.getProperties().getTextureSide();
+
+        // Basic fallback if some are missing
+        if (top == null && side != null)
+            top = side;
+        if (top == null && bottom != null)
+            top = bottom;
+        if (side == null && top != null)
+            side = top;
+        if (bottom == null && top != null)
+            bottom = top;
+        // If they are strictly defined separately, this logic might need refinement,
+        // but typically textureAll sets all 3, or distinct ones are set.
+
+        // Order in mesh:
+        // 0: +X (Right) - Side
+        // 1: -X (Left) - Side
+        // 2: +Y (Top) - Top
+        // 3: -Y (Bottom) - Bottom
+        // 4: +Z (Front) - Side
+        // 5: -Z (Back) - Side
+
+        bindAndDrawFace(side, 0);
+        bindAndDrawFace(side, 1);
+        bindAndDrawFace(top, 2);
+        bindAndDrawFace(bottom, 3);
+        bindAndDrawFace(side, 4);
+        bindAndDrawFace(side, 5);
+
+        // Reset to default
+        glUniform1i(uUseTextureArray, 1);
         glBindVertexArray(0);
+    }
+
+    private void bindAndDrawFace(String path, int faceIndex) {
+        if (path == null)
+            return;
+
+        engine.rendering.Texture tex = getCustomTexture(path);
+        if (tex != null) {
+            tex.bind(1); // Bind to unit 1 (uTex2D)
+            glDrawArrays(GL_TRIANGLES, faceIndex * 6, 6);
+        }
     }
 
     private void renderCustomModelItem(Block block, Mat4 modelMatrix, String forcedPath) {

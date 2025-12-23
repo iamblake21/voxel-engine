@@ -7,6 +7,7 @@ import engine.world.item.ToolItem.ToolType;
 import game.block.ChestBlock;
 import game.block.DoorBlock;
 import game.block.FurnaceBlock;
+import game.block.CraftingTableBlock;
 import engine.world.block.MultiTextureBlock;
 
 /**
@@ -23,6 +24,7 @@ public final class GameBlocks {
         public static Block GRASS;
         public static Block SAND;
         public static Block SNOW;
+        public static Block COBBLESTONE;
 
         // Structure
         public static Block STONE_BRICKS;
@@ -48,6 +50,7 @@ public final class GameBlocks {
         // Interactions
         public static Block CHEST;
         public static Block FURNACE;
+        public static Block CRAFTING_TABLE;
 
         // Interactions
         public static Block DOOR;
@@ -88,6 +91,26 @@ public final class GameBlocks {
                                                 .minTier(0)
                                                 .tile(1, 2), false));
 
+                // Crafting Table: Top(11,3), Bottom(4,0=Planks), Side(12,3)
+                // Texture coords are mostly guesses based on loose standard, assuming texture
+                // atlas support.
+                COBBLESTONE = Blocks.register("game:cobblestone",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(2.5f)
+                                                .textureAll("game:textures/blocks/cobblestone.png")
+                                                .requiredTool(ToolType.PICKAXE)
+                                                .minTier(0)));
+                CRAFTING_TABLE = Blocks.register("game:crafting_table", new CraftingTableBlock(BlockProperties.create()
+                                .standardSolid()
+                                .hardness(2.5f)
+                                .requiredTool(ToolType.AXE)
+                                .minTier(0)
+                                .textureTop("game:textures/blocks/crafting_table_top.png")
+                                .textureSide("game:textures/blocks/crafting_table_side.png")
+                                .textureBottom("game:textures/blocks/oak_planks.png") // Reuse planks for bottom
+                                .tile(11, 3))); // Fallback/Icon tile index
+                                                // by CraftingTableBlock constructor if it takes them.
                 // Dirt - under grass
                 DIRT = Blocks.register("game:dirt",
                                 new Block(BlockProperties.create()

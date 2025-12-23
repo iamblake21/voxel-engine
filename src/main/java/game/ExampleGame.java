@@ -18,8 +18,11 @@ import engine.ui.InventoryGui;
 import engine.ui.InventoryInteractionManager;
 import engine.ui.editor.GuiEditorIntegration;
 import engine.world.World;
+import game.init.GameBiomes;
 import game.init.GameEntities;
 import game.init.GameInit;
+import game.init.GameItems;
+import game.init.GameRecipes;
 import static org.lwjgl.glfw.GLFW.*;
 import engine.world.blockentity.ContainerBlockEntity;
 import engine.ui.ContainerGui;
@@ -108,12 +111,19 @@ public class ExampleGame implements IGame {
         this.player = playerType.create();
         this.player.init(engine);
 
-        player.getInteractionManager().setGuiHandler((p, blockEntity) -> {
-            if (blockEntity instanceof ContainerBlockEntity container) {
-                ContainerGui gui = (ContainerGui) container.createGui(p, config.windowWidth, config.windowHeight);
+        player.getInteractionManager().setGuiHandler((p, provider) -> {
+            ContainerGui gui = provider.createGui(p, config.windowWidth, config.windowHeight);
+            if (gui != null) {
                 gui.setGuiScale(guiRenderer.getGuiScale());
                 this.currentContainerGui = gui;
-                this.currentContainer = container;
+
+                // Track container for block updates if it is a block entity
+                if (provider instanceof ContainerBlockEntity container) {
+                    this.currentContainer = container;
+                } else {
+                    this.currentContainer = null;
+                }
+
                 this.inventoryOpen = true;
                 engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
             }
@@ -128,7 +138,7 @@ public class ExampleGame implements IGame {
         villager.setPosition(player.getX() + 3, player.getY() + 10, player.getZ() + 3);
         engine.getEntities().addEntity(villager);
         // Setup Inventario Player (Items di test)
-        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WATER_BLOCK, 64));
+        player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CRAFTING_TABLE, 1));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.STONE, 64));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.WOODEN_PICKAXE, 1));
         player.getInventory().addItem(new engine.world.item.ItemStack(game.init.GameItems.CHEST, 2));

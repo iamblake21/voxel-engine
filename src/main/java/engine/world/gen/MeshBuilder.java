@@ -234,7 +234,23 @@ public class MeshBuilder {
             }
 
             FloatArrayList target;
-            if (block.isLiquid()) {
+            String customTexture = null;
+
+            // Check custom textures
+            if (block.getProperties().hasCustomTextures()) {
+                if (faceIdx == FACE_POS_Y && block.getProperties().getTextureTop() != null) {
+                    customTexture = block.getProperties().getTextureTop();
+                } else if (faceIdx == FACE_NEG_Y && block.getProperties().getTextureBottom() != null) {
+                    customTexture = block.getProperties().getTextureBottom();
+                } else if (faceIdx != FACE_POS_Y && faceIdx != FACE_NEG_Y
+                        && block.getProperties().getTextureSide() != null) {
+                    customTexture = block.getProperties().getTextureSide();
+                }
+            }
+
+            if (customTexture != null) {
+                target = customBuffers.computeIfAbsent(customTexture, k -> new FloatArrayList());
+            } else if (block.isLiquid()) {
                 target = waterV;
             } else if (block.isTransparent()) {
                 target = skipTransparent ? solidV : transpV;

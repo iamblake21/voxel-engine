@@ -11,7 +11,6 @@ import engine.world.block.Blocks;
 import engine.world.blockentity.BlockEntity;
 import engine.world.item.Item;
 import engine.world.item.ItemStack;
-import engine.world.blockentity.ContainerBlockEntity;
 
 import java.util.List;
 
@@ -86,9 +85,9 @@ public class InteractionManager {
                 if (interactable.canInteract(player)) {
                     InteractionResult result = interactable.onInteract(player);
                     if (result.isSuccess()) {
-                        // Open GUI if this is a container
-                        if (blockEntity instanceof ContainerBlockEntity container && guiHandler != null) {
-                            guiHandler.openBlockEntityGui(player, blockEntity);
+                        // Open GUI if this is a container/provider
+                        if (blockEntity instanceof engine.ui.GuiProvider provider && guiHandler != null) {
+                            guiHandler.openGui(player, provider);
                         }
                         return true;
                     }
@@ -430,11 +429,11 @@ public class InteractionManager {
     // ==================== GUI HANDLER ====================
 
     /**
-     * Request to open a GUI for a block entity.
+     * Request to open a GUI for a provider (BlockEntity or specialized block).
      */
-    public void openBlockEntityGui(Player player, BlockEntity blockEntity) {
+    public void openGui(Player player, engine.ui.GuiProvider provider) {
         if (guiHandler != null) {
-            guiHandler.openBlockEntityGui(player, blockEntity);
+            guiHandler.openGui(player, provider);
         }
     }
 
@@ -442,6 +441,6 @@ public class InteractionManager {
      * Interface for GUI opening callbacks.
      */
     public interface GuiOpenHandler {
-        void openBlockEntityGui(Player player, BlockEntity blockEntity);
+        void openGui(Player player, engine.ui.GuiProvider provider);
     }
 }

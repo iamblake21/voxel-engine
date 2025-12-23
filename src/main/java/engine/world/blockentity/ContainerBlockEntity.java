@@ -5,6 +5,8 @@ import engine.entity.inventory.Inventory;
 import engine.interaction.IInteractable;
 import engine.interaction.InteractionResult;
 import engine.ui.TexturedGui;
+import engine.ui.GuiProvider;
+import engine.ui.ContainerGui;
 import engine.world.BlockPos;
 import engine.world.item.ItemStack;
 import engine.world.item.nbt.NBTTagCompound;
@@ -21,41 +23,42 @@ import java.util.List;
  * - IInteractable implementation
  * - GUI creation (each subclass defines its own GUI)
  */
-public abstract class ContainerBlockEntity extends BlockEntity implements IInteractable {
-    
+public abstract class ContainerBlockEntity extends BlockEntity
+        implements IInteractable, GuiProvider, engine.ui.ContainerAccess {
+
     protected Inventory inventory;
     protected String customName;
-    
+
     public ContainerBlockEntity(BlockEntityType<?> type, BlockPos pos, int inventorySize) {
         super(type, pos);
         this.inventory = new Inventory(inventorySize);
     }
-    
+
     // ==================== INVENTORY ACCESS ====================
-    
+
     public Inventory getInventory() {
         return inventory;
     }
-    
+
     public int getContainerSize() {
         return inventory.getSize();
     }
-    
+
     public ItemStack getItem(int slot) {
         return inventory.getStack(slot);
     }
-    
+
     public void setItem(int slot, ItemStack stack) {
         inventory.setStack(slot, stack);
         setChanged();
     }
-    
+
     public ItemStack removeItem(int slot, int amount) {
         ItemStack result = inventory.getStack(slot).split(amount);
         setChanged();
         return result;
     }
-    
+
     public boolean isEmpty() {
         for (int i = 0; i < inventory.getSize(); i++) {
             if (!inventory.getStack(i).isEmpty()) {
@@ -64,59 +67,60 @@ public abstract class ContainerBlockEntity extends BlockEntity implements IInter
         }
         return true;
     }
-    
+
     // ==================== CUSTOM NAME ====================
-    
+
     public String getCustomName() {
         return customName;
     }
-    
+
     public void setCustomName(String name) {
         this.customName = name;
     }
-    
+
     public boolean hasCustomName() {
         return customName != null && !customName.isEmpty();
     }
-    
+
     /**
      * Get display name (custom name or default).
      */
     public abstract String getDefaultName();
-    
+
     public String getDisplayName() {
         return hasCustomName() ? customName : getDefaultName();
     }
-    
+
     // ==================== GUI CREATION ====================
-    
+
     /**
      * Create the GUI for this container.
      * Each subclass creates its own specific GUI type.
      * 
-     * @param player The player opening the container
-     * @param windowWidth Window width for GUI positioning
+     * @param player       The player opening the container
+     * @param windowWidth  Window width for GUI positioning
      * @param windowHeight Window height for GUI positioning
      * @return The GUI instance ready to be displayed
      */
-    public abstract TexturedGui createGui(Player player, int windowWidth, int windowHeight);
-    
+    public abstract ContainerGui createGui(Player player, int windowWidth, int windowHeight);
+
     // ==================== INTERACTION ====================
-    
+
     @Override
     public InteractionResult onInteract(Player player) {
-        if (world == null) return InteractionResult.FAIL;
-        
+        if (world == null)
+            return InteractionResult.FAIL;
+
         // Check distance
         if (!isInRange(player.getX(), player.getY(), player.getZ(), getInteractionRange())) {
             return InteractionResult.FAIL;
         }
-        
+
         // Open GUI - this will be handled by the game layer
         onOpen(player);
         return InteractionResult.SUCCESS;
     }
-    
+
     /**
      * Called when player opens this container.
      * Override to provide custom behavior or trigger GUI opening.
@@ -125,25 +129,25 @@ public abstract class ContainerBlockEntity extends BlockEntity implements IInter
         System.out.println("[" + getDisplayName() + "] Opened by " + player);
         // GUI opening is handled by InteractionManager.GuiOpenHandler
     }
-    
+
     /**
      * Called when player closes this container.
      */
     public void onClose(Player player) {
         System.out.println("[" + getDisplayName() + "] Closed by " + player);
     }
-    
+
     // ==================== SERIALIZATION ====================
-    
+
     @Override
     protected void saveAdditional(NBTTagCompound nbt) {
         super.saveAdditional(nbt);
-        
+
         // Save custom name
         if (hasCustomName()) {
             nbt.setString("CustomName", customName);
         }
-        
+
         // Save inventory
         NBTTagCompound itemsNbt = new NBTTagCompound();
         for (int i = 0; i < inventory.getSize(); i++) {
@@ -161,16 +165,16 @@ public abstract class ContainerBlockEntity extends BlockEntity implements IInter
         }
         nbt.setTag("Items", itemsNbt);
     }
-    
+
     @Override
     protected void loadAdditional(NBTTagCompound nbt) {
         super.loadAdditional(nbt);
-        
+
         // Load custom name
         if (nbt.hasKey("CustomName")) {
             customName = nbt.getString("CustomName");
         }
-        
+
         // Load inventory
         if (nbt.hasKey("Items")) {
             NBTTagCompound itemsNbt = nbt.getTag("Items");
@@ -186,9 +190,9 @@ public abstract class ContainerBlockEntity extends BlockEntity implements IInter
             }
         }
     }
-    
+
     // ==================== DROP ITEMS ====================
-    
+
     /**
      * Get all items to drop when block is broken.
      */
@@ -202,7 +206,7 @@ public abstract class ContainerBlockEntity extends BlockEntity implements IInter
         }
         return drops;
     }
-    
+
     @Override
     public void onRemoved() {
         super.onRemoved();

@@ -3,7 +3,7 @@ package engine.ui;
 import engine.entity.Player;
 import engine.entity.inventory.PlayerInventory;
 import engine.ui.definition.GuiDefinition;
-import engine.world.blockentity.ContainerBlockEntity;
+
 import engine.world.item.ItemStack;
 import engine.window.InputManager;
 
@@ -20,7 +20,7 @@ import static org.lwjgl.glfw.GLFW.*;
 public abstract class ContainerGui extends TexturedGui {
 
     protected final Player player;
-    protected final ContainerBlockEntity container;
+    protected final ContainerAccess container;
     protected final PlayerInventory playerInventory;
 
     // Cursor item (item being dragged)
@@ -30,7 +30,7 @@ public abstract class ContainerGui extends TexturedGui {
     private boolean leftClickLatch = false;
     private boolean rightClickLatch = false;
 
-    public ContainerGui(GuiDefinition definition, Player player, ContainerBlockEntity container,
+    public ContainerGui(GuiDefinition definition, Player player, ContainerAccess container,
             int windowWidth, int windowHeight) {
         super(definition, windowWidth, windowHeight);
         this.player = player;
@@ -98,10 +98,8 @@ public abstract class ContainerGui extends TexturedGui {
     }
 
     public boolean hasCursorItem() {
-    return !cursorStack.isEmpty();
-}
-
-
+        return !cursorStack.isEmpty();
+    }
 
     /**
      * Handle a click on a slot.
@@ -289,7 +287,7 @@ public abstract class ContainerGui extends TexturedGui {
         container.onClose(player);
     }
 
-    public ContainerBlockEntity getContainer() {
+    public ContainerAccess getContainer() {
         return container;
     }
 

@@ -47,6 +47,8 @@ public final class Registries {
     public static final engine.registry.Registry<engine.world.gen.Structure> STRUCTURES = new engine.registry.Registry<>(
             "engine:structures");
 
+    public static final engine.recipe.RecipeRegistry RECIPES = new engine.recipe.RecipeRegistry();
+
     // ==================== REGISTRY OF REGISTRIES ====================
 
     private static final Map<ResourceLocation, Registry<?>> ALL_REGISTRIES = new LinkedHashMap<>();

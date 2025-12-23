@@ -280,11 +280,18 @@ public class GuiRenderer {
 
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
+
+            if (c >= 'a' && c <= 'z') {
+                c = (char) (c - 'a' + 'A'); // To Uppercase
+            }
+
             if (c >= '0' && c <= '9') {
                 renderDigit(c - '0', currentX, y, size, r, g, b, a);
+            } else if (c >= 'A' && c <= 'Z') {
+                renderDigit(c - 'A' + 10, currentX, y, size, r, g, b, a);
             } else {
-                // Placeholder for non-digits
-                renderRect(currentX, y, size / 2, size, r, g, b, a);
+                // Placeholder for unknown chars (leave space or draw dot?)
+                // renderRect(currentX, y, size / 2, size, r, g, b, a);
             }
             currentX += spacing;
         }
@@ -301,7 +308,18 @@ public class GuiRenderer {
 
         // Bitmask for 3x5 font (1 = pixel, 0 = empty)
         // Row 0 is top
+        // Encoding: MSB is Top-Left, LSB is Bottom-Right (row-major)
+        // 15 bits needed.
+        // Actually, the previous implementation computed bitIndex weirdly:
+        // (4 - row) * 3 + (2 - col). This means LSB is Bottom-Right (row=4, col=2 =>
+        // bit 0). MSA is Top-Left (row=0, col=0 => bit 14).
+
+        // Let's verify Digit 0: 0b111_101_101_101_111
+        // Row 0: 111 (Map to bits 14, 13, 12?)
+        // bitIndex(0,0)=14, (0,1)=13, (0,2)=12. Correct.
+
         int[] font = {
+                // Digits 0-9
                 0b111_101_101_101_111, // 0
                 0b010_010_010_010_010, // 1
                 0b111_001_111_100_111, // 2
@@ -311,7 +329,35 @@ public class GuiRenderer {
                 0b111_100_111_101_111, // 6
                 0b111_001_001_001_001, // 7
                 0b111_101_111_101_111, // 8
-                0b111_101_111_001_111 // 9
+                0b111_101_111_001_111, // 9
+
+                // Letters A-Z (Index 10-35)
+                0b010_101_111_101_101, // A (10)
+                0b110_101_110_101_110, // B (11)
+                0b011_100_100_100_011, // C (12)
+                0b110_101_101_101_110, // D (13)
+                0b111_100_111_100_111, // E (14)
+                0b111_100_111_100_100, // F (15)
+                0b011_100_101_101_011, // G (16)
+                0b101_101_111_101_101, // H (17)
+                0b111_010_010_010_111, // I (18)
+                0b001_001_001_101_010, // J (19)
+                0b101_101_110_101_101, // K (20)
+                0b100_100_100_100_111, // L (21)
+                0b101_111_101_101_101, // M (22)
+                0b111_101_101_101_101, // N (23) - Same as 0 but arguably N needs diff
+                0b010_101_101_101_010, // O (24) - Rounded 0
+                0b111_101_111_100_100, // P (25)
+                0b010_101_101_011_001, // Q (26)
+                0b110_101_110_101_101, // R (27)
+                0b011_100_010_001_110, // S (28)
+                0b111_010_010_010_010, // T (29)
+                0b101_101_101_101_111, // U (30)
+                0b101_101_101_101_010, // V (31)
+                0b101_101_101_111_101, // W (32)
+                0b101_101_010_101_101, // X (33)
+                0b101_101_010_010_010, // Y (34)
+                0b111_001_010_100_111 // Z (35)
         };
 
         int mask = font[digit];
@@ -334,13 +380,6 @@ public class GuiRenderer {
      * connections.
      */
     public void renderIsometricCube(float x, float y, float size, Block block) {
-        if (atlasTexture == null)
-            return;
-
-        atlasTexture.bind(1);
-        // glUniform1i(uUseTextureArrayLoc, 1); // Handled by checkFlush
-        checkFlush(-1, true); // Ensure we are in Array mode
-
         // Radius/Half-width
         float r = size * 0.65f;
 
@@ -372,6 +411,42 @@ public class GuiRenderer {
         float xBL = cX - w;
         float yBL = cY - h + v;
 
+        // CHECK FOR CUSTOM TEXTURES
+        if (block.getProperties().hasCustomTextures()) {
+            String topPath = block.getProperties().getTextureTop();
+            String sidePath = block.getProperties().getTextureSide();
+            String bottomPath = block.getProperties().getTextureBottom();
+
+            // Fallbacks
+            if (topPath == null && sidePath != null)
+                topPath = sidePath;
+            if (sidePath == null && topPath != null)
+                sidePath = topPath;
+            if (sidePath == null && bottomPath != null)
+                sidePath = bottomPath;
+
+            // Resolve textures
+            GuiTexture topTex = resolveTexture(topPath);
+            GuiTexture sideTex = resolveTexture(sidePath);
+
+            // TOP FACE
+            renderTexturedPoly(topTex, xT, yT, xR, yR, xC, yC, xL, yL, 1.0f);
+
+            // RIGHT FACE
+            renderTexturedPoly(sideTex, xC, yC, xR, yR, xBR, yBR, xB, yB, 0.6f);
+
+            // LEFT FACE
+            renderTexturedPoly(sideTex, xL, yL, xC, yC, xB, yB, xBL, yBL, 0.8f);
+
+            return;
+        }
+
+        if (atlasTexture == null)
+            return;
+
+        atlasTexture.bind(1);
+        checkFlush(-1, true); // Ensure we are in Array mode
+
         // Get Textures
         int topTX = block.getTextureTileX(0, 1, 0);
         int topTY = block.getTextureTileY(0, 1, 0);
@@ -389,12 +464,39 @@ public class GuiRenderer {
 
         // LEFT FACE
         renderQuadPoly(sideL, xL, yL, xC, yC, xB, yB, xBL, yBL, 0.8f);
+    }
 
-        // renderQuadPoly handles flushing if needed.
-        // We just need to ensure we don't unbind if we are batching?
-        // Actually, we can leave it bound.
-        // glUniform1i(uUseTextureArrayLoc, 0);
-        // atlasTexture.unbind(); // Don't unbind, batching!
+    private GuiTexture resolveTexture(String path) {
+        if (path == null)
+            return null;
+        // Basic fixup if needed, though getTexture usually handles clean paths
+        // The user provided "game:textures/blocks/cobblestone.png"
+        // Most loaders need "textures/blocks/cobblestone.png"
+        String cleanPath = path;
+        if (cleanPath.startsWith("game:")) {
+            cleanPath = cleanPath.substring(5);
+        }
+        return getTexture(cleanPath);
+    }
+
+    private void renderTexturedPoly(GuiTexture texture, float x1, float y1, float x2, float y2, float x3, float y3,
+            float x4,
+            float y4, float bright) {
+
+        int texID = (texture != null) ? texture.getId() : defaultTexture;
+        checkFlush(texID, false); // False = use 2D texture
+
+        // Triangle 1
+        addVertex(x1, y1, 0, 0, bright, bright, bright, 1, 0);
+        addVertex(x4, y4, 0, 1, bright, bright, bright, 1, 0);
+        addVertex(x2, y2, 1, 0, bright, bright, bright, 1, 0);
+
+        // Triangle 2
+        addVertex(x2, y2, 1, 0, bright, bright, bright, 1, 0);
+        addVertex(x4, y4, 0, 1, bright, bright, bright, 1, 0);
+        addVertex(x3, y3, 1, 1, bright, bright, bright, 1, 0);
+
+        quadCount++;
     }
 
     // Cache for custom block textures in GUI

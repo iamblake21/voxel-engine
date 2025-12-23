@@ -31,6 +31,9 @@ public final class GameItems {
         public static Item PLANKS_OAK;
         public static Item GLASS;
         public static Item STONE_BRICKS;
+        public static Item CRAFTING_TABLE;
+        public static Item STICK;
+        public static Item COBBLESTONE;
 
         // Tools - Wooden
         public static ToolItem WOODEN_PICKAXE;
@@ -82,6 +85,10 @@ public final class GameItems {
                 // Block items automatically use their block's texture from the atlas
                 WATER_BLOCK = Items.register("game:water_block",
                                 new BlockItem(GameBlocks.WATER, ItemProperties.create()));
+                CRAFTING_TABLE = Items.register("game:crafting_table",
+                                new BlockItem(GameBlocks.CRAFTING_TABLE, ItemProperties.create()));
+                COBBLESTONE = Items.register("game:cobblestone",
+                                new BlockItem(GameBlocks.COBBLESTONE, ItemProperties.create()));
 
                 DOOR = Items.register("game:door",
                                 new BlockItem(GameBlocks.DOOR,
@@ -136,6 +143,9 @@ public final class GameItems {
                 WATER_BUCKET = Items.register("game:water_bucket",
                                 new Item(ItemProperties.create().maxStackSize(1)
                                                 .icon("textures/items/water_bucket.png")));
+
+                STICK = Items.register("game:stick",
+                                new Item(ItemProperties.create().icon("textures/items/stick.png")));
 
                 // ==================== WOODEN TOOLS ====================
 

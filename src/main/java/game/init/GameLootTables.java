@@ -23,7 +23,9 @@ public final class GameLootTables {
         // ==================== TERRAIN ====================
 
         // Stone drops itself
-        setBlockLoot(GameBlocks.STONE, LootTable.singleDrop(GameItems.STONE));
+        setBlockLoot(GameBlocks.STONE, LootTable.singleDrop(GameItems.COBBLESTONE));
+
+        setBlockLoot(GameBlocks.COBBLESTONE, LootTable.singleDrop(GameItems.COBBLESTONE));
 
         // Dirt drops itself
         setBlockLoot(GameBlocks.DIRT, LootTable.singleDrop(GameItems.DIRT));
