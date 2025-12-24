@@ -4,16 +4,14 @@ import engine.core.Config;
 import engine.core.Engine;
 import engine.entity.inventory.PlayerInventory;
 import engine.rendering.Camera;
-import engine.world.World;
 import engine.world.block.Blocks;
-import engine.world.item.IUsableItem;
-import engine.world.item.ItemStack;
 import engine.physics.PhysicsEngine;
 import engine.window.InputManager;
 import engine.utils.Math3D.Vec3;
-import static org.lwjgl.glfw.GLFW.*;
+import game.input.GameKeyBinds;
 import engine.interaction.InteractionManager;
 import engine.world.item.nbt.NBTTagCompound;
+import static org.lwjgl.glfw.GLFW.*;
 
 public class Player extends LivingEntity {
     private final Config config;
@@ -145,7 +143,7 @@ public class Player extends LivingEntity {
         if (flying)
             speed = config.playerFlySpeed; // Velocità fissa in volo
 
-        if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT) && !flying) {
+        if (GameKeyBinds.SPRINT.isDown() && !flying) {
             speed *= config.playerSprintMultiplier;
         }
 
@@ -157,19 +155,19 @@ public class Player extends LivingEntity {
         float rz = fx;
 
         float mx = 0, mz = 0;
-        if (input.isKeyDown(GLFW_KEY_W)) {
+        if (GameKeyBinds.FORWARD.isDown()) {
             mx += fx;
             mz += fz;
         }
-        if (input.isKeyDown(GLFW_KEY_S)) {
+        if (GameKeyBinds.BACK.isDown()) {
             mx -= fx;
             mz -= fz;
         }
-        if (input.isKeyDown(GLFW_KEY_D)) {
+        if (GameKeyBinds.RIGHT.isDown()) {
             mx += rx;
             mz += rz;
         }
-        if (input.isKeyDown(GLFW_KEY_A)) {
+        if (GameKeyBinds.LEFT.isDown()) {
             mx -= rx;
             mz -= rz;
         }
@@ -188,20 +186,20 @@ public class Player extends LivingEntity {
         // Salto e Volo
         if (flying) {
             float vyInput = 0;
-            if (input.isKeyDown(GLFW_KEY_SPACE))
+            if (GameKeyBinds.JUMP.isDown())
                 vyInput += speed;
-            if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT))
+            if (GameKeyBinds.SPRINT.isDown())
                 vyInput -= speed;
             this.vy = vyInput;
         } else {
-            if (onGround && input.isKeyDown(GLFW_KEY_SPACE)) {
+            if (onGround && GameKeyBinds.JUMP.isDown()) {
                 this.vy = config.jumpForce;
                 this.onGround = false;
             }
         }
 
         // Toggle Volo
-        boolean fDown = input.isKeyDown(GLFW_KEY_F);
+        boolean fDown = GameKeyBinds.FLY_TOGGLE.isDown();
         if (fDown && !flyKeyLatch) {
             flying = !flying;
             flyKeyLatch = true;
@@ -212,7 +210,7 @@ public class Player extends LivingEntity {
             flyKeyLatch = false;
 
         // Toggle View (F5)
-        boolean f5Down = input.isKeyDown(GLFW_KEY_F5);
+        boolean f5Down = GameKeyBinds.CAMERA_MODE.isDown();
         if (f5Down && !viewKeyLatch) {
             thirdPerson = !thirdPerson;
             viewKeyLatch = true;
@@ -221,9 +219,9 @@ public class Player extends LivingEntity {
             viewKeyLatch = false;
 
         // Hotbar
-        for (int i = 0; i < 9; i++) {
-            if (input.isKeyDown(GLFW_KEY_1 + i))
-                inventory.setSelectedSlot(i);
+        int hotbarSlot = GameKeyBinds.getPressedHotbarSlot();
+        if (hotbarSlot >= 0) {
+            inventory.setSelectedSlot(hotbarSlot);
         }
     }
 

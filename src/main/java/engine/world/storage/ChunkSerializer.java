@@ -35,10 +35,15 @@ public class ChunkSerializer {
         // Save BlockEntities
         java.util.List<NBTTagCompound> beList = new java.util.ArrayList<>();
         for (engine.world.blockentity.BlockEntity be : chunk.getBlockEntities()) {
-            beList.add(be.save());
+            NBTTagCompound beTag = be.save();
+            System.out.println("[ChunkSerializer] Saving BlockEntity: " + be.getType().getRegistryId() +
+                    " at (" + be.getX() + "," + be.getY() + "," + be.getZ() + ")");
+            beList.add(beTag);
         }
         if (!beList.isEmpty()) {
             tag.setList("BlockEntities", beList);
+            System.out.println("[ChunkSerializer] Saved " + beList.size() + " BlockEntities for chunk (" + chunk.getX()
+                    + "," + chunk.getZ() + ")");
         }
 
         // Save Entities
@@ -108,17 +113,18 @@ public class ChunkSerializer {
             chunk.setFluidData(fluid);
         }
 
-        // Force chunks to restart from FEATURES phase.
-        // This ensures:
-        // 1. Lighting is re-calculated (Fixes black chunks/artifacts)
-        // 2. Mesh is re-generated (Fixes "sinking"/missing geometry)
-        // 3. Neighbors are notified
+        // Set loaded chunks to FEATURES phase.
+        // FEATURES means features (structures, entities) are already generated.
+        // This skips ensureFeatures() since it checks phase >= FEATURES.
+        // The chunk will proceed to LIGHT_DONE → MESH_DONE.
         chunk.setPhase(Chunk.Phase.FEATURES);
 
         // Load BlockEntities
         if (tag.hasKey("BlockEntities")) {
             @SuppressWarnings("unchecked")
             java.util.List<NBTTagCompound> list = (java.util.List<NBTTagCompound>) tag.getList("BlockEntities");
+            System.out.println("[ChunkSerializer] Loading " + list.size() + " BlockEntities for chunk (" + chunk.getX()
+                    + "," + chunk.getZ() + ")");
             for (NBTTagCompound beTag : list) {
                 // Create BE from ID
                 if (beTag.hasKey("id")) {
@@ -126,6 +132,8 @@ public class ChunkSerializer {
                     int x = beTag.getInt("x");
                     int y = beTag.getInt("y");
                     int z = beTag.getInt("z");
+                    System.out.println(
+                            "[ChunkSerializer] Loading BlockEntity '" + id + "' at (" + x + "," + y + "," + z + ")");
 
                     engine.world.blockentity.BlockEntityType<?> type = engine.registry.Registries.BLOCK_ENTITY_TYPES
                             .get(id).orElse(null);
@@ -133,11 +141,22 @@ public class ChunkSerializer {
                         engine.world.blockentity.BlockEntity be = type.create(new engine.world.BlockPos(x, y, z));
                         if (be != null) {
                             be.load(beTag);
-                            chunk.setBlockEntity(x % 16, y, z % 16, be);
+                            int localX = x & 15; // Correct modulo for negative coords
+                            int localZ = z & 15;
+                            chunk.setBlockEntity(localX, y, localZ, be);
+                            System.out.println("[ChunkSerializer] Created BlockEntity at local (" + localX + "," + y
+                                    + "," + localZ + ")");
+                        } else {
+                            System.err.println("[ChunkSerializer] Failed to create BlockEntity of type: " + id);
                         }
+                    } else {
+                        System.err.println("[ChunkSerializer] Unknown BlockEntity type: " + id);
                     }
                 }
             }
+        } else {
+            System.out
+                    .println("[ChunkSerializer] No BlockEntities in chunk (" + chunk.getX() + "," + chunk.getZ() + ")");
         }
 
         // Load Entities
@@ -188,6 +207,8 @@ public class ChunkSerializer {
                 }
             }
         }
+
+        chunk.markSaved(); // Chunk matches disk state perfectly now.
 
         return loadedEntities;
     }

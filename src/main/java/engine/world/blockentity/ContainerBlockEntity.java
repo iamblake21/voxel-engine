@@ -182,10 +182,20 @@ public abstract class ContainerBlockEntity extends BlockEntity
                 String key = "slot" + i;
                 if (itemsNbt.hasKey(key)) {
                     NBTTagCompound itemNbt = itemsNbt.getTag(key);
-                    // Item loading would require Items registry lookup
-                    // For now, this is a placeholder
-                    // ItemStack stack = ItemStack.load(itemNbt);
-                    // inventory.setStack(i, stack);
+                    String itemId = itemNbt.getString("id");
+                    int count = itemNbt.getInt("count");
+                    int damage = itemNbt.getInt("damage");
+                    final int slot = i; // For lambda capture
+
+                    // Look up item from registry
+                    engine.registry.Registries.ITEMS.get(itemId).ifPresent(item -> {
+                        ItemStack stack = new ItemStack(item, count);
+                        stack.setDamage(damage);
+                        if (itemNbt.hasKey("tag")) {
+                            stack.setNBT(itemNbt.getTag("tag").copy());
+                        }
+                        inventory.setStack(slot, stack);
+                    });
                 }
             }
         }

@@ -103,6 +103,16 @@ public class Window {
     }
 
     /**
+     * Set VSync (Vertical Synchronization)
+     * 
+     * @param enabled true to enable, false to disable
+     */
+    public void setVSync(boolean enabled) {
+        glfwSwapInterval(enabled ? 1 : 0);
+        config.vsync = enabled;
+    }
+
+    /**
      * Check if window should close
      */
     public boolean shouldClose() {

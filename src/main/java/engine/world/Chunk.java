@@ -128,7 +128,7 @@ public class Chunk {
             return;
         }
         blocks[index(x, y, z)] = (short) blockId;
-        dirty = true;
+        markDirty();
     }
 
     public Block getBlockType(int x, int y, int z) {
@@ -152,6 +152,7 @@ public class Chunk {
         int idx = index(x, y, z);
         int sky = light[idx] & 0xF;
         light[idx] = (short) (((level & 0xFFF) << 4) | sky);
+        markDirty();
     }
 
     public int getSkyLight(int x, int y, int z) {
@@ -167,11 +168,28 @@ public class Chunk {
         int clamped = Math.max(0, Math.min(15, level));
         int rgb = (light[idx] >> 4) & 0xFFF;
         light[idx] = (short) ((rgb << 4) | clamped);
+        markDirty();
     }
 
     /** Returns the packed light array. Format: [15:4] = RGB, [3:0] = sky */
     public short[] getLightData() {
         return light;
+    }
+
+    // ==================== SERIALIZATION STATE ====================
+    private volatile boolean needsSaving = true; // Default to true (newly generated chunks need save)
+
+    public boolean needsSaving() {
+        return needsSaving;
+    }
+
+    public void markSaved() {
+        this.needsSaving = false;
+    }
+
+    public void markDirty() {
+        this.needsSaving = true;
+        this.dirty = true; // Also trigger mesh rebuild if needed
     }
 
     // ==================== FLUID DATA ====================
@@ -187,7 +205,7 @@ public class Chunk {
         byte newLevel = (byte) Math.max(0, Math.min(15, level));
         if (fluidData[index(x, y, z)] != newLevel) {
             fluidData[index(x, y, z)] = newLevel;
-            this.dirty = true;
+            markDirty();
         }
     }
 
@@ -198,6 +216,7 @@ public class Chunk {
     public void setFluidData(byte[] data) {
         if (data.length == fluidData.length) {
             System.arraycopy(data, 0, fluidData, 0, fluidData.length);
+            markDirty();
         }
     }
 
@@ -252,6 +271,10 @@ public class Chunk {
      */
     public void uploadMesh(float[] solidData, float[] transparentData, float[] waterData) {
         uploadMeshLOD(0, solidData, transparentData, waterData);
+        // Do NOT reset dirty flag here if it implies save-dirty!
+        // But 'dirty' was used for mesh rebuild.
+        // We now have distinct 'needsSaving' for disk IO.
+        // 'dirty' can still mean "Mesh needs rebuild".
         this.dirty = false;
     }
 
@@ -360,6 +383,7 @@ public class Chunk {
         if (blockEntity != null) {
             blockEntities.put(key, blockEntity);
         }
+        markDirty();
     }
 
     /**
@@ -371,6 +395,7 @@ public class Chunk {
         if (removed != null) {
             removed.onRemoved();
         }
+        markDirty();
         return removed;
     }
 

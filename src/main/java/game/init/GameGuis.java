@@ -14,6 +14,7 @@ public final class GameGuis {
 
         // ... (dichiarazioni statiche omesse per brevità) ...
         public static GuiDefinition INVENTORY;
+        public static GuiDefinition PLAYER_INVENTORY;
         public static GuiDefinition CREATIVE_INVENTORY;
         public static GuiDefinition FURNACE;
         public static GuiDefinition CRAFTING_TABLE;
@@ -163,6 +164,17 @@ public final class GameGuis {
                                 .slot("main_44", 8 + 8 * SLOT_PX, 89, "main", 44)
                                 .absoluteIndex(MAIN_ABSOLUTE_START + 44)
                                 .register();
+
+                // ==================== PLAYER INVENTORY (with crafting) ====================
+                // Load from JSON - new inventory with 2x2 crafting grid and armor slots
+                try {
+                        PLAYER_INVENTORY = Guis.registerFromJson("game:player_inventory");
+                        System.out.println("[GameGuis] Loaded player_inventory from JSON");
+                } catch (Exception e) {
+                        System.err.println("[GameGuis] Failed to load player_inventory.json: " + e.getMessage());
+                        // Fallback to old INVENTORY definition
+                        PLAYER_INVENTORY = INVENTORY;
+                }
 
                 // ==================== CRAFTING TABLE ====================
                 CRAFTING_TABLE = Guis.builder("game:crafting_table", "textures/gui/crafting_table.png", 176, 226)

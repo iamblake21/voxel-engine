@@ -17,7 +17,12 @@ public class RegionFileCache {
         File regionDir = new File(basePath, "region");
         File file = new File(regionDir, "r." + regionX + "." + regionZ + ".mca");
 
-        String key = file.getAbsolutePath();
+        String key;
+        try {
+            key = file.getCanonicalPath();
+        } catch (IOException e) {
+            key = file.getAbsolutePath();
+        }
         RegionFile regionFile = regionsByFile.get(key);
 
         if (regionFile == null) {

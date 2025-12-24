@@ -41,16 +41,16 @@ public class GuiEditorOverlay extends GuiComponent {
     private boolean snapToGrid = true;
     private int gridSize = 18; // Standard slot size
 
-    // Selection
+    // Selection - single and multi
     private GuiSlotDefinition selectedSlot = null;
     private int selectedIndex = -1;
+    private List<GuiSlotDefinition> multiSelectedSlots = new ArrayList<>();
 
     // View settings
     private boolean backgroundVisible = true;
 
     // Current tool settings
     private String currentSlotType = "hotbar";
-    private int nextSlotIndex = 0;
 
     // Mouse state
     private int mouseX, mouseY;
@@ -63,6 +63,7 @@ public class GuiEditorOverlay extends GuiComponent {
     // Editing state
     private boolean isDragging = false;
     private int dragOffsetX, dragOffsetY;
+    private boolean leftClickLatch = false; // For single-click detection
 
     // Status message
     private String statusMessage = "";
@@ -200,53 +201,61 @@ public class GuiEditorOverlay extends GuiComponent {
         // Slot type selection - 1-5
         if (keyPressed(input, GLFW_KEY_1)) {
             currentSlotType = "hotbar";
-            nextSlotIndex = countSlotsOfType("hotbar");
             setStatus("Slot type: hotbar");
         }
         if (keyPressed(input, GLFW_KEY_2)) {
             currentSlotType = "main";
-            nextSlotIndex = countSlotsOfType("main");
             setStatus("Slot type: main");
         }
         if (keyPressed(input, GLFW_KEY_3)) {
             currentSlotType = "crafting_input";
-            nextSlotIndex = countSlotsOfType("crafting_input");
             setStatus("Slot type: crafting_input");
         }
         if (keyPressed(input, GLFW_KEY_4)) {
             currentSlotType = "crafting_output";
-            nextSlotIndex = countSlotsOfType("crafting_output");
             setStatus("Slot type: crafting_output");
         }
         if (keyPressed(input, GLFW_KEY_5)) {
             currentSlotType = "armor";
-            nextSlotIndex = countSlotsOfType("armor");
             setStatus("Slot type: armor");
         }
 
-        // Move selected slot with arrow keys
-        if (selectedSlot != null) {
+        // Move selected slot(s) with arrow keys
+        if (selectedSlot != null || !multiSelectedSlots.isEmpty()) {
             int moveAmount = snapToGrid ? gridSize : 1;
+            List<GuiSlotDefinition> toMove = multiSelectedSlots.isEmpty() ? List.of(selectedSlot) : multiSelectedSlots;
 
             if (keyPressed(input, GLFW_KEY_UP)) {
-                selectedSlot.setY(selectedSlot.getY() - moveAmount);
+                for (GuiSlotDefinition s : toMove)
+                    s.setY(s.getY() - moveAmount);
             }
             if (keyPressed(input, GLFW_KEY_DOWN)) {
-                selectedSlot.setY(selectedSlot.getY() + moveAmount);
+                for (GuiSlotDefinition s : toMove)
+                    s.setY(s.getY() + moveAmount);
             }
             if (keyPressed(input, GLFW_KEY_LEFT)) {
-                selectedSlot.setX(selectedSlot.getX() - moveAmount);
+                for (GuiSlotDefinition s : toMove)
+                    s.setX(s.getX() - moveAmount);
             }
             if (keyPressed(input, GLFW_KEY_RIGHT)) {
-                selectedSlot.setX(selectedSlot.getX() + moveAmount);
+                for (GuiSlotDefinition s : toMove)
+                    s.setX(s.getX() + moveAmount);
             }
 
-            // Delete selected slot
+            // Delete selected slot(s)
             if (keyPressed(input, GLFW_KEY_DELETE) || keyPressed(input, GLFW_KEY_BACKSPACE)) {
-                editingDefinition.removeSlot(selectedSlot.getId());
+                if (!multiSelectedSlots.isEmpty()) {
+                    for (GuiSlotDefinition s : multiSelectedSlots) {
+                        editingDefinition.removeSlot(s.getId());
+                    }
+                    setStatus("Deleted " + multiSelectedSlots.size() + " slots");
+                    multiSelectedSlots.clear();
+                } else if (selectedSlot != null) {
+                    editingDefinition.removeSlot(selectedSlot.getId());
+                    setStatus("Slot deleted");
+                }
                 selectedSlot = null;
                 selectedIndex = -1;
-                setStatus("Slot deleted");
             }
         }
 
@@ -255,14 +264,31 @@ public class GuiEditorOverlay extends GuiComponent {
             cycleSelection();
         }
 
-        // Increase/decrease grid size
-        if (keyPressed(input, GLFW_KEY_EQUAL)) { // + key
-            gridSize = Math.min(36, gridSize + 1);
-            setStatus("Grid size: " + gridSize);
+        // Resize selected slot with +/- (support both main keyboard and numpad)
+        boolean plusPressed = keyPressed(input, GLFW_KEY_EQUAL) || keyPressed(input, GLFW_KEY_KP_ADD);
+        boolean minusPressed = keyPressed(input, GLFW_KEY_MINUS) || keyPressed(input, GLFW_KEY_KP_SUBTRACT);
+
+        if (plusPressed) {
+            if (selectedSlot != null) {
+                int newSize = selectedSlot.getWidth() + 1;
+                selectedSlot.setWidth(newSize);
+                selectedSlot.setHeight(newSize);
+                setStatus("Slot size: " + newSize + "x" + newSize);
+            } else {
+                gridSize = Math.min(36, gridSize + 1);
+                setStatus("Grid size: " + gridSize);
+            }
         }
-        if (keyPressed(input, GLFW_KEY_MINUS)) {
-            gridSize = Math.max(1, gridSize - 1);
-            setStatus("Grid size: " + gridSize);
+        if (minusPressed) {
+            if (selectedSlot != null) {
+                int newSize = Math.max(8, selectedSlot.getWidth() - 1);
+                selectedSlot.setWidth(newSize);
+                selectedSlot.setHeight(newSize);
+                setStatus("Slot size: " + newSize + "x" + newSize);
+            } else {
+                gridSize = Math.max(1, gridSize - 1);
+                setStatus("Grid size: " + gridSize);
+            }
         }
 
         // Generate Java code - J
@@ -294,22 +320,52 @@ public class GuiEditorOverlay extends GuiComponent {
         // Find slot under mouse
         GuiSlotDefinition slotUnderMouse = findSlotAt(guiMouseX, guiMouseY);
 
+        boolean ctrlHeld = input.isKeyDown(GLFW_KEY_LEFT_CONTROL) || input.isKeyDown(GLFW_KEY_RIGHT_CONTROL);
+        boolean leftClick = leftDown && !leftClickLatch; // Single click detection
+        leftClickLatch = leftDown;
+
         // Left click - select or place
         if (leftDown) {
             if (!isDragging) {
                 if (slotUnderMouse != null) {
-                    // Select existing slot
-                    selectedSlot = slotUnderMouse;
-                    selectedIndex = editingDefinition.getSlots().indexOf(slotUnderMouse);
-                    isDragging = true;
-                    dragOffsetX = guiMouseX - slotUnderMouse.getX();
-                    dragOffsetY = guiMouseY - slotUnderMouse.getY();
+                    if (ctrlHeld && leftClick) {
+                        // Ctrl+click - toggle multi-selection (only on click, not hold)
+                        if (multiSelectedSlots.contains(slotUnderMouse)) {
+                            multiSelectedSlots.remove(slotUnderMouse);
+                            setStatus("Deselected: " + slotUnderMouse.getId() + " (" + multiSelectedSlots.size()
+                                    + " selected)");
+                        } else {
+                            multiSelectedSlots.add(slotUnderMouse);
+                            setStatus("Multi-select: " + multiSelectedSlots.size() + " slots");
+                        }
+                    } else if (!ctrlHeld) {
+                        // Normal click - select single slot
+                        selectedSlot = slotUnderMouse;
+                        selectedIndex = editingDefinition.getSlots().indexOf(slotUnderMouse);
+                        if (multiSelectedSlots.isEmpty()) {
+                            isDragging = true;
+                            dragOffsetX = guiMouseX - slotUnderMouse.getX();
+                            dragOffsetY = guiMouseY - slotUnderMouse.getY();
+                        } else if (multiSelectedSlots.contains(slotUnderMouse)) {
+                            // Dragging multi-selection
+                            isDragging = true;
+                            dragOffsetX = guiMouseX - slotUnderMouse.getX();
+                            dragOffsetY = guiMouseY - slotUnderMouse.getY();
+                        } else {
+                            // Clicked outside multi-selection - clear it
+                            multiSelectedSlots.clear();
+                            isDragging = true;
+                            dragOffsetX = guiMouseX - slotUnderMouse.getX();
+                            dragOffsetY = guiMouseY - slotUnderMouse.getY();
+                        }
+                    }
                 } else {
-                    // Place new slot
+                    // Place new slot (clear multi-selection)
+                    multiSelectedSlots.clear();
                     placeSlot(guiMouseX, guiMouseY);
                 }
-            } else if (selectedSlot != null) {
-                // Dragging - move slot
+            } else {
+                // Dragging - move slot(s)
                 int newX = guiMouseX - dragOffsetX;
                 int newY = guiMouseY - dragOffsetY;
 
@@ -318,8 +374,18 @@ public class GuiEditorOverlay extends GuiComponent {
                     newY = (newY / gridSize) * gridSize;
                 }
 
-                selectedSlot.setX(newX);
-                selectedSlot.setY(newY);
+                if (!multiSelectedSlots.isEmpty() && selectedSlot != null) {
+                    // Move all multi-selected slots
+                    int deltaX = newX - selectedSlot.getX();
+                    int deltaY = newY - selectedSlot.getY();
+                    for (GuiSlotDefinition s : multiSelectedSlots) {
+                        s.setX(s.getX() + deltaX);
+                        s.setY(s.getY() + deltaY);
+                    }
+                } else if (selectedSlot != null) {
+                    selectedSlot.setX(newX);
+                    selectedSlot.setY(newY);
+                }
             }
         } else {
             isDragging = false;
@@ -342,13 +408,21 @@ public class GuiEditorOverlay extends GuiComponent {
             y = (y / gridSize) * gridSize;
         }
 
-        String id = currentSlotType + "_" + nextSlotIndex;
-        GuiSlotDefinition slot = new GuiSlotDefinition(id, x, y, currentSlotType, nextSlotIndex);
+        // Calculate next available index for this slot type
+        int maxIndex = -1;
+        for (GuiSlotDefinition s : editingDefinition.getSlots()) {
+            if (currentSlotType.equals(s.getType()) || s.getType().startsWith(currentSlotType)) {
+                maxIndex = Math.max(maxIndex, s.getIndex());
+            }
+        }
+        int newIndex = maxIndex + 1;
+
+        String id = currentSlotType + "_" + newIndex;
+        GuiSlotDefinition slot = new GuiSlotDefinition(id, x, y, currentSlotType, newIndex);
         editingDefinition.addSlot(slot);
 
         selectedSlot = slot;
         selectedIndex = editingDefinition.getSlots().size() - 1;
-        nextSlotIndex++;
 
         setStatus("Placed: " + id + " at (" + x + ", " + y + ")");
     }
@@ -489,7 +563,8 @@ public class GuiEditorOverlay extends GuiComponent {
 
         // Render all slots
         for (GuiSlotDefinition slot : editingDefinition.getSlots()) {
-            renderSlotPreview(renderer, slot, slot == selectedSlot);
+            boolean isMultiSelected = multiSelectedSlots.contains(slot);
+            renderSlotPreview(renderer, slot, slot == selectedSlot, isMultiSelected);
         }
 
         // Cursor preview (new slot placement)
@@ -526,7 +601,8 @@ public class GuiEditorOverlay extends GuiComponent {
         }
     }
 
-    private void renderSlotPreview(GuiRenderer renderer, GuiSlotDefinition slot, boolean selected) {
+    private void renderSlotPreview(GuiRenderer renderer, GuiSlotDefinition slot, boolean selected,
+            boolean multiSelected) {
         int sx = guiX + slot.getX();
         int sy = guiY + slot.getY();
         int sw = slot.getWidth();
@@ -536,11 +612,24 @@ public class GuiEditorOverlay extends GuiComponent {
         float[] color = getSlotTypeColor(slot.getType());
         renderer.renderRect(sx, sy, sw, sh, color[0], color[1], color[2], 0.6f);
 
-        // Border
-        float borderAlpha = selected ? 1.0f : 0.5f;
-        float borderR = selected ? 1.0f : 0.8f;
-        float borderG = selected ? 1.0f : 0.8f;
-        float borderB = selected ? 0.0f : 0.8f;
+        // Border - different colors for selected vs multi-selected
+        float borderAlpha, borderR, borderG, borderB;
+        if (selected) {
+            borderAlpha = 1.0f;
+            borderR = 1.0f;
+            borderG = 1.0f;
+            borderB = 0.0f; // Yellow
+        } else if (multiSelected) {
+            borderAlpha = 1.0f;
+            borderR = 0.0f;
+            borderG = 1.0f;
+            borderB = 1.0f; // Cyan
+        } else {
+            borderAlpha = 0.5f;
+            borderR = 0.8f;
+            borderG = 0.8f;
+            borderB = 0.8f; // Gray
+        }
 
         renderer.renderRect(sx, sy, sw, 1, borderR, borderG, borderB, borderAlpha);
         renderer.renderRect(sx, sy + sh - 1, sw, 1, borderR, borderG, borderB, borderAlpha);
@@ -650,7 +739,7 @@ public class GuiEditorOverlay extends GuiComponent {
         editingDefinition.setId(engine.registry.ResourceLocation.of(name));
         selectedSlot = null;
         selectedIndex = -1;
-        nextSlotIndex = 0;
+        multiSelectedSlots.clear();
         updateGuiPosition(this.width, this.height);
         setStatus("New GUI: " + name + " (" + width + "x" + height + ")");
     }

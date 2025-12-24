@@ -14,7 +14,8 @@ public class PlayerInventory extends Inventory {
 
     public static final int HOTBAR_SIZE = 9;
     public static final int MAIN_SIZE = 45;
-    public static final int TOTAL_SIZE = HOTBAR_SIZE + MAIN_SIZE;
+    public static final int ARMOR_SIZE = 4;
+    public static final int TOTAL_SIZE = HOTBAR_SIZE + MAIN_SIZE + ARMOR_SIZE; // 58 total
 
     private int selectedHotbarSlot = 0; // 0-8
 
@@ -123,5 +124,26 @@ public class PlayerInventory extends Inventory {
             }
         }
         return count;
+    }
+
+    // ==================== ARMOR ====================
+
+    /**
+     * Get an armor slot (0=helmet, 1=chestplate, 2=leggings, 3=boots)
+     */
+    public ItemStack getArmorStack(int slot) {
+        if (slot < 0 || slot >= ARMOR_SIZE) {
+            return ItemStack.EMPTY;
+        }
+        return getStack(HOTBAR_SIZE + MAIN_SIZE + slot);
+    }
+
+    /**
+     * Set an armor slot (0=helmet, 1=chestplate, 2=leggings, 3=boots)
+     */
+    public void setArmorStack(int slot, ItemStack stack) {
+        if (slot >= 0 && slot < ARMOR_SIZE) {
+            setStack(HOTBAR_SIZE + MAIN_SIZE + slot, stack);
+        }
     }
 }

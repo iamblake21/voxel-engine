@@ -100,7 +100,7 @@ public class RegionFile implements AutoCloseable {
     }
 
     // Get chunk data input stream
-    public DataInputStream getChunkDataInputStream(int x, int z) throws IOException {
+    public synchronized DataInputStream getChunkDataInputStream(int x, int z) throws IOException {
         if (outOfBounds(x, z))
             return null;
 
@@ -110,9 +110,6 @@ public class RegionFile implements AutoCloseable {
 
         int sectorPos = offset >> 8;
         int numSectors = offset & 0xFF;
-
-        if (sectorPos + numSectors > sectorFree.size())
-            return null;
 
         if (sectorPos + numSectors > sectorFree.size())
             return null;
@@ -290,7 +287,7 @@ public class RegionFile implements AutoCloseable {
     }
 
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
         writeHeader();
         fileChannel.close();
     }

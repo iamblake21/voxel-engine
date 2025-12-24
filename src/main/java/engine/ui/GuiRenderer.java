@@ -15,8 +15,13 @@ public class GuiRenderer {
     // GUI Scale factor (1 = normal, 2 = 2x, 3 = 3x larger)
     private int guiScale = 2;
 
-    private final int windowWidth;
-    private final int windowHeight;
+    private int windowWidth;
+    private int windowHeight;
+
+    public void updateDimensions(int width, int height) {
+        this.windowWidth = width;
+        this.windowHeight = height;
+    }
 
     private Shader shader;
     private int vao, vbo;
@@ -38,6 +43,7 @@ public class GuiRenderer {
     private int uTextureArrayLoc, uUseTextureArrayLoc;
 
     private engine.rendering.TextureArray atlasTexture;
+    private FontTexture fontTexture;
 
     public GuiRenderer(int windowWidth, int windowHeight) {
         this.windowWidth = windowWidth;
@@ -115,6 +121,9 @@ public class GuiRenderer {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        // Init Font
+        this.fontTexture = new FontTexture();
     }
 
     public void begin() {
@@ -272,106 +281,75 @@ public class GuiRenderer {
     /**
      * Render text (simple implementation - pixel art digits)
      */
+    /**
+     * Render text using Bitmap Font Texture.
+     */
     public void renderText(String text, float x, float y, float size,
             float r, float g, float b, float a) {
 
+        if (fontTexture == null)
+            return;
+
+        // Font size scaler.
+        // Base font size is 8px.
+        // "size" parameter is historically around 2.0 to 12.0 in previous calls.
+        // Pixel font 8px * 2.0 = 16px char height.
+        // Let's treat "size" as a general scale factor relative to 8px base?
+        // Or keep consistency.
+        // Previous renderDigit: 3x5 grid.
+        // size was Height.
+        // New font: 8px height.
+
+        // If passed size is 12.0f, then we scale 8px -> 12px?
+        // Let's assume passed size is roughly desired height in pixels.
+        float scale = size / 8.0f;
+
+        // Snap scale to nearest integer for perfect pixel art, or keep float for smooth
+        // Zoom?
+        // For text legibility, integer scaling is best.
+        if (scale < 1.0f)
+            scale = 1.0f;
+        // scale = (float) Math.floor(scale); // Optional: Force Integer Scale
+
+        float charW = 8 * scale;
+        float charH = 8 * scale;
+
+        // 5px wide glyph + 1px space = 6px stride
+        float spacing = 6 * scale;
+
+        fontTexture.bind();
+        checkFlush(fontTexture.getTextureId(), false);
+
         float currentX = x;
-        float spacing = size * 0.7f; // Spacing between chars
 
         for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
+            char c = text.charAt(i);
 
-            if (ch >= 'a' && ch <= 'z') {
-                ch = (char) (ch - 'a' + 'A'); // To Uppercase
-            }
+            float[] uv = fontTexture.getUV(c);
+            float u = uv[0];
+            float v = uv[1];
+            float uw = uv[2];
+            float vh = uv[3];
 
-            if (ch >= '0' && ch <= '9') {
-                renderDigit(ch - '0', currentX, y, size, r, g, b, a);
-            } else if (ch >= 'A' && ch <= 'Z') {
-                renderDigit(ch - 'A' + 10, currentX, y, size, r, g, b, a);
-            } else {
-                // Placeholder for unknown chars (leave space or draw dot?)
-                // renderRect(currentX, y, size / 2, size, r, g, b, a);
-            }
+            // Draw Quad
+            // Vertices:
+            // TL
+            addVertex(currentX, y, u, v, r, g, b, a, 0);
+            // BL
+            addVertex(currentX, y + charH, u, v + vh, r, g, b, a, 0);
+            // TR
+            addVertex(currentX + charW, y, u + uw, v, r, g, b, a, 0);
+
+            // TR
+            addVertex(currentX + charW, y, u + uw, v, r, g, b, a, 0);
+            // BL
+            addVertex(currentX, y + charH, u, v + vh, r, g, b, a, 0);
+            // BR
+            addVertex(currentX + charW, y + charH, u + uw, v + vh, r, g, b, a, 0);
+
+            quadCount++;
+
             currentX += spacing;
-        }
-    }
-
-    /**
-     * Helper to render a single digit using rectangles (pixel art style)
-     * 3x5 grid
-     */
-    private void renderDigit(int digit, float x, float y, float h, float r, float g, float b, float a) {
-        float w = h * 0.6f; // Aspect ratio
-        float pW = w / 3.0f; // Pixel width
-        float pH = h / 5.0f; // Pixel height
-
-        // Bitmask for 3x5 font (1 = pixel, 0 = empty)
-        // Row 0 is top
-        // Encoding: MSB is Top-Left, LSB is Bottom-Right (row-major)
-        // 15 bits needed.
-        // Actually, the previous implementation computed bitIndex weirdly:
-        // (4 - row) * 3 + (2 - col). This means LSB is Bottom-Right (row=4, col=2 =>
-        // bit 0). MSA is Top-Left (row=0, col=0 => bit 14).
-
-        // Let's verify Digit 0: 0b111_101_101_101_111
-        // Row 0: 111 (Map to bits 14, 13, 12?)
-        // bitIndex(0,0)=14, (0,1)=13, (0,2)=12. Correct.
-
-        int[] font = {
-                // Digits 0-9
-                0b111_101_101_101_111, // 0
-                0b010_010_010_010_010, // 1
-                0b111_001_111_100_111, // 2
-                0b111_001_111_001_111, // 3
-                0b101_101_111_001_001, // 4
-                0b111_100_111_001_111, // 5
-                0b111_100_111_101_111, // 6
-                0b111_001_001_001_001, // 7
-                0b111_101_111_101_111, // 8
-                0b111_101_111_001_111, // 9
-
-                // Letters A-Z (Index 10-35)
-                0b010_101_111_101_101, // A (10)
-                0b110_101_110_101_110, // B (11)
-                0b011_100_100_100_011, // C (12)
-                0b110_101_101_101_110, // D (13)
-                0b111_100_111_100_111, // E (14)
-                0b111_100_111_100_100, // F (15)
-                0b011_100_101_101_011, // G (16)
-                0b101_101_111_101_101, // H (17)
-                0b111_010_010_010_111, // I (18)
-                0b001_001_001_101_010, // J (19)
-                0b101_101_110_101_101, // K (20)
-                0b100_100_100_100_111, // L (21)
-                0b101_111_101_101_101, // M (22)
-                0b111_101_101_101_101, // N (23) - Same as 0 but arguably N needs diff
-                0b010_101_101_101_010, // O (24) - Rounded 0
-                0b111_101_111_100_100, // P (25)
-                0b010_101_101_011_001, // Q (26)
-                0b110_101_110_101_101, // R (27)
-                0b011_100_010_001_110, // S (28)
-                0b111_010_010_010_010, // T (29)
-                0b101_101_101_101_111, // U (30)
-                0b101_101_101_101_010, // V (31)
-                0b101_101_101_111_101, // W (32)
-                0b101_101_010_101_101, // X (33)
-                0b101_101_010_010_010, // Y (34)
-                0b111_001_010_100_111 // Z (35)
-        };
-
-        int mask = font[digit];
-
-        // Draw pixels
-        for (int row = 0; row < 5; row++) {
-            for (int col = 0; col < 3; col++) {
-                int bitIndex = (4 - row) * 3 + (2 - col); // LSB is bottom-right
-                boolean isSet = ((mask >> bitIndex) & 1) == 1;
-
-                if (isSet) {
-                    renderRect(x + col * pW, y + row * pH, pW, pH, r, g, b, a);
-                }
-            }
         }
     }
 

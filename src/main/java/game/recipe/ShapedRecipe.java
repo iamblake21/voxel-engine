@@ -29,31 +29,37 @@ public class ShapedRecipe implements Recipe {
 
     @Override
     public boolean matches(Inventory craftingGrid) {
-        // We need to find if the pattern matches anywhere in the 3x3 grid
-        // For simplicity, we assume standard 3x3 grid and check for exact match or
-        // smaller sub-match
+        // Detect grid size from inventory
+        int gridSize = craftingGrid.getSize() == 4 ? 2 : 3; // 2x2 or 3x3
 
-        // 1. Iterate over all possible starting positions in the 3x3 grid (0,0 to
-        // 3-w,3-h)
-        for (int startX = 0; startX <= 3 - width; startX++) {
-            for (int startY = 0; startY <= 3 - height; startY++) {
-                if (checkMatch(craftingGrid, startX, startY, false)) {
+        // Recipe must fit in the grid
+        if (width > gridSize || height > gridSize) {
+            return false;
+        }
+
+        // Iterate over all possible starting positions
+        for (int startX = 0; startX <= gridSize - width; startX++) {
+            for (int startY = 0; startY <= gridSize - height; startY++) {
+                if (checkMatch(craftingGrid, startX, startY, gridSize, false)) {
                     return true;
                 }
-                // Optional: Check mirrored? (Not standard MC behavior usually, but helpful)
+                // Check mirrored
+                if (checkMatch(craftingGrid, startX, startY, gridSize, true)) {
+                    return true;
+                }
             }
         }
 
         return false;
     }
 
-    private boolean checkMatch(Inventory grid, int startX, int startY, boolean mirror) {
+    private boolean checkMatch(Inventory grid, int startX, int startY, int gridSize, boolean mirror) {
         // Check pattern match
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 int gridX = startX + x;
                 int gridY = startY + y;
-                int slot = gridY * 3 + gridX;
+                int slot = gridY * gridSize + gridX;
 
                 char key = pattern[y].charAt(mirror ? width - 1 - x : x);
                 Item expected = legend.get(key);
@@ -72,15 +78,15 @@ public class ShapedRecipe implements Recipe {
         }
 
         // Check that all other slots are empty
-        for (int y = 0; y < 3; y++) {
-            for (int x = 0; x < 3; x++) {
+        for (int y = 0; y < gridSize; y++) {
+            for (int x = 0; x < gridSize; x++) {
                 // If this slot is part of the pattern, we already checked it
                 if (x >= startX && x < startX + width && y >= startY && y < startY + height) {
                     continue;
                 }
 
                 // Otherwise it must be empty
-                if (!grid.getStack(y * 3 + x).isEmpty()) {
+                if (!grid.getStack(y * gridSize + x).isEmpty()) {
                     return false;
                 }
             }

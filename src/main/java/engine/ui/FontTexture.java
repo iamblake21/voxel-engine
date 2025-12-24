@@ -1,0 +1,215 @@
+package engine.ui;
+
+import org.lwjgl.BufferUtils;
+import java.nio.ByteBuffer;
+import static org.lwjgl.opengl.GL11.*;
+
+/**
+ * Generates and manages a Bitmap Font Texture (Pixel Art Style).
+ * Embeds a standard 5x7 (in 8x8 cell) font.
+ * Layout: 16x16 grid of characters (256 slots, using ASCII).
+ */
+public class FontTexture {
+
+    private int textureId;
+    private final int width = 128; // 16 cols * 8 pixels
+    private final int height = 128; // 16 rows * 8 pixels
+    private final int cellW = 8;
+    private final int cellH = 8;
+
+    // 5x7 Bitmaps for ASCII 32-127
+    // Each byte represents a column (5 bytes per char)
+    // LSB is top, MSB is bottom (or vice versa, let's stick to standard row-major
+    // if bytes are rows)
+    // Wait, typical arrays are byte per row or byte per col.
+    // Let's use: 5 bytes per char. Byte 0 = Col 0. LSB = Row 0 (Top).
+    // This allows variable width easilly later if needed.
+    // Definition: Standard 5x7 font
+    private static final byte[][] FONT_DATA = {
+            { 0x00, 0x00, 0x00, 0x00, 0x00 }, // 32 SPACE
+            { 0x00, 0x00, 0x5F, 0x00, 0x00 }, // 33 !
+            { 0x00, 0x07, 0x00, 0x07, 0x00 }, // 34 "
+            { 0x14, 0x7F, 0x14, 0x7F, 0x14 }, // 35 #
+            { 0x24, 0x2A, 0x7F, 0x2A, 0x12 }, // 36 $
+            { 0x23, 0x13, 0x08, 0x64, 0x62 }, // 37 %
+            { 0x36, 0x49, 0x55, 0x22, 0x50 }, // 38 &
+            { 0x00, 0x05, 0x03, 0x00, 0x00 }, // 39 '
+            { 0x00, 0x1C, 0x22, 0x41, 0x00 }, // 40 (
+            { 0x00, 0x41, 0x22, 0x1C, 0x00 }, // 41 )
+            { 0x14, 0x08, 0x3E, 0x08, 0x14 }, // 42 *
+            { 0x08, 0x08, 0x3E, 0x08, 0x08 }, // 43 +
+            { 0x00, 0x50, 0x30, 0x00, 0x00 }, // 44 ,
+            { 0x08, 0x08, 0x08, 0x08, 0x08 }, // 45 -
+            { 0x00, 0x60, 0x60, 0x00, 0x00 }, // 46 .
+            { 0x20, 0x10, 0x08, 0x04, 0x02 }, // 47 /
+            { 0x3E, 0x51, 0x49, 0x45, 0x3E }, // 48 0
+            { 0x00, 0x42, 0x7F, 0x40, 0x00 }, // 49 1
+            { 0x42, 0x61, 0x51, 0x49, 0x46 }, // 50 2
+            { 0x21, 0x41, 0x45, 0x4B, 0x31 }, // 51 3
+            { 0x18, 0x14, 0x12, 0x7F, 0x10 }, // 52 4
+            { 0x27, 0x45, 0x45, 0x45, 0x39 }, // 53 5
+            { 0x3C, 0x4A, 0x49, 0x49, 0x30 }, // 54 6
+            { 0x01, 0x71, 0x09, 0x05, 0x03 }, // 55 7
+            { 0x36, 0x49, 0x49, 0x49, 0x36 }, // 56 8
+            { 0x06, 0x49, 0x49, 0x29, 0x1E }, // 57 9
+            { 0x00, 0x36, 0x36, 0x00, 0x00 }, // 58 :
+            { 0x00, 0x56, 0x36, 0x00, 0x00 }, // 59 ;
+            { 0x08, 0x14, 0x22, 0x41, 0x00 }, // 60 <
+            { 0x14, 0x14, 0x14, 0x14, 0x14 }, // 61 =
+            { 0x00, 0x41, 0x22, 0x14, 0x08 }, // 62 >
+            { 0x02, 0x01, 0x51, 0x09, 0x06 }, // 63 ?
+            { 0x32, 0x49, 0x79, 0x41, 0x3E }, // 64 @
+            { 0x7E, 0x11, 0x11, 0x11, 0x7E }, // 65 A
+            { 0x7F, 0x49, 0x49, 0x49, 0x36 }, // 66 B
+            { 0x3E, 0x41, 0x41, 0x41, 0x22 }, // 67 C
+            { 0x7F, 0x41, 0x41, 0x22, 0x1C }, // 68 D
+            { 0x7F, 0x49, 0x49, 0x49, 0x41 }, // 69 E
+            { 0x7F, 0x09, 0x09, 0x09, 0x01 }, // 70 F
+            { 0x3E, 0x41, 0x49, 0x49, 0x7A }, // 71 G
+            { 0x7F, 0x08, 0x08, 0x08, 0x7F }, // 72 H
+            { 0x00, 0x41, 0x7F, 0x41, 0x00 }, // 73 I
+            { 0x20, 0x40, 0x41, 0x3F, 0x01 }, // 74 J
+            { 0x7F, 0x08, 0x14, 0x22, 0x41 }, // 75 K
+            { 0x7F, 0x40, 0x40, 0x40, 0x40 }, // 76 L
+            { 0x7F, 0x02, 0x0C, 0x02, 0x7F }, // 77 M
+            { 0x7F, 0x04, 0x08, 0x10, 0x7F }, // 78 N
+            { 0x3E, 0x41, 0x41, 0x41, 0x3E }, // 79 O
+            { 0x7F, 0x09, 0x09, 0x09, 0x06 }, // 80 P
+            { 0x3E, 0x41, 0x51, 0x21, 0x5E }, // 81 Q
+            { 0x7F, 0x09, 0x19, 0x29, 0x46 }, // 82 R
+            { 0x46, 0x49, 0x49, 0x49, 0x31 }, // 83 S
+            { 0x01, 0x01, 0x7F, 0x01, 0x01 }, // 84 T
+            { 0x3F, 0x40, 0x40, 0x40, 0x3F }, // 85 U
+            { 0x1F, 0x20, 0x40, 0x20, 0x1F }, // 86 V
+            { 0x3F, 0x40, 0x38, 0x40, 0x3F }, // 87 W
+            { 0x63, 0x14, 0x08, 0x14, 0x63 }, // 88 X
+            { 0x07, 0x08, 0x70, 0x08, 0x07 }, // 89 Y
+            { 0x61, 0x51, 0x49, 0x45, 0x43 }, // 90 Z
+            { 0x00, 0x7F, 0x41, 0x41, 0x00 }, // 91 [
+            { 0x02, 0x04, 0x08, 0x10, 0x20 }, // 92 \ backslash
+            { 0x00, 0x41, 0x41, 0x7F, 0x00 }, // 93 ]
+            { 0x04, 0x02, 0x01, 0x02, 0x04 }, // 94 ^
+            { 0x40, 0x40, 0x40, 0x40, 0x40 }, // 95 _
+            { 0x00, 0x01, 0x02, 0x04, 0x00 }, // 96 `
+            { 0x20, 0x54, 0x54, 0x54, 0x78 }, // 97 a
+            { 0x7F, 0x48, 0x44, 0x44, 0x38 }, // 98 b
+            { 0x38, 0x44, 0x44, 0x44, 0x20 }, // 99 c
+            { 0x38, 0x44, 0x44, 0x48, 0x7F }, // 100 d
+            { 0x38, 0x54, 0x54, 0x54, 0x18 }, // 101 e
+            { 0x08, 0x7E, 0x09, 0x01, 0x02 }, // 102 f
+            { 0x0C, 0x52, 0x52, 0x52, 0x3E }, // 103 g
+            { 0x7F, 0x08, 0x04, 0x04, 0x78 }, // 104 h
+            { 0x00, 0x44, 0x7D, 0x40, 0x00 }, // 105 i
+            { 0x20, 0x40, 0x44, 0x3D, 0x00 }, // 106 j
+            { 0x7F, 0x10, 0x28, 0x44, 0x00 }, // 107 k
+            { 0x00, 0x41, 0x7F, 0x40, 0x00 }, // 108 l
+            { 0x7C, 0x04, 0x18, 0x04, 0x78 }, // 109 m
+            { 0x7C, 0x08, 0x04, 0x04, 0x78 }, // 110 n
+            { 0x38, 0x44, 0x44, 0x44, 0x38 }, // 111 o
+            { 0x7C, 0x14, 0x14, 0x14, 0x08 }, // 112 p
+            { 0x08, 0x14, 0x14, 0x18, 0x7C }, // 113 q
+            { 0x7C, 0x08, 0x04, 0x04, 0x08 }, // 114 r
+            { 0x48, 0x54, 0x54, 0x54, 0x20 }, // 115 s
+            { 0x04, 0x3F, 0x44, 0x40, 0x20 }, // 116 t
+            { 0x3C, 0x40, 0x40, 0x20, 0x7C }, // 117 u
+            { 0x1C, 0x20, 0x40, 0x20, 0x1C }, // 118 v
+            { 0x3C, 0x40, 0x30, 0x40, 0x3C }, // 119 w
+            { 0x44, 0x28, 0x10, 0x28, 0x44 }, // 120 x
+            { 0x0C, 0x50, 0x50, 0x50, 0x3C }, // 121 y
+            { 0x44, 0x64, 0x54, 0x4C, 0x44 }, // 122 z
+            { 0x00, 0x08, 0x36, 0x41, 0x00 }, // 123 {
+            { 0x00, 0x00, 0x7F, 0x00, 0x00 }, // 124 |
+            { 0x00, 0x41, 0x36, 0x08, 0x00 }, // 125 }
+            { 0x10, 0x08, 0x08, 0x10, 0x08 } // 126 ~
+    };
+
+    public FontTexture() {
+        initTexture();
+    }
+
+    private void initTexture() {
+        // Create Buffer
+        ByteBuffer data = BufferUtils.createByteBuffer(width * height * 4); // RGBA
+
+        // Clear to transparent
+        for (int i = 0; i < width * height; i++) {
+            data.putInt(0);
+        }
+        data.flip(); // Reset for partial writing? No, flip is for reading.
+        // We need to write randomly or fill row by row.
+        // Let's fill row by row.
+        // Actually, easier to write to array then buf.
+
+        // Let's just iterate over pixels 0..127, 0..127
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int charRow = y / 8; // Row index in grid (0-15)
+                int charCol = x / 8; // Col index in grid (0-15)
+                int charIndex = charRow * 16 + charCol;
+
+                int localX = x % 8; // 0-7
+                int localY = y % 8; // 0-7
+
+                // Only have data for 32-126
+                boolean pixel = false;
+                if (charIndex >= 32 && charIndex < 32 + FONT_DATA.length) {
+                    byte[] charData = FONT_DATA[charIndex - 32];
+
+                    // Column mapping
+                    if (localX < 5) {
+                        byte colByte = charData[localX];
+                        // Row mapping: localY 0 = Top ? No with fonts usually 0 is bottom but in
+                        // texture 0 is top.
+                        // Our binary data: 0x01 is bit 0.
+                        // Let's assume bit 0 is TOP row.
+                        if (((colByte >> localY) & 1) == 1) {
+                            pixel = true;
+                        }
+                    }
+                }
+
+                // Write RGBA
+                int offset = (y * width + x) * 4;
+                data.put(offset, (byte) 255); // R
+                data.put(offset + 1, (byte) 255); // G
+                data.put(offset + 2, (byte) 255); // B
+                data.put(offset + 3, (byte) (pixel ? 255 : 0)); // A
+            }
+        }
+
+        textureId = glGenTextures();
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+        // Pixel Art Filtering
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        System.out.println("[FontTexture] Generated 128x128 font atlas.");
+    }
+
+    public int getTextureId() {
+        return textureId;
+    }
+
+    public void bind() {
+        glBindTexture(GL_TEXTURE_2D, textureId);
+    }
+
+    // UV helper
+    // Returns [u, v, uWidth, vHeight]
+    public float[] getUV(char c) {
+        if (c > 255)
+            c = '?';
+        int col = c % 16;
+        int row = c / 16;
+
+        float u = col * 8.0f / width;
+        float v = row * 8.0f / height;
+        float uw = 8.0f / width;
+        float vh = 8.0f / height;
+
+        return new float[] { u, v, uw, vh };
+    }
+}

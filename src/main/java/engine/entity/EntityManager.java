@@ -12,7 +12,7 @@ public class EntityManager {
 
     private final Map<Long, Entity> entitiesById = new HashMap<>();
     private final List<Entity> entities = new ArrayList<>();
-    private final List<Entity> toAdd = new ArrayList<>();
+    private final java.util.Queue<Entity> toAdd = new java.util.concurrent.ConcurrentLinkedQueue<>();
 
     private static final float PICKUP_RADIUS = 1.5f;
     private static final float MAGNET_RADIUS = 2.5f;
@@ -201,20 +201,21 @@ public class EntityManager {
      * @param deltaTime Time since last frame
      */
     public void update(float deltaTime) {
-        for (Entity e : toAdd) {
-            entities.add(e);
-            entitiesById.put(e.getEntityId(), e);
+        // Drain the thread-safe queue
+        Entity toAddEntity;
+        while ((toAddEntity = toAdd.poll()) != null) {
+            entities.add(toAddEntity);
+            entitiesById.put(toAddEntity.getEntityId(), toAddEntity);
 
-            if (e instanceof LivingEntity) {
-                LivingEntity le = (LivingEntity) e;
-                le.setSpawnPosition(e.getX(), e.getY(), e.getZ());
+            if (toAddEntity instanceof LivingEntity) {
+                LivingEntity le = (LivingEntity) toAddEntity;
+                le.setSpawnPosition(toAddEntity.getX(), toAddEntity.getY(), toAddEntity.getZ());
             }
 
-            if (e instanceof LivingEntity && player != null) {
-                ((LivingEntity) e).getBrain().remember("nearestPlayer", player);
+            if (toAddEntity instanceof LivingEntity && player != null) {
+                ((LivingEntity) toAddEntity).getBrain().remember("nearestPlayer", player);
             }
         }
-        toAdd.clear();
 
         // Fixed timestep for game logic
         // tickAccumulator += deltaTime; // Spostato dopo il PreTick

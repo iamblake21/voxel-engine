@@ -83,8 +83,22 @@ public class InputManager {
             scrollY = yoffset;
         });
 
+        // Char callback (For Text Input)
+        glfwSetCharCallback(handle, (w, codepoint) -> {
+            charQueue.add((char) codepoint);
+        });
+
         // Set cursor to center
         glfwSetCursorPos(handle, window.getWidth() / 2.0, window.getHeight() / 2.0);
+    }
+
+    private final java.util.Queue<Character> charQueue = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+    /**
+     * Get and clear valid character inputs since last frame.
+     */
+    public Character pollChar() {
+        return charQueue.poll();
     }
 
     /**

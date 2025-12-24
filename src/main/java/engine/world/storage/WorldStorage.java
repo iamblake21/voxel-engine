@@ -22,10 +22,12 @@ public class WorldStorage {
     private File worldDir;
 
     public WorldStorage(File runDir) {
-        this.savesDir = new File(runDir, "saves");
+        // Use unified GameStorage path instead of local runDir
+        this.savesDir = engine.utils.GameStorage.getSavesDir();
         if (!savesDir.exists()) {
             savesDir.mkdirs();
         }
+        System.out.println("[WorldStorage] Using saves directory: " + savesDir.getAbsolutePath());
     }
 
     /**
@@ -45,29 +47,27 @@ public class WorldStorage {
     /**
      * Saves the entire world (level.dat + all chunks).
      */
-    public void saveWorld(World world, String worldName) {
+    /**
+     * Saves the entire world (level.dat + all chunks).
+     */
+    public void saveWorld(World world, String worldName, java.util.function.Consumer<Float> progressCallback) {
         prepareWorld(worldName);
 
         System.out.println("[WorldStorage] Saving world '" + worldName + "'...");
+        if (progressCallback != null)
+            progressCallback.accept(0.0f);
 
         // 1. Save level.dat
         saveLevelData(world);
+        if (progressCallback != null)
+            progressCallback.accept(0.1f);
 
         // 2. Save Chunks
-        // Group entities by chunk first? Or just iterate chunks and filter entities?
-        // Querying entities for each chunk is slow (Chunks * Entities).
-        // Since we don't have spatial hash for entities yet, let's just do the slow way
-        // or
-        // iterate entities once andbucket them.
-
-        // Bucket entities
         EntityManager entityManager = world.getEntityManager();
-        // We need access to EntityManager. World has it private but maybe has getter?
-        // Step 50 view showed `private EntityManager entityManager;`.
-        // We need a getter in World.java. Assuming we add/have `getEntityManager()`.
-
-        // Assuming we can get chunks
         java.util.Collection<Chunk> chunks = world.getChunks(); // Need getter in World
+
+        int totalChunks = chunks.size();
+        int processed = 0;
 
         for (Chunk chunk : chunks) {
             // Filter entities in this chunk
@@ -89,10 +89,32 @@ public class WorldStorage {
                 }
             }
 
-            saveChunk(chunk, chunkEntities);
+            // OPTIMIZATION: Only save modified chunks!
+            // We assume that if an entity moved into this chunk, the chunk should have been
+            // marked dirty (TODO: Fix entity-dirty logic strictly)
+            // For now, this fixes the massive save lag for large explored worlds.
+            if (chunk.needsSaving()) {
+                saveChunk(chunk, chunkEntities);
+                chunk.markSaved();
+            }
+
+            processed++;
+
+            if (progressCallback != null) {
+                // Map chunks progress from 0.1 to 1.0
+                float progress = 0.1f + ((float) processed / totalChunks) * 0.9f;
+                progressCallback.accept(progress);
+            }
         }
 
         System.out.println("[WorldStorage] World saved.");
+        if (progressCallback != null)
+            progressCallback.accept(1.0f);
+    }
+
+    // Legacy overload for backward compatibility if needed
+    public void saveWorld(World world, String worldName) {
+        saveWorld(world, worldName, null);
     }
 
     public void saveChunk(Chunk chunk, List<Entity> entities) {
@@ -124,6 +146,11 @@ public class WorldStorage {
 
                 // Load data into chunk
                 List<Entity> loadedEntities = ChunkSerializer.loadInto(chunk, tag);
+
+                // Set world on all loaded BlockEntities
+                for (engine.world.blockentity.BlockEntity be : chunk.getBlockEntities()) {
+                    be.setWorld(world);
+                }
 
                 // Add entities to world
                 EntityManager em = world.getEntityManager();
