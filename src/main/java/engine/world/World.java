@@ -65,6 +65,21 @@ public class World implements MeshBuilder.WorldAccess {
         return entityManager;
     }
 
+    /**
+     * Get the biome at the given world coordinates.
+     * 
+     * @param worldX X coordinate in world space
+     * @param worldZ Z coordinate in world space
+     * @return The biome at those coordinates
+     */
+    public engine.world.biome.Biome getBiome(int worldX, int worldZ) {
+        if (worldGenerator != null) {
+            return worldGenerator.getBiome(worldX, worldZ);
+        }
+        // Fallback to default biome if generator not available
+        return engine.world.biome.Biomes.DEFAULT();
+    }
+
     // Day/Night Cycle
     private static final float DAY_LENGTH_SECONDS = 600f;
     private float timeOfDay = 0f;
@@ -234,14 +249,20 @@ public class World implements MeshBuilder.WorldAccess {
         if (task.loadedChunk != null) {
             // Chunk loaded from disk!
             chunks.put(key, task.loadedChunk);
-            // It has data, but maybe needs Mesh.
-            // Phase is strictly what was saved.
-            // If it was LIGHT_DONE, we just need to ensure neighborhood checks trigger
-            // mesh.
+            short[] lightData = task.loadedChunk.getLightData();
+            int testIdx = (200 * 16 + 8) * 16 + 8;
+            int testVal = testIdx < lightData.length ? lightData[testIdx] : -1;
+            int skyComponent = testVal & 0xF; // Extract skylight component
 
-            // To be safe, ensure neighbors are notified or invalidate if needed.
-            // Usually invalidating triggers Remesh if neighbors are ready.
-            invalidateChunkForRemesh(task.chunkX, task.chunkZ);
+            // If skylight at y=200 is not full (15), force recalculation
+            if (skyComponent != 15) {
+                // Keep in FEATURES phase to trigger light calculation
+                task.loadedChunk.setPhase(Chunk.Phase.FEATURES);
+                System.out.println("[DEBUG Load] Forcing light recalc for chunk " + task.chunkX + "," + task.chunkZ);
+            } else {
+                // Light data exists, just remesh
+                invalidateChunkForRemesh(task.chunkX, task.chunkZ);
+            }
             return;
         }
 
@@ -249,6 +270,11 @@ public class World implements MeshBuilder.WorldAccess {
         if (chunk == null) {
             chunk = new Chunk(task.chunkX, task.chunkZ);
             chunks.put(key, chunk);
+        } else if (chunk.getPhase().ordinal() >= Chunk.Phase.TERRAIN.ordinal()) {
+            // Chunk already generated (e.g., by generateChunkSync), skip overwrite
+            System.out.println("[DEBUG Terrain] Skipping overwrite for chunk " + task.chunkX + "," + task.chunkZ
+                    + " phase=" + chunk.getPhase());
+            return;
         }
 
         System.arraycopy(task.blockData, 0, chunk.getBlockData(), 0, task.blockData.length);
@@ -262,16 +288,21 @@ public class World implements MeshBuilder.WorldAccess {
 
     private void integrateCompletedLight(LightPropagationTask task) {
         Chunk chunk = getChunkIfLoaded(task.chunkX, task.chunkZ);
-        if (chunk == null)
+        if (chunk == null) {
+            System.out.println("[DEBUG Light] Chunk not loaded: " + task.chunkX + "," + task.chunkZ);
             return;
+        }
 
         // Se il chunk non è più in pending light, ignora (task obsoleto)
         if (!chunk.isLightPending()) {
+            System.out.println("[DEBUG Light] NOT pending, skipping: " + task.chunkX + "," + task.chunkZ + " phase="
+                    + chunk.getPhase());
             return;
         }
 
         // Applica il buffer di luce calcolato dal worker (packed format)
-        chunk.applyLightData(task.snapshot.getLightWriteBuffer());
+        short[] lightBuffer = task.snapshot.getLightWriteBuffer();
+        chunk.applyLightData(lightBuffer);
 
         chunk.setLightPending(false);
 
@@ -390,6 +421,8 @@ public class World implements MeshBuilder.WorldAccess {
             if (chunk.getPhase() == Chunk.Phase.TERRAIN) {
                 if (areNeighborsAtLeast(chunk, Chunk.Phase.TERRAIN)) {
                     ensureFeatures(chunk);
+                } else if (chunk.getX() == 0 && chunk.getZ() == 0) {
+                    System.out.println("[DEBUG Pipeline] Chunk 0,0 TERRAIN waiting for neighbors");
                 }
             }
 
@@ -398,6 +431,8 @@ public class World implements MeshBuilder.WorldAccess {
                 if (areNeighborsAtLeast(chunk, Chunk.Phase.FEATURES)) {
                     submitLightTask(chunk);
                     tasksSubmitted++;
+                } else if (chunk.getX() == 0 && chunk.getZ() == 0) {
+                    System.out.println("[DEBUG Pipeline] Chunk 0,0 FEATURES waiting for neighbors");
                 }
             }
 
@@ -790,13 +825,12 @@ public class World implements MeshBuilder.WorldAccess {
             }
         }
         // === INVALIDAZIONE MESH ===
-        // La luce può propagarsi fino a 15 blocchi, quindi può raggiungere
-        // tutti i chunk vicini nella griglia 3x3. Dobbiamo invalidare tutti.
-        // Il chunk corrente viene invalidato completamente (ricalcola luce + mesh)
-        invalidateChunkLight(cx, cz);
+        // La luce è stata già aggiornata dalla propagazione real-time sopra.
+        // NON dobbiamo ricalcolare la luce (invalidateChunkLight) perché sovrascrive
+        // i dati appena propagati. Dobbiamo solo rigenerare la mesh.
+        invalidateChunkForRemesh(cx, cz);
 
-        // I vicini hanno già i dati luce aggiornati dalla propagazione real-time,
-        // quindi devono solo rigenerare la mesh (non ricalcolare la luce)
+        // I vicini devono anche rigenerare la mesh per vedere la nuova luce
         for (int dz = -1; dz <= 1; dz++) {
             for (int dx = -1; dx <= 1; dx++) {
                 if (dx == 0 && dz == 0)

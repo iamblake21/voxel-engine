@@ -112,6 +112,8 @@ public class PlayerInventoryGui extends ContainerGui {
         } else if (type.startsWith("craft_output")) {
             if (stack.isEmpty() && !craftingOutputStack.isEmpty()) {
                 onTakeCraftingOutput();
+                updateCraftingResult();
+                return;
             }
             craftingOutputStack = stack;
             return;

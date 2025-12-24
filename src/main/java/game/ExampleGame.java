@@ -1,5 +1,7 @@
 package game;
 
+import static engine.world.block.Blocks.get;
+
 import engine.api.IGame;
 import engine.core.Config;
 import engine.core.Engine;
@@ -9,7 +11,7 @@ import engine.rendering.RenderSettings;
 import engine.entity.EntityType;
 import engine.entity.EntityTypes;
 import engine.entity.EntityProperties;
-import engine.entity.NpcEntity;
+
 import engine.entity.Player;
 import engine.rendering.Renderer;
 import engine.ui.ContainerGui;
@@ -19,6 +21,10 @@ import game.ui.PlayerInventoryGui;
 import engine.ui.editor.GuiEditorIntegration;
 import engine.world.World;
 import engine.world.Chunk;
+import engine.world.block.Block;
+import engine.world.biome.Biome;
+import engine.world.BlockPos;
+import engine.interaction.RaycastResult;
 import game.init.GameInit;
 import game.input.GameKeyBinds;
 import static org.lwjgl.glfw.GLFW.*;
@@ -87,6 +93,11 @@ public class ExampleGame implements IGame {
     // Keybinds UI State
     private engine.input.KeyBind editingKeybind = null; // Currently being rebound
     private int keybindScrollOffset = 0;
+
+    // FPS tracking for debug screen
+    private long lastFpsTime = System.nanoTime();
+    private int fpsFrameCount = 0;
+    private int lastFps = 0;
 
     // UI Constants
 
@@ -199,6 +210,7 @@ public class ExampleGame implements IGame {
         // 2. NOW we can create the World with the correct Seed
         this.world = new World(config);
         engine.setWorld(world);
+        this.renderInputHandler = new RenderInputHandler(renderSettings, world);
 
         // 3. Setup Player
         this.player = playerType.create();
@@ -305,6 +317,11 @@ public class ExampleGame implements IGame {
                 engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
                 return;
             }
+        }
+
+        // Process Render Input (F3, View Distance, etc)
+        if (renderInputHandler != null) {
+            renderInputHandler.processInput(engine.getWindow().getHandle());
         }
 
         // Gestione apertura inventario (Logica invariata)
@@ -1148,18 +1165,14 @@ public class ExampleGame implements IGame {
             if (inventoryOpen) {
                 if (currentContainerGui != null) {
                     currentContainerGui.render(guiRenderer);
-                    if (currentContainerGui.hasCursorItem()) {
-                        currentContainerGui.renderCursorItem(guiRenderer,
-                                engine.getInput().getMouseX(),
-                                engine.getInput().getMouseY());
-                    }
+                    currentContainerGui.renderTooltipAndCursor(guiRenderer,
+                            engine.getInput().getMouseX(),
+                            engine.getInput().getMouseY());
                 } else {
                     inventoryGui.render(guiRenderer);
-                    if (inventoryGui.hasCursorItem()) {
-                        inventoryGui.renderCursorItem(guiRenderer,
-                                engine.getInput().getMouseX(),
-                                engine.getInput().getMouseY());
-                    }
+                    inventoryGui.renderTooltipAndCursor(guiRenderer,
+                            engine.getInput().getMouseX(),
+                            engine.getInput().getMouseY());
                 }
             }
 
@@ -1174,22 +1187,206 @@ public class ExampleGame implements IGame {
 
         guiRenderer.end();
 
-        // 3. Debug Overlays (Text on top)
-        if (state == GameState.PLAYING) {
+        // 3. Debug Screen (F3) - Only if enabled
+        if (state == GameState.PLAYING && renderSettings.isShowDebugInfo()) {
             guiRenderer.begin();
-
-            // Position Debug
-            String posStr = String.format("Pos: %.1f, %.1f, %.1f", player.getX(), player.getY(), player.getZ());
-            guiRenderer.renderText(posStr, 10, 10, 2.0f, 1, 1, 1, 1);
-
-            // Chunk Debug
-            int cx = (int) Math.floor(player.getX()) >> 4;
-            int cz = (int) Math.floor(player.getZ()) >> 4;
-            engine.world.Chunk c = world.getChunkIfLoaded(cx, cz);
-            String chunkStr = "Chunk: " + (c == null ? "NULL" : c.getPhase().toString());
-            guiRenderer.renderText(chunkStr, 10, 30, 2.0f, 1, 1, 1, 1);
-
+            renderDebugScreen();
             guiRenderer.end();
+        }
+    }
+
+    /**
+     * Render comprehensive debug screen (F3)
+     */
+    private void renderDebugScreen() {
+        updateFPS();
+
+        float lineHeight = 12f;
+        float y = 10f;
+        float textSize = 2.5f;
+
+        // Header: Title + FPS
+        guiRenderer.renderText("Voxel Engine (FPS: " + lastFps + ")", 10, y, textSize, 1, 1, 1, 1);
+        y += lineHeight * 1.5f;
+
+        // Player Position
+        String posStr = String.format("XYZ: %.1f / %.1f / %.1f",
+                player.getX(), player.getY(), player.getZ());
+        guiRenderer.renderText(posStr, 10, y, textSize, 1, 1, 1, 1);
+        y += lineHeight;
+
+        // Chunk Info
+        int cx = (int) Math.floor(player.getX()) >> 4;
+        int cz = (int) Math.floor(player.getZ()) >> 4;
+        engine.world.Chunk chunk = world.getChunkIfLoaded(cx, cz);
+        String chunkPhase = (chunk == null) ? "Unloaded" : chunk.getPhase().toString();
+        String chunkStr = String.format("Chunk: %d, %d (%s)", cx, cz, chunkPhase);
+        guiRenderer.renderText(chunkStr, 10, y, textSize, 1, 1, 1, 1);
+        y += lineHeight;
+
+        // Biome
+        int bx = (int) Math.floor(player.getX());
+        int bz = (int) Math.floor(player.getZ());
+        try {
+            Biome biome = world.getBiome(bx, bz);
+            String biomeName = "Unknown";
+            if (biome != null && biome.getRegistryId() != null) {
+                // Format registry id: "game:plains" -> "Plains"
+                String path = biome.getRegistryId().getPath();
+                biomeName = Character.toUpperCase(path.charAt(0)) + path.substring(1);
+            }
+            guiRenderer.renderText("Biome: " + biomeName, 10, y, textSize, 1, 1, 1, 1);
+        } catch (Exception e) {
+            guiRenderer.renderText("Biome: Error", 10, y, textSize, 1, 1, 1, 1);
+        }
+        y += lineHeight;
+
+        // Facing direction
+        float yaw = player.getYaw();
+        float pitch = player.getPitch();
+        String direction = getCardinalDirection(yaw);
+        String facingStr = String.format("Facing: %s (%.1f\u00b0, %.1f\u00b0)", direction, yaw, pitch);
+        guiRenderer.renderText(facingStr, 10, y, textSize, 1, 1, 1, 1);
+        y += lineHeight * 1.5f;
+
+        // Targeted Block Info
+        RaycastResult target = player.getInteractionManager().performRaycast(
+                player, world, engine.getEntities());
+
+        if (target != null && target.isBlock()) {
+            BlockPos pos = target.getBlockPos();
+            int blockId = world.getBlock(pos.getX(), pos.getY(), pos.getZ());
+            Block block = get(blockId); // Static import
+
+            String posBlockStr = String.format("Looking at: [%d, %d, %d]",
+                    pos.getX(), pos.getY(), pos.getZ());
+            guiRenderer.renderText(posBlockStr, 10, y, textSize, 0.8f, 0.8f, 1, 1);
+            y += lineHeight;
+
+            // Block name
+            String blockName = getBlockName(block);
+            guiRenderer.renderText("  Block: " + blockName, 10, y, textSize, 0.8f, 0.8f, 1, 1);
+            y += lineHeight;
+
+            // Light levels (Using Face Place Position for effective light)
+            try {
+                BlockPos lightPos = target.getPlacePos();
+                int skyLight = getLightLevel(lightPos, true);
+                int blockLight = getLightLevel(lightPos, false);
+                int totalLight = Math.max(skyLight, blockLight);
+
+                String lightStr = String.format("  Light: %d (Sky: %d, Block: %d)",
+                        totalLight, skyLight, blockLight);
+                guiRenderer.renderText(lightStr, 10, y, textSize, 0.8f, 0.8f, 1, 1);
+            } catch (Exception e) {
+                guiRenderer.renderText("  Light: Error - " + e.getMessage(), 10, y, textSize, 0.8f, 0.8f, 1, 1);
+            }
+            y += lineHeight * 1.5f;
+        }
+
+        // Entity count
+        int entityCount = engine.getEntities().getEntityCount();
+        guiRenderer.renderText("Entities: " + entityCount, 10, y, textSize, 1, 1, 1, 1);
+        y += lineHeight;
+
+        // Memory usage
+        Runtime runtime = Runtime.getRuntime();
+        long usedMB = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024;
+        long maxMB = runtime.maxMemory() / 1024 / 1024;
+        int percent = (int) ((usedMB * 100) / maxMB);
+        String memStr = String.format("Memory: %d MB / %d MB (%d%%)", usedMB, maxMB, percent);
+        guiRenderer.renderText(memStr, 10, y, textSize, 1, 1, 1, 1);
+    }
+
+    /**
+     * Update FPS counter
+     */
+    private void updateFPS() {
+        fpsFrameCount++;
+        long currentTime = System.nanoTime();
+        long elapsed = currentTime - lastFpsTime;
+
+        // Update every second
+        if (elapsed >= 1_000_000_000L) {
+            lastFps = fpsFrameCount;
+            fpsFrameCount = 0;
+            lastFpsTime = currentTime;
+        }
+    }
+
+    /**
+     * Get cardinal direction from yaw angle
+     */
+    private String getCardinalDirection(float yaw) {
+        yaw = ((yaw % 360) + 360) % 360; // Normalize to 0-360
+        if (yaw >= 337.5f || yaw < 22.5f)
+            return "North";
+        if (yaw >= 22.5f && yaw < 67.5f)
+            return "NE";
+        if (yaw >= 67.5f && yaw < 112.5f)
+            return "East";
+        if (yaw >= 112.5f && yaw < 157.5f)
+            return "SE";
+        if (yaw >= 157.5f && yaw < 202.5f)
+            return "South";
+        if (yaw >= 202.5f && yaw < 247.5f)
+            return "SW";
+        if (yaw >= 247.5f && yaw < 292.5f)
+            return "West";
+        return "NW";
+    }
+
+    /**
+     * Get block name from registry or class name
+     */
+    private String getBlockName(engine.world.block.Block block) {
+        if (block == null)
+            return "Air";
+
+        engine.registry.ResourceLocation id = block.getRegistryId();
+        if (id != null) {
+            // Format: "game:cobblestone" -> "Cobblestone"
+            String name = id.getPath();
+            String[] parts = name.split("_");
+            StringBuilder formatted = new StringBuilder();
+            for (String part : parts) {
+                if (!part.isEmpty()) {
+                    formatted.append(Character.toUpperCase(part.charAt(0)));
+                    formatted.append(part.substring(1));
+                    formatted.append(" ");
+                }
+            }
+            return formatted.toString().trim();
+        }
+
+        return block.getClass().getSimpleName();
+    }
+
+    /**
+     * Get light level at position
+     */
+    private int getLightLevel(engine.world.BlockPos pos, boolean sky) {
+        int cx = pos.getX() >> 4;
+        int cz = pos.getZ() >> 4;
+        engine.world.Chunk chunk = world.getChunkIfLoaded(cx, cz);
+
+        if (chunk == null)
+            return 0;
+
+        int lx = pos.getX() & 15;
+        int ly = pos.getY();
+        int lz = pos.getZ() & 15;
+
+        if (sky) {
+            return chunk.getSkyLight(lx, ly, lz);
+        } else {
+            // getBlockLight returns 12-bit packed RGB: 0xRGB (each component 4-bit)
+            // Format: 0b RRRR GGGG BBBB
+            int packed = chunk.getBlockLight(lx, ly, lz);
+            int r = (packed >> 8) & 0xF; // Red: bits 8-11
+            int g = (packed >> 4) & 0xF; // Green: bits 4-7
+            int b = packed & 0xF; // Blue: bits 0-3
+            return Math.max(r, Math.max(g, b));
         }
     }
 

@@ -114,7 +114,7 @@ case "$( uname )" in                #(
   NONSTOP* )        nonstop=true ;;
 esac
 
-CLASSPATH=$APP_HOME/lib/voxel-engine.jar:$APP_HOME/lib/lwjgl-glfw-3.3.3.jar:$APP_HOME/lib/lwjgl-glfw-3.3.3-natives-macos-arm64.jar:$APP_HOME/lib/lwjgl-opengl-3.3.3.jar:$APP_HOME/lib/lwjgl-opengl-3.3.3-natives-macos-arm64.jar:$APP_HOME/lib/lwjgl-stb-3.3.3.jar:$APP_HOME/lib/lwjgl-stb-3.3.3-natives-macos-arm64.jar:$APP_HOME/lib/lwjgl-3.3.3.jar:$APP_HOME/lib/lwjgl-3.3.3-natives-macos-arm64.jar:$APP_HOME/lib/gson-2.13.2.jar:$APP_HOME/lib/error_prone_annotations-2.41.0.jar
+CLASSPATH=$APP_HOME/lib/voxel-engine.jar:$APP_HOME/lib/lwjgl-glfw-3.3.3.jar:$APP_HOME/lib/lwjgl-glfw-3.3.3-natives-windows.jar:$APP_HOME/lib/lwjgl-opengl-3.3.3.jar:$APP_HOME/lib/lwjgl-opengl-3.3.3-natives-windows.jar:$APP_HOME/lib/lwjgl-stb-3.3.3.jar:$APP_HOME/lib/lwjgl-stb-3.3.3-natives-windows.jar:$APP_HOME/lib/lwjgl-3.3.3.jar:$APP_HOME/lib/lwjgl-3.3.3-natives-windows.jar:$APP_HOME/lib/gson-2.13.2.jar:$APP_HOME/lib/error_prone_annotations-2.41.0.jar
 
 
 # Determine the Java command to use to start the JVM.
@@ -202,7 +202,7 @@ fi
 
 
 # Add default JVM options here. You can also use JAVA_OPTS and VOXEL_ENGINE_OPTS to pass JVM options to this script.
-DEFAULT_JVM_OPTS='"-XstartOnFirstThread"'
+DEFAULT_JVM_OPTS='"-Xmx4G"'
 
 # Collect all arguments for the java command:
 #   * DEFAULT_JVM_OPTS, JAVA_OPTS, and optsEnvironmentVar are not allowed to contain shell fragments,

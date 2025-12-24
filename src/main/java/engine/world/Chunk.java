@@ -324,9 +324,13 @@ public class Chunk {
      * Format: [15:4] = RGB blocklight, [3:0] = skylight
      */
     public void applyLightData(short[] lightBuffer) {
-        if (lightBuffer.length != this.light.length)
+        if (lightBuffer.length != this.light.length) {
+            System.out.println(
+                    "[ERROR] applyLightData FAILED: buffer=" + lightBuffer.length + " light=" + this.light.length);
             return;
+        }
         System.arraycopy(lightBuffer, 0, this.light, 0, this.light.length);
+        // Verify copy worked (DEBUG removed)
     }
 
     // ==================== COORDINATES ====================

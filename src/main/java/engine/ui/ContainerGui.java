@@ -258,6 +258,27 @@ public abstract class ContainerGui extends TexturedGui {
     }
 
     /**
+     * Render tooltip and cursor item after everything else.
+     * 
+     * @param renderer  GUI renderer
+     * @param rawMouseX Raw mouse X coordinate
+     * @param rawMouseY Raw mouse Y coordinate
+     */
+    public void renderTooltipAndCursor(GuiRenderer renderer, double rawMouseX, double rawMouseY) {
+        int[] coords = convertMouseCoords(rawMouseX, rawMouseY);
+        int mouseX = coords[0];
+        int mouseY = coords[1];
+
+        // Only render tooltip if not dragging an item
+        if (cursorStack.isEmpty()) {
+            renderTooltip(renderer, mouseX, mouseY);
+        }
+
+        // Render cursor item last (on top of tooltip)
+        renderCursorItem(renderer, rawMouseX, rawMouseY);
+    }
+
+    /**
      * Render the cursor item after everything else.
      */
     public void renderCursorItem(GuiRenderer renderer, double rawMouseX, double rawMouseY) {

@@ -4,11 +4,16 @@ import engine.ui.definition.GuiDefinition;
 import engine.ui.definition.GuiLabelDefinition;
 import engine.ui.definition.GuiSlotDefinition;
 import engine.world.item.ItemStack;
+import engine.registry.ResourceLocation;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Base class for GUI screens that use texture + JSON metadata.
@@ -42,6 +47,9 @@ public abstract class TexturedGui extends GuiComponent {
     // Selected slot (for highlighting)
     protected int selectedSlotIndex = -1;
 
+    // Tooltip for item hover
+    protected Tooltip tooltip;
+
     /**
      * Create a textured GUI from a definition
      * * @param definition The GUI definition (from JSON)
@@ -73,6 +81,9 @@ public abstract class TexturedGui extends GuiComponent {
 
         // Create slot components from definition
         createSlotComponents();
+
+        // Create tooltip
+        this.tooltip = new Tooltip();
 
         System.out.println("[TexturedGui] Created from definition: " + definition.getId() +
                 " Size: " + width + "x" + height);
@@ -233,6 +244,87 @@ public abstract class TexturedGui extends GuiComponent {
      */
     protected void renderCustom(GuiRenderer renderer) {
         // Default: nothing
+    }
+
+    /**
+     * Render tooltip for hovered item (should be called after all other rendering)
+     * 
+     * @param renderer GUI renderer
+     * @param mouseX   Mouse X in GUI coordinates
+     * @param mouseY   Mouse Y in GUI coordinates
+     */
+    protected void renderTooltip(GuiRenderer renderer, int mouseX, int mouseY) {
+        // Find the hovered slot
+        for (InventorySlot slot : slotComponents.values()) {
+            if (slot.isHovered() && !slot.getStack().isEmpty()) {
+                // Generate tooltip lines
+                List<String> lines = getTooltipLines(slot.getStack());
+                if (!lines.isEmpty()) {
+                    tooltip.setLines(lines);
+
+                    // Calculate screen dimensions in logical coordinates
+                    int screenWidth = windowWidth / guiScale;
+                    int screenHeight = windowHeight / guiScale;
+
+                    // Adjust position to avoid screen edges
+                    tooltip.adjustPosition(mouseX, mouseY, screenWidth, screenHeight);
+
+                    // Render tooltip
+                    tooltip.render(renderer);
+                }
+                return; // Only show tooltip for one slot at a time
+            }
+        }
+    }
+
+    /**
+     * Generate tooltip lines for an item stack.
+     * Override in subclasses to add custom tooltip information.
+     * 
+     * @param stack The item stack to generate tooltip for
+     * @return List of tooltip lines
+     */
+    protected List<String> getTooltipLines(ItemStack stack) {
+        List<String> lines = new ArrayList<>();
+
+        if (stack.isEmpty() || stack.getItem() == null) {
+            return lines;
+        }
+
+        // Line 1: Item name (formatted from registry ID)
+        ResourceLocation id = stack.getItem().getRegistryId();
+        if (id != null) {
+            lines.add(formatItemName(id));
+        }
+
+        // Line 2: Durability if item is damageable and damaged
+        if (stack.isDamageable() && stack.getDamage() > 0) {
+            int remaining = stack.getMaxDamage() - stack.getDamage();
+            int max = stack.getMaxDamage();
+            lines.add("Durability: " + remaining + "/" + max);
+        }
+
+        return lines;
+    }
+
+    /**
+     * Format item name from registry ID.
+     * Example: "game:oak_door" -> "Oak Door"
+     * 
+     * @param id The resource location
+     * @return Formatted item name
+     */
+    private String formatItemName(ResourceLocation id) {
+        String name = id.getPath();
+
+        // Split by underscore and capitalize each word
+        return Arrays.stream(name.split("_"))
+                .map(word -> {
+                    if (word.isEmpty())
+                        return word;
+                    return Character.toUpperCase(word.charAt(0)) + word.substring(1);
+                })
+                .collect(Collectors.joining(" "));
     }
 
     /**

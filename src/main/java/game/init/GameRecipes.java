@@ -78,6 +78,16 @@ public class GameRecipes {
                                 },
                                 Map.of('X', Registries.ITEMS.get("game:planks_oak").get())));
 
+                // TORCH
+                Registries.RECIPES.register(new ShapedRecipe(
+                                new ItemStack(Registries.ITEMS.get("game:torch").get()),
+                                new String[] {
+                                                "X",
+                                                "I"
+                                },
+                                Map.of('X', Registries.ITEMS.get("game:dirt").get(), 'I',
+                                                Registries.ITEMS.get("game:stick").get())));
+
                 // WOODEN_AXE
                 Registries.RECIPES.register(new ShapedRecipe(
                                 new ItemStack(Registries.ITEMS.get("game:wooden_axe").get()),
