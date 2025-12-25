@@ -62,8 +62,8 @@ public class GameLoop {
             // Update FPS counter
             updateFPS(currentTime);
 
-            // Clear input state (scroll, justPressed) from this frame
-            engine.getInput().endFrame();
+            // Clear input logic moved to Engine.update() to sync with logic ticks
+            // engine.getInput().endFrame();
 
             // Poll events
             glfwPollEvents();

@@ -106,6 +106,22 @@ public class Item {
         return registryId != null;
     }
 
+    /**
+     * Get a user-friendly name for this item
+     */
+    public String getName() {
+        if (registryId != null) {
+            String path = registryId.getPath();
+            // "game:cobblestone" -> "Cobblestone"
+            // Capitalize first letter
+            if (path.contains("_")) {
+                // Handle underscores if desired
+            }
+            return Character.toUpperCase(path.charAt(0)) + path.substring(1);
+        }
+        return "Unknown Item";
+    }
+
     // ==================== INTERACTION METHODS ====================
 
     /**

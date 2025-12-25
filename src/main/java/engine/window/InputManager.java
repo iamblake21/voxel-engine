@@ -101,6 +101,10 @@ public class InputManager {
         return charQueue.poll();
     }
 
+    public void clearCharBuffer() {
+        charQueue.clear();
+    }
+
     /**
      * Backwards-compat alias per il movimento del mouse (X)
      */

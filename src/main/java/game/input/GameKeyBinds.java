@@ -43,6 +43,9 @@ public class GameKeyBinds {
     public static KeyBind HOTBAR_9;
 
     // ==================== UI ====================
+    // ==================== UI ====================
+    public static KeyBind CHAT;
+    public static KeyBind DEBUG_INFO;
     public static KeyBind MENU;
 
     // Array for easy hotbar access
@@ -81,6 +84,9 @@ public class GameKeyBinds {
         HOTBAR_9 = kb.register("hotbar_9", "Hotbar Slot 9", "Hotbar", GLFW_KEY_9);
 
         // UI
+        // UI
+        CHAT = kb.register("chat", "Open Chat", "UI", GLFW_KEY_T);
+        DEBUG_INFO = kb.register("debug_info", "Toggle Debug Info", "UI", GLFW_KEY_F3);
         MENU = kb.register("menu", "Open Menu / Back", "UI", GLFW_KEY_ESCAPE);
 
         // Build hotbar array for easy iteration

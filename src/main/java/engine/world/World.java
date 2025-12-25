@@ -1173,6 +1173,13 @@ public class World implements MeshBuilder.WorldAccess {
         return config;
     }
 
+    public void setTime(long ticks) {
+        float normalized = (ticks % 24000) / 24000f;
+        this.dayTicks = normalized * DAY_LENGTH_SECONDS;
+        this.timeOfDay = normalized;
+        System.out.println("[World] Set time to " + ticks + " ticks (" + normalized + ")");
+    }
+
     public void cleanup() {
         genExecutor.shutdown();
         chunks.values().forEach(Chunk::cleanup);

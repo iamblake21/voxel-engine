@@ -113,6 +113,12 @@ public class Engine {
                 physics.processEntity(e, world, deltaTime);
             }
         }
+
+        // Fix for Input Lag: Clear "justPressed" states ONLY after logic has processed
+        // them.
+        // This ensures that even if render FPS > 60, we don't clear inputs before the
+        // 60Hz logic sees them.
+        input.endFrame();
     }
 
     public void render() {
