@@ -61,23 +61,16 @@ public class GuiScrollableList extends GuiComponent {
 
         // Selection
         if (mousePressed) {
-            System.out.println("ClickInput: mx=" + mx + " my=" + my + " WidgetBounds: " + x + "," + y + " " + width
-                    + "x" + height + " Items: " + items.size());
-
             if (isMouseOver((int) mx, (int) my)) {
                 int relativeY = (int) my - y;
                 int indexClicked = scrollOffset + (relativeY / itemHeight);
-                System.out.println("List Clicked! Index: " + indexClicked + " (Offset: " + scrollOffset + ")");
 
                 if (indexClicked >= 0 && indexClicked < items.size()) {
                     selectedIndex = indexClicked;
-                    System.out.println("Selected: " + selectedIndex);
                     if (onSelect != null) {
                         onSelect.accept(selectedIndex);
                     }
                 }
-            } else {
-                System.out.println("Click MISS: " + mx + "," + my + " vs " + x + "," + y);
             }
         }
     }
