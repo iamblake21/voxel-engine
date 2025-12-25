@@ -17,6 +17,7 @@ public class Config {
     public float nearPlane = 0.1f;
     public float farPlane = 1000f;
     public boolean wireframe = false;
+    public int guiScale = 2;
 
     // World settings
     public int chunkSize = 16;

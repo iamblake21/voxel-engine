@@ -37,6 +37,9 @@ import engine.utils.GameStorage;
 import engine.command.CommandManager;
 import game.command.GiveCommand;
 import game.ui.ChatGui;
+import engine.ui.widget.GuiSlider;
+import engine.ui.widget.GuiTextBox;
+import engine.ui.widget.GuiScrollableList;
 
 public class ExampleGame implements IGame {
 
@@ -59,6 +62,14 @@ public class ExampleGame implements IGame {
 
     private ContainerGui currentContainerGui = null;
     private ContainerBlockEntity currentContainer = null;
+
+    // UI Widgets
+    private GuiSlider fovSlider;
+    private GuiSlider viewDistanceSlider;
+    private GuiSlider guiScaleSlider;
+    private GuiTextBox worldNameInput;
+    private GuiTextBox worldSeedInput;
+    private GuiScrollableList worldListWidget;
 
     // CHAT & COMMANDS
     private CommandManager commandManager;
@@ -138,7 +149,11 @@ public class ExampleGame implements IGame {
         // Update Grid Renderer
         if (guiRenderer != null) {
             guiRenderer.updateDimensions(width, height);
+            guiRenderer.setGuiScale(config.guiScale); // Ensure config value persists
         }
+
+        // Re-init menu widgets for new size
+        initMenuWidgets();
 
         // Re-setup UI if player exists
         if (player != null) {
@@ -201,6 +216,8 @@ public class ExampleGame implements IGame {
         this.commandManager = new CommandManager();
         // Commands are registered when world loads (so we have 'world' instance)
         System.out.println("[Game] Command System Initialized");
+
+        initMenuWidgets();
 
         System.out.println("[Game] Engine Init complete. Waiting in Main Menu.");
     }
@@ -338,8 +355,69 @@ public class ExampleGame implements IGame {
     }
 
     private void handleMenuInput() {
-        if (state == GameState.CREATE_WORLD || state == GameState.RENAME_WORLD) {
-            handleTextInput();
+        if (state == GameState.CREATE_WORLD) {
+            float scale = guiRenderer.getGuiScale();
+            double mx = engine.getInput().getMouseX() / scale;
+            double my = engine.getInput().getMouseY() / scale;
+            boolean mousePressed = engine.getInput().isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
+
+            worldNameInput.input(engine.getInput(), mx, my, mousePressed);
+            worldSeedInput.input(engine.getInput(), mx, my, mousePressed);
+
+            // Buttons
+            if (mousePressed) {
+                float w = config.windowWidth / scale;
+                float h = config.windowHeight / scale;
+                float cx = w / 2;
+                float cy = h / 2;
+                int btnY = (int) cy + 120;
+
+                if (isHover(mx, my, cx - 210, btnY, 200, 40)) {
+                    // Create
+                    String name = worldNameInput.getText().trim();
+                    if (!name.isEmpty()) {
+                        String seedStr = worldSeedInput.getText().trim();
+                        long seed = seedStr.isEmpty() ? new java.util.Random().nextLong() : seedStr.hashCode();
+                        try {
+                            seed = Long.parseLong(seedStr);
+                        } catch (NumberFormatException ignored) {
+                        }
+
+                        config.worldSeed = seed;
+                        startWorldAsync(name);
+                    }
+                }
+                if (isHover(mx, my, cx + 10, btnY, 200, 40)) {
+                    state = GameState.WORLD_SELECT;
+                    engine.getWindow().setCursorMode(GLFW_CURSOR_NORMAL);
+                }
+            }
+            return;
+        }
+
+        if (state == GameState.RENAME_WORLD) {
+            handleTextInput(); // Legacy/Simple fallback for now or update later
+            if (engine.getInput().isMouseButtonPressed(GLFW_MOUSE_BUTTON_1)) {
+                float scale = guiRenderer.getGuiScale();
+                double mx = engine.getInput().getMouseX() / scale;
+                double my = engine.getInput().getMouseY() / scale;
+                float cx = (config.windowWidth / scale) / 2;
+                float cy = (config.windowHeight / scale) / 2;
+                if (isHover(mx, my, cx - 210, cy + 60, 200, 40)) {
+                    String newName = nameBuffer.toString().trim(); // Use legacy nameBuffer for rename currently
+                    if (!newName.isEmpty() && renameTarget != null) {
+                        renameWorld(renameTarget, newName);
+                        refreshWorldList();
+                        worldListWidget.setItems(worldList);
+                        state = GameState.WORLD_SELECT;
+                        selectedWorldIndex = -1;
+                    }
+                }
+                if (isHover(mx, my, cx + 10, cy + 60, 200, 40)) {
+                    state = GameState.WORLD_SELECT;
+                }
+            }
+            return;
         }
 
         if (state == GameState.OPTIONS) {
@@ -352,20 +430,20 @@ public class ExampleGame implements IGame {
             return;
         }
 
-        if (engine.getInput().isMouseButtonPressed(GLFW_MOUSE_BUTTON_1)) {
+        boolean mousePressed = engine.getInput().isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
+        if (mousePressed) {
             float scale = guiRenderer.getGuiScale();
             double mx = engine.getInput().getMouseX() / scale;
             double my = engine.getInput().getMouseY() / scale;
-
             float logicalW = config.windowWidth / scale;
             float logicalH = config.windowHeight / scale;
-
             float cx = logicalW / 2;
             float cy = logicalH / 2;
 
             if (state == GameState.MENU) {
                 if (isHover(mx, my, cx - 150, cy - 25, 300, 50)) {
                     refreshWorldList();
+                    worldListWidget.setItems(worldList);
                     state = GameState.WORLD_SELECT;
                     selectedWorldIndex = -1;
                 }
@@ -381,21 +459,12 @@ public class ExampleGame implements IGame {
                     state = GameState.MENU;
                 }
 
-                int listY = 120;
-                for (int i = 0; i < worldList.size(); i++) {
-                    if (isHover(mx, my, cx - 200, listY + i * 50, 400, 40)) {
-                        selectedWorldIndex = i;
-                    }
-                }
-
                 int startX = (int) cx - 210;
                 int btnY = (int) logicalH - 60;
                 if (isHover(mx, my, startX, btnY, 140, 40)) {
                     state = GameState.CREATE_WORLD;
-                    nameBuffer.setLength(0);
-                    nameBuffer.append("New World");
-                    seedBuffer.setLength(0);
-                    isTypingSeed = false;
+                    worldNameInput.setText("New World");
+                    worldSeedInput.setText("");
                 }
 
                 if (selectedWorldIndex >= 0 && selectedWorldIndex < worldList.size()) {
@@ -406,6 +475,7 @@ public class ExampleGame implements IGame {
                     if (isHover(mx, my, cx + 30, btnY, 80, 40)) {
                         deleteWorld(selectedName);
                         refreshWorldList();
+                        worldListWidget.setItems(worldList);
                         selectedWorldIndex = -1;
                     }
                     if (isHover(mx, my, cx + 120, btnY, 80, 40)) {
@@ -416,108 +486,40 @@ public class ExampleGame implements IGame {
                         isTypingSeed = false;
                     }
                 }
-
-            } else if (state == GameState.CREATE_WORLD) {
-                int btnY = (int) logicalH - 80;
-                if (isHover(mx, my, (int) cx - 210, btnY, 200, 40)) {
-                    String name = nameBuffer.toString().trim();
-                    if (!name.isEmpty()) {
-                        String seedStr = seedBuffer.toString().trim();
-                        long seed;
-                        if (seedStr.isEmpty()) {
-                            seed = new java.util.Random().nextLong();
-                        } else {
-                            try {
-                                seed = Long.parseLong(seedStr);
-                            } catch (NumberFormatException e) {
-                                seed = seedStr.hashCode();
-                            }
-                        }
-
-                        config.worldSeed = seed;
-                        startWorldAsync(name);
-                    }
-                }
-                if (isHover(mx, my, (int) cx + 10, btnY, 200, 40)) {
-                    state = GameState.WORLD_SELECT;
-                }
-                if (isHover(mx, my, cx - 200, cy - 90, 400, 40))
-                    isTypingSeed = false;
-                if (isHover(mx, my, cx - 200, cy, 400, 40))
-                    isTypingSeed = true;
-
-            } else if (state == GameState.RENAME_WORLD) {
-                if (isHover(mx, my, cx - 210, cy + 60, 200, 40)) {
-                    String newName = nameBuffer.toString().trim();
-                    if (!newName.isEmpty() && renameTarget != null) {
-                        renameWorld(renameTarget, newName);
-                        refreshWorldList();
-                        state = GameState.WORLD_SELECT;
-                        selectedWorldIndex = -1;
-                    }
-                }
-                if (isHover(mx, my, cx + 10, cy + 60, 200, 40)) {
-                    state = GameState.WORLD_SELECT;
-                }
             }
+        }
+
+        // Widget Input (Scrollable List)
+        if (state == GameState.WORLD_SELECT) {
+            float scale = guiRenderer.getGuiScale();
+            worldListWidget.input(engine.getInput(), engine.getInput().getMouseX() / scale,
+                    engine.getInput().getMouseY() / scale, mousePressed);
         }
     }
 
     private void handleOptionsInput() {
-        if (engine.getInput().isMouseButtonPressed(GLFW_MOUSE_BUTTON_1)) {
-            float scale = guiRenderer.getGuiScale();
-            double mx = engine.getInput().getMouseX() / scale;
-            double my = engine.getInput().getMouseY() / scale;
+        float scale = guiRenderer.getGuiScale();
+        double mx = engine.getInput().getMouseX() / scale;
+        double my = engine.getInput().getMouseY() / scale;
+        boolean mouseDown = engine.getInput().isMouseButtonDown(GLFW_MOUSE_BUTTON_1);
+        boolean mousePressed = engine.getInput().isMouseButtonPressed(GLFW_MOUSE_BUTTON_1);
 
-            float logicalW = config.windowWidth / scale;
-            float logicalH = config.windowHeight / scale;
-            float cx = logicalW / 2;
-            float cy = logicalH / 2;
+        // Sliders
+        fovSlider.input(mx, my, mouseDown);
+        viewDistanceSlider.input(mx, my, mouseDown);
+        guiScaleSlider.input(mx, my, mouseDown);
+
+        // Buttons
+        if (mousePressed) {
+            float cx = (config.windowWidth / scale) / 2;
+            float cy = (config.windowHeight / scale) / 2;
 
             if (isHover(mx, my, 20, 20, 100, 40)) {
                 state = previousState;
                 return;
             }
 
-            float startY = cy - 100;
-            float x = cx - 200;
-            float w = 400;
-            float h = 30;
-            float gap = 40;
-
-            if (handleSlider(mx, my, x, startY, w, h, 30, 120, config.fov)) {
-                float newVal = calculateSliderValue(mx, x, w, 30, 120);
-                config.fov = newVal;
-                player.getCamera().setFov(newVal);
-            }
-
-            if (handleSlider(mx, my, x, startY + gap, w, h, 2, 32, config.viewDistance)) {
-                int newVal = (int) calculateSliderValue(mx, x, w, 2, 32);
-                if (newVal != config.viewDistance) {
-                    config.viewDistance = newVal;
-                    if (world != null)
-                        world.setViewDistance(newVal);
-                    if (renderSettings != null)
-                        renderSettings.setViewDistance(newVal);
-                    engine.getRenderer().setFogStart(0.4f);
-                    engine.getRenderer().setFogEnd(0.85f);
-                }
-            }
-
-            if (handleSlider(mx, my, x, startY + gap * 2, w, h, 1, 4, guiRenderer.getGuiScale())) {
-                int newVal = (int) calculateSliderValue(mx, x, w, 1, 4);
-                if (newVal != guiRenderer.getGuiScale()) {
-                    guiRenderer.setGuiScale(newVal);
-                    if (player != null) {
-                        setupPlayerUI();
-                        chatGui = new ChatGui(commandManager, player);
-                        if (state == GameState.CHAT)
-                            chatGui.setOpen(true);
-                    }
-                }
-            }
-
-            float toggleY = startY + gap * 3.5f;
+            float toggleY = cy - 100 + (40 * 3.5f);
             float col1 = cx - 200;
             float col2 = cx + 20;
 
@@ -546,17 +548,6 @@ public class ExampleGame implements IGame {
                 state = GameState.KEYBINDS;
             }
         }
-    }
-
-    private boolean handleSlider(double mx, double my, float x, float y, float w, float h, float min, float max,
-            float current) {
-        return isHover(mx, my, x, y, w, h);
-    }
-
-    private float calculateSliderValue(double mx, float x, float w, float min, float max) {
-        double percent = (mx - x) / w;
-        percent = Math.max(0, Math.min(1, percent));
-        return min + (float) (percent * (max - min));
     }
 
     private void handleKeybindsInput() {
@@ -664,15 +655,14 @@ public class ExampleGame implements IGame {
         float cy = logicalH / 2;
         guiRenderer.renderText("OPTIONS", cx - 100, 20, 6.0f, 1, 1, 1, 1);
         drawButton(20, 20, 100, 40, "Back");
+
+        // Render Sliders
+        fovSlider.render(guiRenderer);
+        viewDistanceSlider.render(guiRenderer);
+        guiScaleSlider.render(guiRenderer);
+
         float startY = cy - 100;
-        float x = cx - 200;
-        float w = 400;
-        float h = 30;
         float gap = 40;
-        drawSlider(x, startY, w, h, 30, 120, config.fov, "FOV: " + (int) config.fov);
-        drawSlider(x, startY + gap, w, h, 2, 32, config.viewDistance, "View Dist: " + config.viewDistance);
-        drawSlider(x, startY + gap * 2, w, h, 1, 4, guiRenderer.getGuiScale(),
-                "GUI Scale: " + guiRenderer.getGuiScale());
         float toggleY = startY + gap * 3.5f;
         float col1 = cx - 200;
         float col2 = cx + 20;
@@ -683,14 +673,6 @@ public class ExampleGame implements IGame {
         drawButton((int) col1, (int) (toggleY + 100), 180, 40,
                 "Wireframe: " + (renderSettings.isWireframeMode() ? "ON" : "OFF"));
         drawButton((int) col2, (int) (toggleY + 100), 180, 40, "Controls");
-    }
-
-    private void drawSlider(float x, float y, float w, float h, float min, float max, float current, String label) {
-        guiRenderer.renderRect(x, y, w, h, 0.2f, 0.2f, 0.2f, 1f);
-        float percent = (current - min) / (max - min);
-        guiRenderer.renderRect(x, y, w * percent, h, 0.4f, 0.8f, 0.4f, 1f);
-        float textW = getTextWidth(label, 2.0f);
-        guiRenderer.renderText(label, x + w / 2 - textW / 2, y + 8, 2.0f, 1, 1, 1, 1);
     }
 
     private void drawLoadingScreen() {
@@ -816,6 +798,86 @@ public class ExampleGame implements IGame {
                 state = GameState.PLAYING;
                 engine.getWindow().setCursorMode(GLFW_CURSOR_DISABLED);
             });
+        });
+    }
+
+    private void initMenuWidgets() {
+        if (guiRenderer == null)
+            return;
+        float scale = guiRenderer.getGuiScale();
+        float w = config.windowWidth / scale;
+        float h = config.windowHeight / scale;
+        float cx = w / 2;
+        float cy = h / 2;
+
+        // Options Sliders
+        float slWidth = 400;
+        float slHeight = 30;
+        float slX = cx - 200;
+        float slY = cy - 100;
+        float gap = 40;
+
+        fovSlider = new GuiSlider((int) slX, (int) slY, (int) slWidth, (int) slHeight, 30, 120, config.fov,
+                "FOV: " + (int) config.fov);
+        fovSlider.setOnValueChange(val -> {
+            config.fov = val;
+            fovSlider.setLabel("FOV: " + (int) val.floatValue());
+            if (player != null)
+                player.getCamera().setFov(val);
+        });
+
+        viewDistanceSlider = new GuiSlider((int) slX, (int) (slY + gap), (int) slWidth, (int) slHeight, 2, 32,
+                config.viewDistance, "View Dist: " + config.viewDistance);
+        viewDistanceSlider.setOnValueChange(val -> {
+            int iVal = (int) val.floatValue();
+            viewDistanceSlider.setValue(iVal);
+            viewDistanceSlider.setLabel("View Dist: " + iVal);
+            if (iVal != config.viewDistance) {
+                config.viewDistance = iVal;
+                if (world != null)
+                    world.setViewDistance(iVal);
+                if (renderSettings != null)
+                    renderSettings.setViewDistance(iVal);
+                engine.getRenderer().setFogStart(0.4f);
+                engine.getRenderer().setFogEnd(0.85f);
+            }
+        });
+
+        guiScaleSlider = new GuiSlider((int) slX, (int) (slY + gap * 2), (int) slWidth, (int) slHeight, 1, 4,
+                guiRenderer.getGuiScale(), "GUI Scale: " + guiRenderer.getGuiScale());
+        guiScaleSlider.setOnValueChange(val -> {
+            int iVal = (int) val.floatValue();
+            guiScaleSlider.setValue(iVal);
+            guiScaleSlider.setLabel("GUI Scale: " + iVal);
+            if (iVal != guiRenderer.getGuiScale()) {
+                guiRenderer.setGuiScale(iVal);
+                config.guiScale = iVal; // Store in config if needed
+                initMenuWidgets();
+
+                if (player != null) {
+                    setupPlayerUI();
+                    chatGui = new ChatGui(commandManager, player);
+                }
+            }
+        });
+
+        // Create World Inputs
+        this.worldNameInput = new GuiTextBox((int) (cx - 200), (int) (cy - 90), 400, 40, "New World");
+        this.worldNameInput.setPlaceholder("World Name");
+        this.worldNameInput.setTextScale(3.5f);
+
+        this.worldSeedInput = new GuiTextBox((int) (cx - 200), (int) cy, 400, 40, "");
+        this.worldSeedInput.setPlaceholder("Seed (Optional)");
+        this.worldSeedInput.setNumericOnly(true);
+        this.worldSeedInput.setTextScale(3.5f);
+
+        // World List
+        this.worldListWidget = new GuiScrollableList((int) (cx - 200), 120, 400, (int) (h - 220));
+        refreshWorldList();
+        System.out.println("Initialized World List with " + worldList.size() + " items.");
+        this.worldListWidget.setItems(worldList);
+        this.worldListWidget.setOnSelect(index -> {
+            selectedWorldIndex = index;
         });
     }
 
@@ -1213,20 +1275,16 @@ public class ExampleGame implements IGame {
         String pathInfo = "Saves in: " + GameStorage.getSavesDir().getAbsolutePath();
         guiRenderer.renderText(pathInfo, cx - 300, 80, 2.0f, 0.7f, 0.7f, 0.7f, 1);
         drawButton(20, 20, 100, 40, "Back");
-        int listY = 120;
-        for (int i = 0; i < worldList.size(); i++) {
-            boolean selected = (i == selectedWorldIndex);
-            float y = listY + i * 50;
-            if (selected) {
-                guiRenderer.renderRect(cx - 150, y, 300, 30, 0.3f, 0.3f, 0.3f, 1);
-            } else {
-                guiRenderer.renderRect(cx - 150, y, 300, 30, 0.1f, 0.1f, 0.1f, 0.5f);
-            }
-            guiRenderer.renderText(worldList.get(i), cx - 140, y + 5, 2.0f, 1, 1, 1, 1);
-        }
+
+        // Render List Widget
+        worldListWidget.render(guiRenderer);
+
         int startX = (int) cx - 210;
         int btnY = (int) logicalH - 60;
         drawButton(startX, btnY, 140, 40, "Create New");
+
+        // Re-checking the previous code: it checked worldList.size().
+        // I should just check selectedWorldIndex validity.
         if (selectedWorldIndex >= 0 && selectedWorldIndex < worldList.size()) {
             drawButton((int) cx - 60, btnY, 80, 40, "Play");
             drawButton((int) cx + 30, btnY, 80, 40, "Delete");
@@ -1245,16 +1303,13 @@ public class ExampleGame implements IGame {
         float tScale = 6.0f;
         float tW = getTextWidth(title, tScale);
         guiRenderer.renderText(title, cx - tW / 2, 20, tScale, 1, 1, 1, 1);
+
         guiRenderer.renderText("World Name:", cx - 200, cy - 120, 3.0f, 0.9f, 0.9f, 0.9f, 1);
-        boolean nameFocus = !isTypingSeed;
-        guiRenderer.renderRect(cx - 200, cy - 90, 400, 40, nameFocus ? 0.2f : 0.1f, nameFocus ? 0.2f : 0.1f,
-                nameFocus ? 0.2f : 0.1f, 1);
-        guiRenderer.renderText(nameBuffer.toString() + (nameFocus ? "_" : ""), cx - 190, cy - 80, 3.0f, 1, 1, 1, 1);
+        worldNameInput.render(guiRenderer);
+
         guiRenderer.renderText("Seed (Optional):", cx - 200, cy - 30, 3.0f, 0.9f, 0.9f, 0.9f, 1);
-        boolean seedFocus = isTypingSeed;
-        guiRenderer.renderRect(cx - 200, cy, 400, 40, seedFocus ? 0.2f : 0.1f, seedFocus ? 0.2f : 0.1f,
-                seedFocus ? 0.2f : 0.1f, 1);
-        guiRenderer.renderText(seedBuffer.toString() + (seedFocus ? "_" : ""), cx - 190, cy + 10, 3.0f, 1, 1, 1, 1);
+        worldSeedInput.render(guiRenderer);
+
         int btnY = (int) cy + 120;
         drawButton((int) cx - 210, btnY, 200, 40, "Create");
         drawButton((int) cx + 10, btnY, 200, 40, "Cancel");
