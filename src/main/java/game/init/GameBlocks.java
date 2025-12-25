@@ -45,6 +45,7 @@ public final class GameBlocks {
         public static Block TORCHDEBUG;
         public static Block RED_LAMP;
         public static Block GREEN_LAMP;
+        public static Block BEDROCK;
         public static Block BLUE_LAMP;
 
         // Interactions
@@ -73,6 +74,14 @@ public final class GameBlocks {
                                                 .requiredTool(ToolType.PICKAXE)
                                                 .minTier(0) // Wood or better
                                                 .tile(1, 0)));
+
+                // Bedrock - Indestructible bottom layer
+                BEDROCK = Blocks.register("game:bedrock",
+                                new Block(BlockProperties.create()
+                                                .standardSolid()
+                                                .hardness(-1.0f)
+                                                .unbreakable(true)
+                                                .textureAll("game:textures/blocks/bedrock.png")));
 
                 CHEST = Blocks.register("game:chest",
                                 new ChestBlock(BlockProperties.create()

@@ -53,6 +53,7 @@ public class TerrainGenerator {
             Arrays.fill(fluidData, (byte) 0);
 
         // === PASS 1: Generate base terrain using 3D density ===
+        // Now includes CAVES automatically via DensityFunction
         for (int x = 0; x < chunkSize; x++) {
             for (int z = 0; z < chunkSize; z++) {
                 int wx = baseX + x;
@@ -74,39 +75,85 @@ public class TerrainGenerator {
         }
 
         // === PASS 2: Carve caves ===
-        carveCaves(chunkX, chunkZ, blockData, heightMap);
+        // Removed: DensityFunction now handles Noise Caves (Cheese, Spaghetti, Noodle)
+        // carveCaves(chunkX, chunkZ, blockData, heightMap);
 
         // === PASS 3: Apply surface blocks ===
         applySurface(chunkX, chunkZ, blockData, heightMap);
 
         // === PASS 4: Fill water ===
         fillWater(chunkX, chunkZ, blockData, heightMap, fluidData);
+        // === PASS 5: Bedrock ===
+        placeBedrock(chunkX, chunkZ, blockData);
     }
 
     /**
-     * Carve caves using spaghetti noise.
+     * Place bedrock at the bottom of the world.
      */
-    private void carveCaves(int chunkX, int chunkZ, short[] blockData, int[] heightMap) {
-        final int baseX = chunkX * chunkSize;
-        final int baseZ = chunkZ * chunkSize;
-        int airId = Blocks.AIR().getNumericId();
+    private void placeBedrock(int chunkX, int chunkZ, short[] blockData) {
+        int bedrockId = Blocks.get("game:bedrock").getNumericId();
+        // Fallback to stone if bedrock not found (e.g. before registration complete?)
+        if (bedrockId == -1)
+            bedrockId = Blocks.get("game:stone").getNumericId();
+
+        int baseX = chunkX * chunkSize;
+        int baseZ = chunkZ * chunkSize;
 
         for (int x = 0; x < chunkSize; x++) {
             for (int z = 0; z < chunkSize; z++) {
-                int wx = baseX + x;
-                int wz = baseZ + z;
-                int surface = heightMap[z * chunkSize + x];
+                // Layer 0 is always bedrock
+                setBlock(blockData, x, 0, z, bedrockId);
 
-                for (int y = 10; y < surface - 4 && y < chunkHeight; y++) {
-                    if (densityFunction.isCave(wx, y, wz)) {
-                        int current = getBlock(blockData, x, y, z);
-                        if (!Blocks.isLiquid(current) && !Blocks.isAir(current)) {
-                            setBlock(blockData, x, y, z, airId);
-                        }
+                // Layers 1-4 mixed bedrock/stone
+                for (int y = 1; y <= 4; y++) {
+                    int wx = baseX + x;
+                    int wz = baseZ + z;
+
+                    // Simple deterministic noise
+                    float noise = hash(wx, y, wz);
+
+                    if (noise < (5 - y) / 5.0f) {
+                        setBlock(blockData, x, y, z, bedrockId);
                     }
                 }
             }
         }
+    }
+
+    private static float hash(int x, int y, int z) {
+        int h = x * 374761393 + y * 668265263 + z * 1274126177;
+        h = (h ^ (h >> 13)) * 1274126177;
+        return ((h ^ (h >> 16)) & 0x7fffffff) / (float) 0x7fffffff;
+    }
+
+    /**
+     * Carve caves using spaghetti noise.
+     * 
+     * @deprecated Now handled by DensityFunction (Noise Caves)
+     */
+    private void carveCaves(int chunkX, int chunkZ, short[] blockData, int[] heightMap) {
+        /*
+         * final int baseX = chunkX * chunkSize;
+         * final int baseZ = chunkZ * chunkSize;
+         * int airId = Blocks.AIR().getNumericId();
+         * 
+         * for (int x = 0; x < chunkSize; x++) {
+         * for (int z = 0; z < chunkSize; z++) {
+         * int wx = baseX + x;
+         * int wz = baseZ + z;
+         * int surface = heightMap[z * chunkSize + x];
+         * 
+         * for (int y = 10; y < surface - 4 && y < chunkHeight; y++) {
+         * if (densityFunction.isCave(wx, y, wz)) {
+         * int current = getBlock(blockData, x, y, z);
+         * if (!Blocks.isLiquid(current) && !Blocks.isAir(current)) {
+         * setBlock(blockData, x, y, z, airId);
+         * }
+         * }
+         * }
+         * }
+         * }
+         */
     }
 
     /**

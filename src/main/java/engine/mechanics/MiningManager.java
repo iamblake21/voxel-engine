@@ -30,7 +30,7 @@ public class MiningManager {
         int blockId = world.getBlock(bx, by, bz);
         Block block = Blocks.get(blockId);
 
-        if (block.isAir()) {
+        if (block.isAir() || block.isUnbreakable()) {
             resetBreaking();
             return;
         }

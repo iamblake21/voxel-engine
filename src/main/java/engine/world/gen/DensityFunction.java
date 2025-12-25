@@ -12,89 +12,125 @@ package engine.world.gen;
  * 1. Base terrain height (from splines) - creates height bias
  * 2. Squashing factor - controls how flat/crazy the terrain is
  * 3. 3D noise - adds detail, overhangs, weird shapes
+ * 4. Noise Caves - Cheese, Spaghetti, Noodle carve out air
  */
 public class DensityFunction {
-    
+
     private final TerrainShaper terrainShaper;
     private final NoiseRouter noiseRouter;
     private final float seaLevel;
-    
+
     public DensityFunction(TerrainShaper terrainShaper) {
         this.terrainShaper = terrainShaper;
         this.noiseRouter = terrainShaper.getNoiseRouter();
         this.seaLevel = terrainShaper.getSeaLevel();
     }
-    
+
     /**
      * Calculate density at a 3D position.
      * 
      * @return positive = solid, negative = air
      */
     public float getDensity(int x, int y, int z) {
-        // Get terrain parameters from splines
+        // === BASE TERRAIN ===
         float[] params = terrainShaper.getTerrainParams(x, z);
         float targetHeight = params[0];
         float squashing = params[1];
-        
-        // === HEIGHT BIAS ===
-        // Below target height = positive (solid)
-        // Above target height = negative (air)
-        float heightBias = (targetHeight - y) / 16f;  // More sensitive
-        
-        // === SQUASHING ===
-        // High squashing = height bias dominates = flat terrain
-        // Low squashing = 3D noise shows through = crazy terrain
+
+        float heightBias = (targetHeight - y) / 16f;
         heightBias *= squashing;
-        
-        // === 3D NOISE ===
-        // Adds detail and creates overhangs when squashing is low
+
         float noise3D = noiseRouter.getDensity3D(x, y, z);
-        
-        // Scale noise based on inverse squashing
-        // Low squashing = noise matters MORE (jagged peaks)
-        float noiseInfluence = 1f / (squashing * squashing);  // Squared for more effect
-        noise3D *= noiseInfluence * 0.7f;  // Increased from 0.5
-        
-        // === COMBINE ===
+        float noiseInfluence = 1f / (squashing * squashing);
+        noise3D *= noiseInfluence * 0.7f;
+
         float density = heightBias + noise3D;
-        
-        // === DEPTH GUARANTEE ===
-        // Below Y=5, always solid (bedrock zone)
-        if (y < 5) {
-            density += (5 - y) * 0.8f;
+
+        // === CAVE CARVING (NOISE CAVES) ===
+        // We modify the density to create caves.
+        // If cave function says "CAVE", we reduce density significantly.
+
+        if (isNoiseCave(x, y, z)) {
+            // Subtract enough to turn solid into air, but keep gradient for smooth mesh if
+            // needed
+            density -= 5.0f;
         }
-        
+
+        // === DEPTH GUARANTEE ===
+        if (y < 5) {
+            density += (5 - y) * 2.0f;
+        }
+
         // === SKY GUARANTEE ===
-        // Above Y=250, always air
         if (y > 250) {
             density -= (y - 250) * 0.5f;
         }
-        
+
         return density;
     }
-    
+
+    /**
+     * Determines if a point is within a noise cave (Cheese, Spaghetti, Noodle).
+     */
+    private boolean isNoiseCave(int x, int y, int z) {
+        // 1. CHEESE CAVES (Large caverns)
+        // High frequency 3D noise with high threshold
+        float cheese = noiseRouter.getCheeseNoise(x, y, z);
+        // Cheese caverns usually deep underground or mountains
+        float cheeseThreshold = 0.6f;
+        if (y > seaLevel) {
+            // Harder to have cheese caves near surface
+            cheeseThreshold += (y - seaLevel) * 0.005f;
+        }
+        if (cheese > cheeseThreshold)
+            return true;
+
+        // 2. SPAGHETTI CAVES (Wide tunnels)
+        // Ridges where two noises are close to 0
+        float spagA = noiseRouter.getSpaghettiNoiseA(x, y, z);
+        float spagB = noiseRouter.getSpaghettiNoiseB(x, y, z);
+        // Thickness logic
+        float spagThickness = 0.08f;
+        // Taper spaghetti at surface
+        if (y > seaLevel) {
+            spagThickness *= Math.max(0, 1f - (y - seaLevel) / 30f);
+        }
+
+        // Standard ridge noise check
+        // scaled by y sometimes
+        if (Math.abs(spagA) < spagThickness && Math.abs(spagB) < spagThickness) {
+            // Map mappedValue = unapply(spagA) ...
+            // Simple version:
+            return true;
+        }
+
+        // 3. NOODLE CAVES (Thin, twisty tunnels)
+        float noodleA = noiseRouter.getNoodleNoiseA(x, y, z);
+        float noodleB = noiseRouter.getNoodleNoiseB(x, y, z);
+        float noodleThickness = 0.03f;
+        if (Math.abs(noodleA) < noodleThickness && Math.abs(noodleB) < noodleThickness) {
+            return true;
+        }
+
+        return false;
+    }
+
     /**
      * Check if a position should be solid.
      */
     public boolean isSolid(int x, int y, int z) {
         return getDensity(x, y, z) > 0;
     }
-    
+
     /**
-     * Check if position is a cave (after terrain generation).
+     * Check if position is a cave (Legacy support / Post-process check)
      */
     public boolean isCave(int x, int y, int z) {
-        // Don't carve caves too close to surface or in water
-        float[] params = terrainShaper.getTerrainParams(x, z);
-        float targetHeight = params[0];
-        
-        if (y > targetHeight - 5) return false;  // Too close to surface
-        if (y < 10) return false;  // Bedrock zone
-        if (y > seaLevel && y < targetHeight) {
-            // Only carve caves in solid terrain above sea level
-            // or below sea level but deep enough
-        }
-        
-        return noiseRouter.isCave(x, y, z);
+        // Used by Carver in TerrainGenerator (Pass 2)
+        // Since we moved caves to Pass 1 (getDensity), specific carving might be
+        // redundant
+        // OR we can use this for extra caves that didn't affect density (rare)
+        // For now, delegate to isNoiseCave
+        return isNoiseCave(x, y, z);
     }
 }

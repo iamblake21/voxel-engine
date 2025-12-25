@@ -20,7 +20,7 @@ public class Config {
 
     // World settings
     public int chunkSize = 16;
-    public int worldHeight = 256;
+    public int worldHeight = 384;
     public int viewDistance = 1;
     public float waterLevel = 62f;
 

@@ -1,119 +1,145 @@
 package engine.world.gen;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 /**
- * Nested spline terrain system (Minecraft 1.18+ style)
- *
- * Structure:
- * Continentalness -> [Erosion -> [Peaks -> height & squashing]]
+ * Generic Cubic Spline implementation usually used for terrain generation.
+ * Supports nesting (values can be other splines).
  */
 public class NestedTerrainSpline {
 
-    private final float seaLevel;
-
-    public NestedTerrainSpline(float seaLevel) {
-        this.seaLevel = seaLevel;
-        initializeSplines();
+    @FunctionalInterface
+    public interface CoordinateExtractor {
+        float apply(float c, float e, float w);
     }
 
-    // === Data structure ===
-    // Continentalness -> Erosion -> Peaks -> [height, squashing]
-    private final Map<Float, Map<Float, float[]>> nestedSpline = new HashMap<>();
+    // Strategies to pick the coordinate
+    public static final CoordinateExtractor CONTINENTALNESS = (c, e, w) -> c;
+    public static final CoordinateExtractor EROSION = (c, e, w) -> e;
+    public static final CoordinateExtractor WEIRDNESS = (c, e, w) -> w; // Peaks/Weirdness
 
-    private void initializeSplines() {
-        // Example: 3 continentalness points
-        addSplinePoint(-0.5f, -1.0f, new float[]{30, 2.0f}); // deep lowland, low erosion
-        addSplinePoint(-0.5f, 0.0f, new float[]{40, 1.5f});  // deep lowland, medium erosion
-        addSplinePoint(-0.5f, 1.0f, new float[]{50, 1.2f});  // deep lowland, high erosion
+    private final CoordinateExtractor extractor;
+    private final List<SplinePoint> points = new ArrayList<>();
 
-        addSplinePoint(0.0f, -1.0f, new float[]{70, 1.0f});  // lowland, low erosion
-        addSplinePoint(0.0f, 0.0f, new float[]{65, 1.2f});   // lowland, medium erosion
-        addSplinePoint(0.0f, 1.0f, new float[]{60, 1.5f});   // lowland, high erosion
-
-        addSplinePoint(0.5f, -1.0f, new float[]{120, 0.5f}); // highland, low erosion
-        addSplinePoint(0.5f, 0.0f, new float[]{100, 0.8f});  // highland, medium erosion
-        addSplinePoint(0.5f, 1.0f, new float[]{90, 1.0f});   // highland, high erosion
-    }
-
-    private void addSplinePoint(float continentalness, float erosion, float[] heightSquash) {
-        nestedSpline.computeIfAbsent(continentalness, k -> new HashMap<>())
-                    .put(erosion, heightSquash);
+    public NestedTerrainSpline(CoordinateExtractor extractor) {
+        this.extractor = extractor;
     }
 
     /**
-     * Sample terrain height and squashing using nested splines.
-     * 
-     * @param c Continentalness [-1,1]
-     * @param e Erosion [-1,1]
-     * @param pv Peaks [-1,1]
-     * @return [height, squashing]
+     * Add a point with a constant value.
      */
-    public float[] sample(float c, float e, float pv) {
-        // Step 1: Find two closest continentalness points
-        float c0 = floorKey(nestedSpline, c);
-        float c1 = ceilKey(nestedSpline, c);
-        Map<Float, float[]> erosionMap0 = nestedSpline.get(c0);
-        Map<Float, float[]> erosionMap1 = nestedSpline.get(c1);
-
-        // Step 2: Sample erosion spline for each continentalness
-        float[] low = sampleErosion(erosionMap0, e, pv);
-        float[] high = sampleErosion(erosionMap1, e, pv);
-
-        // Step 3: Interpolate between continentalness points
-        float tC = (c - c0) / (c1 - c0);
-        tC = clamp01(tC);
-        float height = lerp(low[0], high[0], tC);
-        float squash = lerp(low[1], high[1], tC);
-
-        return new float[]{height, squash};
+    public NestedTerrainSpline addPoint(float location, float value, float derivative) {
+        points.add(new SplinePoint(location, value, derivative));
+        points.sort(Comparator.comparingDouble(p -> p.location));
+        return this;
     }
 
-    private float[] sampleErosion(Map<Float, float[]> erosionMap, float e, float pv) {
-        float e0 = floorKey(erosionMap, e);
-        float e1 = ceilKey(erosionMap, e);
-
-        float[] low = erosionMap.get(e0);
-        float[] high = erosionMap.get(e1);
-
-        float tE = (e - e0) / (e1 - e0);
-        tE = clamp01(tE);
-
-        // Interpolate height & squashing
-        float height = lerp(low[0], high[0], tE);
-        float squash = lerp(low[1], high[1], tE);
-
-        // Step 4: Apply Peaks (PV) variation
-        // Peaks adds a fraction of height based on squashing
-        float peakEffect = pv * (2f - squash); // more squashing = flatter effect
-        height += peakEffect * 10; // scale factor for dramatic peaks
-
-        return new float[]{height, squash};
+    /**
+     * Add a point with a nested spline as value.
+     */
+    public NestedTerrainSpline addPoint(float location, NestedTerrainSpline value, float derivative) {
+        points.add(new SplinePoint(location, value, derivative));
+        points.sort(Comparator.comparingDouble(p -> p.location));
+        return this;
     }
 
-    // === UTILITY ===
-    private float lerp(float a, float b, float t) {
-        return a + (b - a) * t;
+    /**
+     * Add a point valid for MC 1.18 style (helper).
+     */
+    public NestedTerrainSpline add(float location, float value) {
+        return addPoint(location, value, 0.0f);
     }
 
-    private float clamp01(float t) {
-        return Math.max(0f, Math.min(1f, t));
+    public NestedTerrainSpline add(float location, NestedTerrainSpline value) {
+        return addPoint(location, value, 0.0f);
     }
 
-    private float floorKey(Map<Float, ?> map, float key) {
-        float best = Float.NEGATIVE_INFINITY;
-        for (float k : map.keySet()) if (k <= key && k > best) best = k;
-        return best;
+    /**
+     * Sample the spline at the given coordinates.
+     */
+    public float apply(float c, float e, float w) {
+        float x = extractor.apply(c, e, w); // The position on this spline
+
+        // Find the segment [i, i+1] that contains x
+        int i = findIndex(x);
+
+        if (i < 0) {
+            // Clamp to first
+            return evaluateValue(points.get(0).value, c, e, w);
+        }
+        if (i >= points.size() - 1) {
+            // Clamp to last
+            return evaluateValue(points.get(points.size() - 1).value, c, e, w);
+        }
+
+        SplinePoint p0 = points.get(i);
+        SplinePoint p1 = points.get(i + 1);
+
+        float x0 = p0.location;
+        float x1 = p1.location;
+        float dist = x1 - x0;
+
+        if (dist <= 0)
+            return evaluateValue(p0.value, c, e, w);
+
+        float t = (x - x0) / dist;
+
+        // Fetch values from sub-splines (or constants)
+        float y0 = evaluateValue(p0.value, c, e, w);
+        float y1 = evaluateValue(p1.value, c, e, w);
+
+        // Derivatives
+        float m0 = p0.derivative * dist;
+        float m1 = p1.derivative * dist;
+
+        // Cubic interpolation
+        return cubicLerp(t, y0, y1, m0, m1);
     }
 
-    private float ceilKey(Map<Float, ?> map, float key) {
-        float best = Float.POSITIVE_INFINITY;
-        for (float k : map.keySet()) if (k >= key && k < best) best = k;
-        return best;
+    private float evaluateValue(Object val, float c, float e, float w) {
+        if (val instanceof Float) {
+            return (Float) val;
+        } else if (val instanceof NestedTerrainSpline) {
+            return ((NestedTerrainSpline) val).apply(c, e, w);
+        }
+        return 0f;
     }
 
-    public float getSeaLevel() {
-        return seaLevel;
+    private int findIndex(float x) {
+        for (int i = 0; i < points.size() - 1; i++) {
+            if (x >= points.get(i).location && x < points.get(i + 1).location) {
+                return i;
+            }
+        }
+        if (x < points.get(0).location)
+            return -1;
+        return points.size() - 1;
+    }
+
+    private float cubicLerp(float t, float y0, float y1, float m0, float m1) {
+        // Hermite basis functions
+        float t2 = t * t;
+        float t3 = t2 * t;
+
+        float h00 = 2 * t3 - 3 * t2 + 1;
+        float h10 = t3 - 2 * t2 + t;
+        float h01 = -2 * t3 + 3 * t2;
+        float h11 = t3 - t2;
+
+        return h00 * y0 + h10 * m0 + h01 * y1 + h11 * m1;
+    }
+
+    private static class SplinePoint {
+        final float location;
+        final Object value; // Float or NestedTerrainSpline
+        final float derivative;
+
+        SplinePoint(float location, Object value, float derivative) {
+            this.location = location;
+            this.value = value;
+            this.derivative = derivative;
+        }
     }
 }

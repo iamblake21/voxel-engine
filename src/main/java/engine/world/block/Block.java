@@ -103,6 +103,10 @@ public class Block {
         return properties.air;
     }
 
+    public boolean isUnbreakable() {
+        return properties.unbreakable;
+    }
+
     public boolean isReplaceable() {
         return properties.replaceable;
     }

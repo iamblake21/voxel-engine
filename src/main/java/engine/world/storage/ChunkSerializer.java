@@ -12,7 +12,7 @@ public class ChunkSerializer {
         tag.setInt("z", chunk.getZ());
 
         // Save Blocks
-        int[] blocks = new int[16 * 256 * 16];
+        int[] blocks = new int[16 * Chunk.HEIGHT * 16];
         short[] chunkData = chunk.getBlockData();
         for (int i = 0; i < chunkData.length; i++) {
             blocks[i] = chunkData[i];
@@ -199,7 +199,7 @@ public class ChunkSerializer {
         // Iterate x, z -> find top block
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
-                for (int y = 255; y >= 0; y--) {
+                for (int y = Chunk.HEIGHT - 1; y >= 0; y--) {
                     if (!engine.world.block.Blocks.get(chunk.getBlock(x, y, z)).isTransparent()) {
                         chunk.setHeight(x, z, y);
                         break;

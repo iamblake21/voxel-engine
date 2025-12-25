@@ -16,6 +16,7 @@ public class BlockProperties {
     boolean liquid = false; // Is a liquid (water, lava)
     boolean air = false; // Is air (special case)
     boolean replaceable = false; // Can be replaced when placing blocks
+    boolean unbreakable = false; // Can't be broken
 
     // Rendering
     int tileX = 0; // Texture atlas tile X
@@ -162,6 +163,11 @@ public class BlockProperties {
         return this;
     }
 
+    public BlockProperties unbreakable(boolean unbreakable) {
+        this.unbreakable = unbreakable;
+        return this;
+    }
+
     public BlockProperties hardness(float hardness) {
         this.hardness = hardness;
         return this;
@@ -273,6 +279,10 @@ public class BlockProperties {
 
     public boolean isSolid() {
         return solid;
+    }
+
+    public boolean isUnbreakable() {
+        return unbreakable;
     }
 
     public boolean isOpaque() {

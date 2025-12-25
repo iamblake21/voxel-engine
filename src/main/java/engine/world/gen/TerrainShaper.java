@@ -2,219 +2,182 @@ package engine.world.gen;
 
 /**
  * Calculates terrain height and squashing using nested splines.
- * 
- * Like Minecraft 1.18+:
- * - Continentalness spline points, each with its own Erosion sub-spline
- * - Erosion spline points, each with its own PV sub-spline
- * - Returns: target height and squashing factor
- * 
- * Squashing factor controls how "fractured" the 3D noise appears:
- * - High squashing = flat, smooth terrain
- * - Low squashing = crazy overhangs and weird shapes
+ * Matches Minecraft 1.18+ generation style.
  */
 public class TerrainShaper {
-    
+
     private final NoiseRouter noiseRouter;
     private final float seaLevel;
-    
+
+    private final NestedTerrainSpline offsetSpline;
+    private final NestedTerrainSpline factorSpline;
+
     public TerrainShaper(NoiseRouter noiseRouter, float seaLevel) {
         this.noiseRouter = noiseRouter;
         this.seaLevel = seaLevel;
+
+        this.offsetSpline = buildOffsetSpline();
+        this.factorSpline = buildFactorSpline();
     }
-    
+
     /**
      * Get terrain parameters at a position.
      * Returns [targetHeight, squashingFactor]
      */
     public float[] getTerrainParams(int x, int z) {
-        float c = noiseRouter.getContinentalness(x, z);  // -1 to 1
-        float e = noiseRouter.getErosion(x, z);          // -1 to 1
-        float pv = noiseRouter.getPeaks(x, z);           // -1 to 1
-        
-        // Sample the nested spline system
-        return sampleNestedSpline(c, e, pv);
-    }
-    
-    /**
-     * Nested spline system.
-     * 
-     * Structure:
-     * Continentalness -> [Erosion -> [PV -> height]]
-     * 
-     * Each continentalness value has different erosion behavior,
-     * and each erosion value has different PV behavior.
-     */
-    private float[] sampleNestedSpline(float c, float e, float pv) {
-        // === CONTINENTALNESS CONTROLS BASE TERRAIN TYPE ===
-        
-        float height;
-        float squashing;
-        
-        if (c < -0.6f) {
-            // === DEEP OCEAN ===
-            // Flat ocean floor, high squashing (no weird shapes)
-            height = lerp(30, 40, (c + 1f) / 0.4f);
-            squashing = 1.5f;
-            
-        } else if (c < -0.3f) {
-            // === OCEAN ===
-            // Gradual rise toward coast
-            float t = (c + 0.6f) / 0.3f;
-            height = lerp(40, 55, t);
-            squashing = lerp(1.5f, 1.2f, t);
-            
-        } else if (c < -0.1f) {
-            // === COAST / SHALLOW WATER ===
-            // Quick transition to land - this creates beaches
-            float t = (c + 0.3f) / 0.2f;
-            height = lerp(55, seaLevel + 3, t);
-            squashing = lerp(1.2f, 1.0f, t);
-            
-        } else if (c < 0.3f) {
-            // === LOWLANDS ===
-            // Erosion matters a lot here
-            float[] lowlandParams = sampleLowlandSpline(e, pv);
-            float t = (c + 0.1f) / 0.4f;
-            height = lerp(seaLevel + 3, lowlandParams[0], t);
-            squashing = lerp(1.0f, lowlandParams[1], t);
-            
-        } else if (c < 0.6f) {
-            // === MIDLANDS ===
-            // Higher base, erosion controls hills vs mountains
-            float[] midlandParams = sampleMidlandSpline(e, pv);
-            float t = (c - 0.3f) / 0.3f;
-            float[] lowlandParams = sampleLowlandSpline(e, pv);
-            height = lerp(lowlandParams[0], midlandParams[0], t);
-            squashing = lerp(lowlandParams[1], midlandParams[1], t);
-            
-        } else {
-            // === HIGHLANDS / INLAND ===
-            // Highest terrain, most dramatic mountains possible
-            float[] highlandParams = sampleHighlandSpline(e, pv);
-            float t = (c - 0.6f) / 0.4f;
-            float[] midlandParams = sampleMidlandSpline(e, pv);
-            height = lerp(midlandParams[0], highlandParams[0], t);
-            squashing = lerp(midlandParams[1], highlandParams[1], t);
-        }
-        
+        float c = noiseRouter.getContinentalness(x, z);
+        float e = noiseRouter.getErosion(x, z);
+        float w = noiseRouter.getWeirdness(x, z);
+
+        float height = offsetSpline.apply(c, e, w);
+        float squashing = factorSpline.apply(c, e, w);
+
         return new float[] { height, squashing };
     }
-    
-    /**
- * Lowland erosion spline with dynamic PV modulation.
- */
-private float[] sampleLowlandSpline(float e, float pv) {
-    float height;
-    float squashing;
 
-    // Modulatore di PV in base all'erosione (0 = high, 1 = low)
-    float pvFactor = 1.0f - e; // e da -1 a 1 → pvFactor da 2 a 0
-    pvFactor = Math.max(0.2f, Math.min(1.5f, pvFactor)); // clamp
+    private NestedTerrainSpline buildOffsetSpline() {
+        // Top level: Continentalness
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.CONTINENTALNESS);
 
-    if (e > 0.5f) {
-        // High erosion = FLAT PLAINS
-        height = seaLevel + 5 + pv * 2 * pvFactor;
-        squashing = 2.0f;
+        // === OCEAN ===
+        s.addPoint(-1.1f, seaLevel - 40, 0f);
+        s.addPoint(-1.0f, seaLevel - 20, 0f); // Deep ocean rising
+        s.addPoint(-0.4f, seaLevel - 5, 0f); // Shallow ocean approach
 
-    } else if (e > 0.0f) {
-        // Medium erosion = gentle hills
-        float t = e / 0.5f;
-        float hillHeight = seaLevel + 10 + pv * 8 * pvFactor;
-        height = lerp(hillHeight, seaLevel + 5 + pv * 2 * pvFactor, t);
-        squashing = lerp(1.2f, 2.0f, t);
+        // === COAST TRANSITION ===
+        // Smooth transition from sea level to land
+        s.addPoint(-0.15f, seaLevel + 3, 0f); // Beach level
+        s.addPoint(-0.1f, seaLevel + 10, 0f); // Gentle rise inland
 
-    } else {
-        // Low erosion = some hills can be dramatic
-        float t = (e + 1f) / 1f;
-        float dramaticHeight = seaLevel + 20 + pv * 20 * pvFactor;
-        float hillHeight = seaLevel + 10 + pv * 8 * pvFactor;
-        height = lerp(dramaticHeight, hillHeight, t);
-        squashing = lerp(0.8f, 1.2f, t);
+        // === INLAND ===
+        // From -0.1 to 1.0, we are fully inland.
+        // We nest Erosion here to allow biomes to emerge.
+
+        // Start of inland proper
+        s.addPoint(-0.05f, buildInlandSpline(), 0f);
+
+        // Deep inland
+        s.addPoint(1.0f, buildInlandSpline(), 0f);
+
+        return s;
     }
 
-    return new float[] { height, squashing };
-}
+    private NestedTerrainSpline buildInlandSpline() {
+        // Second level: Erosion
+        // -1 (High Erosion/Mountainous) -> 1 (Flat/Low Erosion)
 
-/**
- * Midland erosion spline with dynamic PV modulation.
- */
-private float[] sampleMidlandSpline(float e, float pv) {
-    float height;
-    float squashing;
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.EROSION);
 
-    float pvFactor = 1.0f - e;
-    pvFactor = Math.max(0.2f, Math.min(1.5f, pvFactor));
+        // E = -1.0: EXTREME MOUNTAINS (Jagged peaks)
+        s.addPoint(-1.0f, buildMountainWeirdness(), 0f);
 
-    if (e > 0.5f) {
-        height = seaLevel + 12 + pv * 4 * pvFactor;
-        squashing = 1.6f;
+        // E = -0.65: MOUNTAINS (Rarer)
+        s.addPoint(-0.65f, buildMountainWeirdness(), 0f);
 
-    } else if (e > 0.0f) {
-        float t = e / 0.5f;
-        height = lerp(seaLevel + 35 + pv * 25 * pvFactor, seaLevel + 12 + pv * 4 * pvFactor, t);
-        squashing = lerp(0.9f, 1.6f, t);
+        // E = -0.4: HIGH HILLS
+        // BOOSTED HEIGHTS slightly to fix "empty middle ground" feeling
+        s.addPoint(-0.4f, buildHillWeirdness(), 0f);
 
-    } else if (e > -0.5f) {
-        float t = (e + 0.5f) / 0.5f;
-        height = lerp(seaLevel + 80 + pv * 55 * pvFactor, seaLevel + 35 + pv * 25 * pvFactor, t);
-        squashing = lerp(0.5f, 0.9f, t);
+        // E = 0.0: ROLLING HILLS
+        // BOOSTED HEIGHTS slightly
+        s.addPoint(0.0f, buildRollingWeirdness(), 0f);
 
-    } else {
-        float t = (e + 1f) / 0.5f;
-        height = lerp(seaLevel + 130 + pv * 90 * pvFactor, seaLevel + 110 + pv * 75 * pvFactor, t);
-        squashing = lerp(0.3f, 0.5f, t);
+        // E = 0.4: PLAINS START
+        s.addPoint(0.4f, buildFlatWeirdness(), 0f);
+
+        // E = 1.0: VERY FLAT
+        s.addPoint(1.0f, seaLevel + 5, 0f);
+
+        return s;
     }
 
-    return new float[] { height, squashing };
-}
-
-/**
- * Highland erosion spline with dynamic PV modulation.
- */
-private float[] sampleHighlandSpline(float e, float pv) {
-    float height;
-    float squashing;
-
-    float pvFactor = 1.0f - e;
-    pvFactor = Math.max(0.2f, Math.min(1.5f, pvFactor));
-
-    if (e > 0.5f) {
-        height = seaLevel + 25 + pv * 8 * pvFactor;
-        squashing = 1.3f;
-
-    } else if (e > 0.0f) {
-        float t = e / 0.5f;
-        height = lerp(seaLevel + 70 + pv * 50 * pvFactor, seaLevel + 25 + pv * 8 * pvFactor, t);
-        squashing = lerp(0.6f, 1.3f, t);
-
-    } else if (e > -0.5f) {
-        float t = (e + 0.5f) / 0.5f;
-        height = lerp(seaLevel + 120 + pv * 80 * pvFactor, seaLevel + 70 + pv * 50 * pvFactor, t);
-        squashing = lerp(0.35f, 0.6f, t);
-
-    } else {
-        float t = (e + 1f) / 0.5f;
-        height = lerp(seaLevel + 160 + pv * 90 * pvFactor, seaLevel + 120 + pv * 80 * pvFactor, t);
-        squashing = 0.2f;
+    private NestedTerrainSpline buildMountainWeirdness() {
+        // High variation
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.WEIRDNESS);
+        s.addPoint(-1.0f, seaLevel + 30, 0f); // Valleys
+        s.addPoint(0.0f, seaLevel + 110, 0f); // Slopes (Steeper)
+        s.addPoint(1.0f, seaLevel + 220, 0f); // Peaks (Higher)
+        return s;
     }
 
-    return new float[] { height, squashing };
-}
-
-
-    
-    // === UTILITY ===
-    
-    private float lerp(float a, float b, float t) {
-        t = Math.max(0, Math.min(1, t));
-        return a + (b - a) * t;
+    private NestedTerrainSpline buildHillWeirdness() {
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.WEIRDNESS);
+        // Boosted: Was 8, 25, 50. Now higher to bridge gaps.
+        s.addPoint(-1.0f, seaLevel + 15, 0f);
+        s.addPoint(0.0f, seaLevel + 40, 0f);
+        s.addPoint(1.0f, seaLevel + 70, 0f);
+        return s;
     }
-    
-    public float getSeaLevel() {
-        return seaLevel;
+
+    private NestedTerrainSpline buildRollingWeirdness() {
+        // Boosted: Was 5, 12, 20
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.WEIRDNESS);
+        s.addPoint(-1.0f, seaLevel + 8, 0f);
+        s.addPoint(0.0f, seaLevel + 20, 0f);
+        s.addPoint(1.0f, seaLevel + 40, 0f);
+        return s;
     }
-    
+
+    private NestedTerrainSpline buildFlatWeirdness() {
+        // Plains - subtle variation
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.WEIRDNESS);
+        s.addPoint(-1.0f, seaLevel + 2, 0f);
+        s.addPoint(-0.5f, seaLevel + 6, 0f);
+        s.addPoint(0.5f, seaLevel + 4, 0f);
+        s.addPoint(1.0f, seaLevel + 10, 0f);
+        return s;
+    }
+
+    private NestedTerrainSpline buildFactorSpline() {
+        // Squashing: High = Flat, Low = Crazy
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.CONTINENTALNESS);
+
+        // Ocean: Smooth
+        s.addPoint(-1.1f, 2.8f, 0f);
+        s.addPoint(-0.4f, 2.5f, 0f);
+
+        // Coast: Transition
+        s.addPoint(-0.15f, 2.0f, 0f);
+
+        // Inland: Varied by erosion
+        s.addPoint(-0.05f, buildInlandFactor(), 0f);
+        s.addPoint(1.0f, buildInlandFactor(), 0f);
+
+        return s;
+    }
+
+    private NestedTerrainSpline buildInlandFactor() {
+        NestedTerrainSpline s = new NestedTerrainSpline(NestedTerrainSpline.EROSION);
+
+        // === GLOBAL SQUASHING REDUCTION for TERRACING ===
+        // To get "Minecraft feel", we need lower squashing factors everywhere.
+        // This allows the 3D density noise to create steps/overhangs.
+
+        // Mountains: Low squashing
+        s.addPoint(-1.0f, 0.45f, 0f);
+        s.addPoint(-0.65f, 0.6f, 0f);
+
+        // Hills: SIGNIFICANTLY REDUCED SQUASHING
+        // Was 1.0 -> 0.75. Lower = More verticality/steps within the hill.
+        s.addPoint(-0.4f, 0.75f, 0f);
+
+        // Rolling Hills:
+        // Was 1.3 -> 0.95. Enables terracing on gentle slopes.
+        s.addPoint(0.0f, 0.95f, 0f);
+
+        // Plains:
+        // Was 2.8 -> 1.8. Even plains should have small ledges, not be smooth sheets.
+        s.addPoint(0.4f, 1.8f, 0f);
+        s.addPoint(1.0f, 2.0f, 0f);
+
+        return s;
+    }
+
     public NoiseRouter getNoiseRouter() {
         return noiseRouter;
+    }
+
+    public float getSeaLevel() {
+        return seaLevel;
     }
 }

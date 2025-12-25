@@ -16,7 +16,7 @@ import engine.world.blockentity.ITickableBlockEntity;
 import java.util.Collection;
 
 /**
- * A chunk of the world - 16x256x16 blocks.
+ * A chunk of the world - 16x384x16 blocks.
  *
  * In questa versione il chunk supporta più LOD:
  * - LOD 0: massimo dettaglio (quello "normale")
@@ -25,7 +25,7 @@ import java.util.Collection;
 public class Chunk {
 
     public static final int SIZE = 16;
-    public static final int HEIGHT = 256;
+    public static final int HEIGHT = 384;
     private volatile boolean meshPending = false;
     private boolean userModified = false;
     private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
