@@ -5,6 +5,14 @@ public class LightIntQueue {
     private int head = 0;
     private int tail = 0;
 
+    /**
+     * Add a node to the queue.
+     * PACKING LAYOUT (32-bit int):
+     * Bits 0-11: Level (12 bits) - Supports 0xRGB (4096 values)
+     * Bits 12-20: Y (9 bits) - Supports 0-511 Height
+     * Bits 21-24: Z (4 bits) - Supports 0-15 (Chunk relative)
+     * Bits 25-28: X (4 bits) - Supports 0-15 (Chunk relative)
+     */
     public void add(int x, int y, int z, int level) {
         if (tail == data.length) {
             // Grow
@@ -15,7 +23,8 @@ public class LightIntQueue {
             data = newData;
         }
         // Pack
-        data[tail++] = (x << 16) | (z << 12) | (y << 4) | level;
+        // Note: x and z must be 0-15. y must be 0-511. level must be 0-4095.
+        data[tail++] = (x << 25) | (z << 21) | (y << 12) | (level & 0xFFF);
     }
 
     public boolean isEmpty() {
@@ -28,18 +37,23 @@ public class LightIntQueue {
 
     // Unpack helpers
     public static int unpackX(int val) {
-        return (val >> 16) & 0xF;
+        return (val >> 25) & 0xF;
     }
 
     public static int unpackZ(int val) {
-        return (val >> 12) & 0xF;
+        return (val >> 21) & 0xF;
     }
 
     public static int unpackY(int val) {
-        return (val >> 4) & 0xFF;
+        return (val >> 12) & 0x1FF; // 9 bits mask (511)
     }
 
     public static int unpackLevel(int val) {
-        return val & 0xF;
+        return val & 0xFFF; // 12 bits mask (RGB)
+    }
+
+    public void clear() {
+        head = 0;
+        tail = 0;
     }
 }
