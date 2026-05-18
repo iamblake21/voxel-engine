@@ -210,6 +210,9 @@ public class ChunkSerializer {
 
         chunk.markSaved(); // Chunk matches disk state perfectly now.
 
+        // Convert flat arrays to sparse section storage now that all data is loaded.
+        chunk.compactToSections();
+
         return loadedEntities;
     }
 }

@@ -33,6 +33,8 @@ public class World implements MeshBuilder.WorldAccess {
     private final WorldGenerationExecutor genExecutor;
     private final FluidManager fluidManager;
     private final Set<Long> pendingChunks = new HashSet<>();
+    private final Map<Long, Long> chunkLastAccessTick = new HashMap<>();
+    private long chunkAccessClock = 0;
 
     private float fluidTickAccumulator = 0;
     private static final float FLUID_TICK_INTERVAL = 0.05f; // 20 TPS
@@ -54,6 +56,15 @@ public class World implements MeshBuilder.WorldAccess {
     private int safeRadius = 4;
     private int preGenRadius = 12;
     private float gameTime = 0f;
+    private static final int MAX_TERRAIN_SUBMISSIONS_PER_FRAME = 128;
+    private static final int MAX_TERRAIN_INTEGRATIONS_PER_FRAME = 128;
+    private static final int MAX_FEATURE_INTEGRATIONS_PER_FRAME = 24;
+    private static final int MAX_LIGHT_INTEGRATIONS_PER_FRAME = 128;
+    private static final int MAX_MESH_UPLOADS_PER_FRAME = 64;
+    private static final int MAX_PIPELINE_TASK_SUBMISSIONS_PER_FRAME = 256;
+    private static final int MAX_MESH_CHUNK_SUBMISSIONS_PER_FRAME = 24;
+    private static final int MAX_PENDING_QUEUE = 1024;
+    private static final int MAX_SECTION_MESH_TASKS_PER_CHUNK = 12;
 
     private EntityManager entityManager;
 
@@ -137,8 +148,8 @@ public class World implements MeshBuilder.WorldAccess {
                 this,
                 worldStorage);
 
-        this.safeRadius = this.config.viewDistance;
-        this.preGenRadius = this.config.viewDistance;
+        this.safeRadius = ChunkLoadingPolicy.safeRadiusForViewDistance(this.maxLoadDistance);
+        this.preGenRadius = Math.min(this.maxLoadDistance, this.safeRadius + 8);
 
         System.out.println("[World] Async Pipeline Initialized (Snapshot Mode)" + numWorkers);
     }
@@ -148,18 +159,32 @@ public class World implements MeshBuilder.WorldAccess {
     private boolean submitChunkIfNeeded(int cx, int cz, ChunkGenerationTask.Priority priority) {
         long key = chunkKey(cx, cz);
         Chunk chunk = chunks.get(key);
+        if (chunk != null && chunk.getPhase() != Chunk.Phase.EMPTY) {
+            touchChunk(key);
+            return false;
+        }
         if (chunk == null || chunk.getPhase() == Chunk.Phase.EMPTY) {
             if (!pendingChunks.contains(key)) {
                 // Submit to executor (handles check disk -> check generate)
                 if (genExecutor.submit(cx, cz, priority)) {
                     pendingChunks.add(key);
-                    if (chunk == null)
+                    touchChunk(key);
+                    if (chunk == null) {
                         chunks.put(key, new Chunk(cx, cz)); // Placeholder
+                    }
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    private void touchChunk(long key) {
+        chunkLastAccessTick.put(key, ++chunkAccessClock);
+    }
+
+    private void touchChunk(Chunk chunk) {
+        touchChunk(chunkKey(chunk.getX(), chunk.getZ()));
     }
 
     public void saveWorld() {
@@ -213,7 +238,7 @@ public class World implements MeshBuilder.WorldAccess {
         // 1. Processa nuovi chunk generati (TERRENO)
         int processedTerrain = 0;
         ChunkGenerationTask terrainTask;
-        while (processedTerrain < 16 && (terrainTask = genExecutor.pollCompleted()) != null) {
+        while (processedTerrain < MAX_TERRAIN_INTEGRATIONS_PER_FRAME && (terrainTask = genExecutor.pollCompleted()) != null) {
             if (!terrainTask.cancelled) {
                 integrateCompletedTerrain(terrainTask);
             }
@@ -222,18 +247,16 @@ public class World implements MeshBuilder.WorldAccess {
 
         // 2. Processa LUCE completata (Fase 2A)
         int processedLight = 0;
-        final int MAX_LIGHT_PER_FRAME = 32;
         LightPropagationTask lightTask;
-        while (processedLight < MAX_LIGHT_PER_FRAME && (lightTask = genExecutor.pollCompletedLight()) != null) {
+        while (processedLight < MAX_LIGHT_INTEGRATIONS_PER_FRAME && (lightTask = genExecutor.pollCompletedLight()) != null) {
             integrateCompletedLight(lightTask);
             processedLight++;
         }
 
         // 3. Processa mesh pronte (Fase 2B)
         int processedMesh = 0;
-        final int MAX_MESH_UPLOAD_PER_FRAME = 4;
         ChunkMeshTask meshTask;
-        while (processedMesh < MAX_MESH_UPLOAD_PER_FRAME && (meshTask = genExecutor.pollCompletedMesh()) != null) {
+        while (processedMesh < MAX_MESH_UPLOADS_PER_FRAME && (meshTask = genExecutor.pollCompletedMesh()) != null) {
             integrateCompletedMesh(meshTask);
             processedMesh++;
         }
@@ -245,14 +268,20 @@ public class World implements MeshBuilder.WorldAccess {
     private void integrateCompletedTerrain(ChunkGenerationTask task) {
         long key = chunkKey(task.chunkX, task.chunkZ);
         pendingChunks.remove(key);
+        if (!isCompletedTerrainStillRelevant(task.chunkX, task.chunkZ)) {
+            if (task.loadedChunk != null) {
+                task.loadedChunk.cleanup();
+            }
+            chunks.remove(key);
+            chunkLastAccessTick.remove(key);
+            return;
+        }
 
         if (task.loadedChunk != null) {
             // Chunk loaded from disk!
             chunks.put(key, task.loadedChunk);
-            short[] lightData = task.loadedChunk.getLightData();
-            int testIdx = (200 * 16 + 8) * 16 + 8;
-            int testVal = testIdx < lightData.length ? lightData[testIdx] : -1;
-            int skyComponent = testVal & 0xF; // Extract skylight component
+            touchChunk(key);
+            int skyComponent = task.loadedChunk.getSkyLight(8, 200, 8);
 
             // If skylight at y=200 is not full (15), force recalculation
             if (skyComponent != 15) {
@@ -270,6 +299,7 @@ public class World implements MeshBuilder.WorldAccess {
         if (chunk == null) {
             chunk = new Chunk(task.chunkX, task.chunkZ);
             chunks.put(key, chunk);
+            touchChunk(key);
         } else if (chunk.getPhase().ordinal() >= Chunk.Phase.TERRAIN.ordinal()) {
             // Chunk already generated (e.g., by generateChunkSync), skip overwrite
             System.out.println("[DEBUG Terrain] Skipping overwrite for chunk " + task.chunkX + "," + task.chunkZ
@@ -284,6 +314,7 @@ public class World implements MeshBuilder.WorldAccess {
         }
 
         chunk.setPhase(Chunk.Phase.TERRAIN);
+        touchChunk(key);
     }
 
     private void integrateCompletedLight(LightPropagationTask task) {
@@ -339,6 +370,27 @@ public class World implements MeshBuilder.WorldAccess {
         if (chunk == null)
             return;
 
+        if (task.sectionY >= 0) {
+            if (!chunk.isCurrentMeshBatch(task.batchId)) {
+                return;
+            }
+
+            chunk.uploadSectionMesh(
+                    task.sectionY,
+                    0,
+                    task.meshData.solidVertices,
+                    task.meshData.transparentVertices,
+                    task.meshData.waterVertices);
+            chunk.uploadSectionCustomMeshes(task.sectionY, task.meshData.customMeshes);
+
+            if (chunk.finishSectionMesh(task.batchId)
+                    && chunk.getPhase() == Chunk.Phase.LIGHT_DONE
+                    && chunk.hasAllRenderableSectionMeshes()) {
+                chunk.setPhase(Chunk.Phase.MESH_DONE);
+            }
+            return;
+        }
+
         chunk.uploadMesh(
                 task.meshData.solidVertices,
                 task.meshData.transparentVertices,
@@ -361,14 +413,19 @@ public class World implements MeshBuilder.WorldAccess {
     public void maintainChunks(float playerX, float playerZ) {
         int pcx = floorDiv((int) playerX, config.chunkSize);
         int pcz = floorDiv((int) playerZ, config.chunkSize);
+        playerChunkX = pcx;
+        playerChunkZ = pcz;
 
         // ========== FASE 1: CARICAMENTO TERRENO ==========
-        int maxSubmitPerFrame = 8;
+        int maxSubmitPerFrame = MAX_TERRAIN_SUBMISSIONS_PER_FRAME;
         int submitted = 0;
 
         // 1a. Safe radius
         for (int dz = -safeRadius; dz <= safeRadius && submitted < maxSubmitPerFrame; dz++) {
             for (int dx = -safeRadius; dx <= safeRadius && submitted < maxSubmitPerFrame; dx++) {
+                if (!ChunkLoadingPolicy.isInsideRadius(dx, dz, safeRadius)) {
+                    continue;
+                }
                 if (submitChunkIfNeeded(pcx + dx, pcz + dz, ChunkGenerationTask.Priority.CRITICAL)) {
                     submitted++;
                 }
@@ -380,8 +437,12 @@ public class World implements MeshBuilder.WorldAccess {
             int R = maxLoadDistance;
             for (int dx = -R; dx <= R && submitted < maxSubmitPerFrame; dx++) {
                 for (int dz = -R; dz <= R && submitted < maxSubmitPerFrame; dz++) {
-                    if (Math.abs(dx) <= safeRadius && Math.abs(dz) <= safeRadius)
+                    if (!ChunkLoadingPolicy.isInsideRadius(dx, dz, R)) {
                         continue;
+                    }
+                    if (ChunkLoadingPolicy.isInsideRadius(dx, dz, safeRadius)) {
+                        continue;
+                    }
                     int cx = pcx + dx;
                     int cz = pcz + dz;
                     if (!isChunkInFrustum(cx, cz))
@@ -397,16 +458,11 @@ public class World implements MeshBuilder.WorldAccess {
 
         // ========== FASE 2: PIPELINE ==========
         int tasksSubmitted = 0;
-        final int MAX_TASKS_PER_FRAME = 16;
-        final int MAX_PENDING_QUEUE = 120; // 32 workers * 4 tasks buffer
-
-        // Backpressure check
-        if (genExecutor.getLightQueueSize() > MAX_PENDING_QUEUE ||
-                genExecutor.getMeshQueueSize() > MAX_PENDING_QUEUE) {
-            // Pipeline saturated, skip submission for this frame
-            unloadChunksOutsideView(pcx, pcz);
-            return;
-        }
+        int meshChunksSubmitted = 0;
+        int featuresIntegrated = 0;
+        final int MAX_TASKS_PER_FRAME = MAX_PIPELINE_TASK_SUBMISSIONS_PER_FRAME;
+        int lightQueueBudget = Math.max(0, MAX_PENDING_QUEUE - genExecutor.getLightQueueSize());
+        int meshQueueBudget = Math.max(0, MAX_PENDING_QUEUE - genExecutor.getMeshQueueSize());
 
         for (Chunk chunk : chunks.values()) {
             if (tasksSubmitted >= MAX_TASKS_PER_FRAME)
@@ -419,8 +475,12 @@ public class World implements MeshBuilder.WorldAccess {
 
             // STEP 1: TERRAIN → FEATURES
             if (chunk.getPhase() == Chunk.Phase.TERRAIN) {
+                if (featuresIntegrated >= MAX_FEATURE_INTEGRATIONS_PER_FRAME) {
+                    continue;
+                }
                 if (areNeighborsAtLeast(chunk, Chunk.Phase.TERRAIN)) {
                     ensureFeatures(chunk);
+                    featuresIntegrated++;
                 } else if (chunk.getX() == 0 && chunk.getZ() == 0) {
                     System.out.println("[DEBUG Pipeline] Chunk 0,0 TERRAIN waiting for neighbors");
                 }
@@ -428,9 +488,13 @@ public class World implements MeshBuilder.WorldAccess {
 
             // STEP 2: FEATURES → LIGHT_DONE
             else if (chunk.getPhase() == Chunk.Phase.FEATURES) {
+                if (lightQueueBudget <= 0) {
+                    continue;
+                }
                 if (areNeighborsAtLeast(chunk, Chunk.Phase.FEATURES)) {
                     submitLightTask(chunk);
                     tasksSubmitted++;
+                    lightQueueBudget--;
                 } else if (chunk.getX() == 0 && chunk.getZ() == 0) {
                     System.out.println("[DEBUG Pipeline] Chunk 0,0 FEATURES waiting for neighbors");
                 }
@@ -438,9 +502,18 @@ public class World implements MeshBuilder.WorldAccess {
 
             // STEP 3: LIGHT_DONE → MESH_DONE
             else if (chunk.getPhase() == Chunk.Phase.LIGHT_DONE) {
+                if (meshChunksSubmitted >= MAX_MESH_CHUNK_SUBMISSIONS_PER_FRAME || meshQueueBudget <= 0) {
+                    continue;
+                }
                 if (areNeighborsAtLeast(chunk, Chunk.Phase.LIGHT_DONE)) {
-                    submitMeshTask(chunk);
-                    tasksSubmitted++;
+                    int meshSectionBudget = Math.min(MAX_SECTION_MESH_TASKS_PER_CHUNK,
+                            Math.min(meshQueueBudget, MAX_TASKS_PER_FRAME - tasksSubmitted));
+                    int sectionTasks = submitMeshTask(chunk, meshSectionBudget);
+                    if (sectionTasks > 0) {
+                        tasksSubmitted += sectionTasks;
+                        meshQueueBudget -= sectionTasks;
+                        meshChunksSubmitted++;
+                    }
                 }
             }
         }
@@ -528,6 +601,10 @@ public class World implements MeshBuilder.WorldAccess {
         // RIMOSSO: LightPropagator.recomputeChunkSkyLightVertical(this, chunk);
 
         chunk.setPhase(Chunk.Phase.FEATURES);
+        // Compact flat arrays into sparse sections now that block data is final.
+        // This frees the large blocks[]/light[]/fluidData[] flat arrays and replaces
+        // them with ChunkSection objects only for non-empty 16×16×16 y-slices.
+        chunk.compactToSections();
     }
 
     /**
@@ -545,7 +622,19 @@ public class World implements MeshBuilder.WorldAccess {
         return true;
     }
 
-    private void submitMeshTask(Chunk chunk) {
+    private int submitMeshTask(Chunk chunk, int maxSectionTasks) {
+        if (maxSectionTasks <= 0) {
+            return 0;
+        }
+
+        ArrayList<Integer> sectionsToMesh = selectSectionsForMesh(chunk, maxSectionTasks);
+        if (sectionsToMesh.isEmpty()) {
+            if (chunk.getPhase() == Chunk.Phase.LIGHT_DONE && chunk.hasAllRenderableSectionMeshes()) {
+                chunk.setPhase(Chunk.Phase.MESH_DONE);
+            }
+            return 0;
+        }
+
         Chunk[][] neighbors = new Chunk[3][3];
         for (int dz = -1; dz <= 1; dz++) {
             for (int dx = -1; dx <= 1; dx++) {
@@ -558,8 +647,80 @@ public class World implements MeshBuilder.WorldAccess {
                 neighbors,
                 config.chunkSize, config.worldHeight, worldGenerator.getBiomeProvider());
 
-        chunk.setMeshPending(true);
-        genExecutor.submitMeshTask(chunk.getX(), chunk.getZ(), snapshot);
+        int batchId = chunk.beginSectionMeshBatch(sectionsToMesh.size());
+        for (int sy : sectionsToMesh) {
+            genExecutor.submitMeshTask(chunk.getX(), chunk.getZ(), snapshot, sy, batchId);
+        }
+        return sectionsToMesh.size();
+    }
+
+    private ArrayList<Integer> selectSectionsForMesh(Chunk chunk, int maxSections) {
+        ArrayList<Integer> visibleSections = new ArrayList<>();
+        ArrayList<Integer> nearBackgroundSections = new ArrayList<>();
+        boolean nearPlayer = isNearPlayerChunk(chunk);
+
+        for (int sy = 0; sy < Chunk.SECTION_COUNT; sy++) {
+            if (!chunk.hasRenderableSection(sy) || chunk.isSectionMeshReady(sy)) {
+                continue;
+            }
+
+            if (isSectionInLoadingFrustum(chunk, sy)) {
+                visibleSections.add(sy);
+            } else if (nearPlayer) {
+                nearBackgroundSections.add(sy);
+            }
+        }
+
+        Comparator<Integer> byVerticalPriority = Comparator.comparingInt(this::sectionDistanceFromPlayer);
+        visibleSections.sort(byVerticalPriority);
+        nearBackgroundSections.sort(byVerticalPriority);
+
+        ArrayList<Integer> selected = new ArrayList<>(Math.min(maxSections, Chunk.SECTION_COUNT));
+        appendLimitedSections(selected, visibleSections, maxSections);
+        appendLimitedSections(selected, nearBackgroundSections, maxSections);
+        return selected;
+    }
+
+    private void appendLimitedSections(ArrayList<Integer> selected, ArrayList<Integer> source, int maxSections) {
+        for (int sy : source) {
+            if (selected.size() >= maxSections) {
+                return;
+            }
+            selected.add(sy);
+        }
+    }
+
+    private boolean isNearPlayerChunk(Chunk chunk) {
+        return Math.abs(chunk.getX() - playerChunkX) <= safeRadius
+                && Math.abs(chunk.getZ() - playerChunkZ) <= safeRadius;
+    }
+
+    private int sectionDistanceFromPlayer(int sectionY) {
+        int playerSection = Math.max(0, Math.min(Chunk.SECTION_COUNT - 1,
+                (int) Math.floor(currentPlayerY() / ChunkSection.SIZE)));
+        return Math.abs(sectionY - playerSection);
+    }
+
+    private float currentPlayerY() {
+        if (entityManager != null && entityManager.getPlayer() != null) {
+            return entityManager.getPlayer().getY();
+        }
+        return config.worldHeight * 0.5f;
+    }
+
+    private boolean isSectionInLoadingFrustum(Chunk chunk, int sectionY) {
+        if (!cameraUpdated) {
+            return true;
+        }
+
+        float minX = chunk.getX() * config.chunkSize;
+        float minY = sectionY * ChunkSection.SIZE;
+        float minZ = chunk.getZ() * config.chunkSize;
+        float maxX = minX + config.chunkSize;
+        float maxY = Math.min(config.worldHeight, minY + ChunkSection.SIZE);
+        float maxZ = minZ + config.chunkSize;
+
+        return loadingFrustum.testAABB(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     private void submitLightTask(Chunk chunk) {
@@ -887,6 +1048,7 @@ public class World implements MeshBuilder.WorldAccess {
         if (c.getPhase() == Chunk.Phase.MESH_DONE) {
             c.setPhase(Chunk.Phase.LIGHT_DONE);
             c.setMeshPending(false);
+            c.invalidateSectionMeshReadiness();
         }
     }
 
@@ -908,6 +1070,7 @@ public class World implements MeshBuilder.WorldAccess {
             c.setPhase(Chunk.Phase.FEATURES);
             c.setLightPending(false);
             c.setMeshPending(false);
+            c.invalidateSectionMeshReadiness();
         }
     }
 
@@ -950,9 +1113,8 @@ public class World implements MeshBuilder.WorldAccess {
     }
 
     private void unloadChunksOutsideView(int pcx, int pcz) {
-        int safeRadiusSq = (safeRadius + 2) * (safeRadius + 2);
-        int maxDistSq = (maxLoadDistance + 8) * (maxLoadDistance + 8);
-        int unloadDistSq = (maxLoadDistance + 16) * (maxLoadDistance + 16);
+        int unloadRadius = ChunkLoadingPolicy.unloadRadiusForViewDistance(maxLoadDistance);
+        int unloadDistSq = unloadRadius * unloadRadius;
 
         Iterator<Map.Entry<Long, Chunk>> it = chunks.entrySet().iterator();
         while (it.hasNext()) {
@@ -963,16 +1125,147 @@ public class World implements MeshBuilder.WorldAccess {
             int dz = chunk.getZ() - pcz;
             int distSq = dx * dx + dz * dz;
 
-            if (distSq <= safeRadiusSq)
+            if (distSq <= unloadDistSq) {
                 continue;
-            if (distSq <= maxDistSq)
-                continue;
-
-            if (distSq > unloadDistSq) {
-                chunk.cleanup();
-                pendingChunks.remove(entry.getKey());
-                it.remove();
             }
+            unloadChunk(entry.getKey(), chunk);
+            it.remove();
+        }
+
+        enforceResidentChunkBudget(pcx, pcz);
+        enforceResidentSectionMeshBudget(pcx, pcz);
+    }
+
+    private void enforceResidentChunkBudget(int pcx, int pcz) {
+        int maxResident = ChunkLoadingPolicy.maxResidentChunksForViewDistance(maxLoadDistance);
+        if (chunks.size() <= maxResident) {
+            return;
+        }
+
+        ArrayList<Map.Entry<Long, Chunk>> candidates = new ArrayList<>(chunks.entrySet());
+        candidates.removeIf(entry -> pendingChunks.contains(entry.getKey())
+                || isProtectedResidentChunk(entry.getValue(), pcx, pcz));
+        candidates.sort((a, b) -> {
+            long ta = chunkLastAccessTick.getOrDefault(a.getKey(), 0L);
+            long tb = chunkLastAccessTick.getOrDefault(b.getKey(), 0L);
+            if (ta != tb) {
+                return Long.compare(ta, tb);
+            }
+            return Integer.compare(distanceSq(b.getValue(), pcx, pcz), distanceSq(a.getValue(), pcx, pcz));
+        });
+
+        for (Map.Entry<Long, Chunk> entry : candidates) {
+            if (chunks.size() <= maxResident) {
+                return;
+            }
+            if (chunks.remove(entry.getKey(), entry.getValue())) {
+                unloadChunk(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private void enforceResidentSectionMeshBudget(int pcx, int pcz) {
+        int maxSections = ChunkLoadingPolicy.maxResidentSectionMeshesForViewDistance(maxLoadDistance);
+        int meshedSections = getMeshedSectionCount();
+        if (meshedSections <= maxSections) {
+            return;
+        }
+
+        ArrayList<SectionMeshCandidate> candidates = new ArrayList<>();
+        for (Map.Entry<Long, Chunk> entry : chunks.entrySet()) {
+            Chunk chunk = entry.getValue();
+            if (isInsideSafeRadius(chunk, pcx, pcz)) {
+                continue;
+            }
+            for (int sy = 0; sy < Chunk.SECTION_COUNT; sy++) {
+                if (!chunk.isSectionMeshReady(sy)) {
+                    continue;
+                }
+                if (isSectionInLoadingFrustum(chunk, sy)) {
+                    continue;
+                }
+                long lastAccess = chunkLastAccessTick.getOrDefault(entry.getKey(), 0L);
+                candidates.add(new SectionMeshCandidate(chunk, sy, lastAccess, distanceSq(chunk, pcx, pcz)));
+            }
+        }
+
+        candidates.sort((a, b) -> {
+            if (a.lastAccess != b.lastAccess) {
+                return Long.compare(a.lastAccess, b.lastAccess);
+            }
+            return Integer.compare(b.distanceSq, a.distanceSq);
+        });
+
+        for (SectionMeshCandidate candidate : candidates) {
+            if (meshedSections <= maxSections) {
+                return;
+            }
+            if (candidate.chunk.evictSectionMesh(candidate.sectionY)) {
+                if (candidate.chunk.getPhase() == Chunk.Phase.MESH_DONE) {
+                    candidate.chunk.setPhase(Chunk.Phase.LIGHT_DONE);
+                    candidate.chunk.setMeshPending(false);
+                }
+                meshedSections--;
+            }
+        }
+    }
+
+    private int getMeshedSectionCount() {
+        int count = 0;
+        for (Chunk chunk : chunks.values()) {
+            count += chunk.getMeshedSectionCount();
+        }
+        return count;
+    }
+
+    private boolean isInsideSafeRadius(Chunk chunk, int pcx, int pcz) {
+        return ChunkLoadingPolicy.isInsideRadius(chunk.getX() - pcx, chunk.getZ() - pcz, safeRadius);
+    }
+
+    private boolean isProtectedResidentChunk(Chunk chunk, int pcx, int pcz) {
+        return isInsideSafeRadius(chunk, pcx, pcz) || isInsideCurrentLoadSet(chunk, pcx, pcz);
+    }
+
+    private boolean isInsideCurrentLoadSet(Chunk chunk, int pcx, int pcz) {
+        int dx = chunk.getX() - pcx;
+        int dz = chunk.getZ() - pcz;
+        if (!ChunkLoadingPolicy.isInsideRadius(dx, dz, maxLoadDistance)) {
+            return false;
+        }
+        if (ChunkLoadingPolicy.isInsideRadius(dx, dz, safeRadius)) {
+            return true;
+        }
+        return !cameraUpdated || isChunkInFrustum(chunk.getX(), chunk.getZ());
+    }
+
+    private boolean isCompletedTerrainStillRelevant(int cx, int cz) {
+        int unloadRadius = ChunkLoadingPolicy.unloadRadiusForViewDistance(maxLoadDistance);
+        return ChunkLoadingPolicy.isInsideRadius(cx - playerChunkX, cz - playerChunkZ, unloadRadius);
+    }
+
+    private int distanceSq(Chunk chunk, int pcx, int pcz) {
+        int dx = chunk.getX() - pcx;
+        int dz = chunk.getZ() - pcz;
+        return dx * dx + dz * dz;
+    }
+
+    private void unloadChunk(long key, Chunk chunk) {
+        chunk.cleanup();
+        pendingChunks.remove(key);
+        chunkLastAccessTick.remove(key);
+    }
+
+    private static final class SectionMeshCandidate {
+        final Chunk chunk;
+        final int sectionY;
+        final long lastAccess;
+        final int distanceSq;
+
+        SectionMeshCandidate(Chunk chunk, int sectionY, long lastAccess, int distanceSq) {
+            this.chunk = chunk;
+            this.sectionY = sectionY;
+            this.lastAccess = lastAccess;
+            this.distanceSq = distanceSq;
         }
     }
 
@@ -1184,6 +1477,8 @@ public class World implements MeshBuilder.WorldAccess {
         genExecutor.shutdown();
         chunks.values().forEach(Chunk::cleanup);
         chunks.clear();
+        pendingChunks.clear();
+        chunkLastAccessTick.clear();
     }
 
     public ArrayList<Chunk> getVisibleChunks(Vec3 pos) {
@@ -1191,12 +1486,44 @@ public class World implements MeshBuilder.WorldAccess {
         for (Chunk c : chunks.values()) {
             // Renderizziamo anche se è in fase TERRAIN, anche se magari la mesh non è
             // aggiornatissima
-            if (c.getPhase().ordinal() >= Chunk.Phase.TERRAIN.ordinal() && c.getSolidMesh() != null
-                    && !c.getSolidMesh().isEmpty()) {
+            if (c.getPhase().ordinal() >= Chunk.Phase.TERRAIN.ordinal() && c.hasRenderableMesh()) {
+                touchChunk(c);
                 visible.add(c);
             }
         }
         return visible;
+    }
+
+    public WorldMemoryStats getMemoryStats() {
+        int allocatedSections = 0;
+        int meshedSections = 0;
+        long sectionBytes = 0;
+        long vboBytes = 0;
+        for (Chunk chunk : chunks.values()) {
+            allocatedSections += chunk.getAllocatedSectionCount();
+            meshedSections += chunk.getMeshedSectionCount();
+            sectionBytes += chunk.getEstimatedSectionBytes();
+            vboBytes += chunk.getEstimatedVboBytes();
+        }
+
+        Runtime runtime = Runtime.getRuntime();
+        return new WorldMemoryStats(
+                chunks.size(),
+                pendingChunks.size(),
+                allocatedSections,
+                meshedSections,
+                sectionBytes,
+                vboBytes,
+                runtime.totalMemory() - runtime.freeMemory(),
+                runtime.maxMemory(),
+                safeRadius,
+                ChunkLoadingPolicy.unloadRadiusForViewDistance(maxLoadDistance),
+                ChunkLoadingPolicy.maxResidentChunksForViewDistance(maxLoadDistance),
+                ChunkLoadingPolicy.maxResidentSectionMeshesForViewDistance(maxLoadDistance),
+                genExecutor.getTerrainQueueSize(),
+                genExecutor.getLightQueueSize(),
+                genExecutor.getMeshQueueSize(),
+                genExecutor.getNumWorkers());
     }
 
     public Vec3 getSunDirection() {
@@ -1209,7 +1536,8 @@ public class World implements MeshBuilder.WorldAccess {
      */
     public void setViewDistance(int distance) {
         this.maxLoadDistance = Math.max(4, distance);
-        this.preGenRadius = Math.min(16, distance / 2);
+        this.safeRadius = ChunkLoadingPolicy.safeRadiusForViewDistance(this.maxLoadDistance);
+        this.preGenRadius = Math.min(this.maxLoadDistance, this.safeRadius + 8);
     }
 
     public int getViewDistance() {
@@ -1261,6 +1589,7 @@ public class World implements MeshBuilder.WorldAccess {
 
         chunk.setPhase(Chunk.Phase.TERRAIN);
         chunks.put(key, chunk);
+        touchChunk(key);
     }
 
     private int getSurfaceHeight(int x, int z) {

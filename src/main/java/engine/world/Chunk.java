@@ -6,128 +6,373 @@ import engine.rendering.Mesh;
 
 import java.util.Arrays;
 import java.util.Collection;
-
 import java.util.HashMap;
 import java.util.Map;
 
-import engine.world.BlockPos;
 import engine.world.blockentity.BlockEntity;
 import engine.world.blockentity.ITickableBlockEntity;
-import java.util.Collection;
 
 /**
- * A chunk of the world - 16x384x16 blocks.
+ * A chunk column: 16 × HEIGHT × 16 blocks.
  *
- * In questa versione il chunk supporta più LOD:
- * - LOD 0: massimo dettaglio (quello "normale")
- * - LOD 1..3: versioni semplificate del mesh (meno triangoli)
+ * Block/light/fluid storage is section-based after compaction.
+ * Sections are 16×16×16 slices; empty (all-air) sections are kept null.
+ * This cuts resident memory by 50-85 % compared to always-allocated flat arrays,
+ * because ocean/sky columns have many empty slices.
+ *
+ * Life cycle:
+ *   EMPTY/TERRAIN phase  → flat arrays (lazily allocated, used by terrain gen)
+ *   FEATURES phase       → compactToSections() frees flat arrays, switches to sections
+ *   LIGHT_DONE/MESH_DONE → sections only; flat arrays are null
  */
 public class Chunk {
 
-    public static final int SIZE = 16;
+    public static final int SIZE   = 16;
     public static final int HEIGHT = 384;
-    private volatile boolean meshPending = false;
-    private boolean userModified = false;
-    private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
+    public static final int SECTION_COUNT = HEIGHT / ChunkSection.SIZE; // 24
 
-    /** Numero massimo di livelli di dettaglio per chunk. */
     public static final int MAX_LOD_LEVELS = 4;
 
-    private volatile boolean lightPending = false;
-    private volatile boolean lightStable = false;
-
-    // Chunk coordinates in chunk-space
+    // ---- coordinates ----
     private final int chunkX;
     private final int chunkZ;
 
-    // Raw block data: flattened 3D array [y][z][x]
-    private final short[] blocks;
+    // ---- section-based storage (used after compaction) ----
+    private final ChunkSection[] sections = new ChunkSection[SECTION_COUNT];
+    private boolean compacted = false;
+    // Highest section index (0-based) that contains any block; -1 if none.
+    // Null sections above this index return skylight=15 (open sky).
+    private int topFilledSection = -1;
 
-    // Heightmap (topmost solid block per (x,z))
-    private final int[] heightMap;
+    // ---- flat arrays (used during TERRAIN/FEATURES phases, null after compaction) ----
+    private short[] blocks;
+    private short[] light;
+    private byte[]  fluidData;
 
-    // Mesh per LOD:
-    // solidLOD[0] = mesh normale
-    private final Mesh[] solidLOD = new Mesh[MAX_LOD_LEVELS];
+    // ---- height map (tiny, always resident) ----
+    private final int[] heightMap = new int[SIZE * SIZE];
+
+    // ---- mesh storage ----
+    private final Mesh[] solidLOD       = new Mesh[MAX_LOD_LEVELS];
     private final Mesh[] transparentLOD = new Mesh[MAX_LOD_LEVELS];
-    private final Mesh[] waterLOD = new Mesh[MAX_LOD_LEVELS];
-    // Packed light: bits 15-4 = RGB blocklight (0xRGB), bits 3-0 = skylight (0-15)
-    private final short[] light;
-    private final byte[] fluidData; // 0..15 (fluid level)
+    private final Mesh[] waterLOD       = new Mesh[MAX_LOD_LEVELS];
+    private final Map<String, Mesh> customMeshes = new HashMap<>();
+    private final Mesh[][] solidSectionLOD       = new Mesh[SECTION_COUNT][MAX_LOD_LEVELS];
+    private final Mesh[][] transparentSectionLOD = new Mesh[SECTION_COUNT][MAX_LOD_LEVELS];
+    private final Mesh[][] waterSectionLOD       = new Mesh[SECTION_COUNT][MAX_LOD_LEVELS];
+    @SuppressWarnings("unchecked")
+    private final Map<String, Mesh>[] customSectionMeshes = new Map[SECTION_COUNT];
+    private final boolean[] sectionMeshReady = new boolean[SECTION_COUNT];
 
+    // ---- state flags ----
     public enum Phase {
-        EMPTY, // Chunk non generato
-        TERRAIN, // Terreno generato
-        FEATURES, // Features (alberi, etc.) aggiunte
-        LIGHT_DONE, // Luce calcolata
-        MESH_DONE; // Mesh generata
+        EMPTY, TERRAIN, FEATURES, LIGHT_DONE, MESH_DONE
     }
-
     private Phase phase = Phase.EMPTY;
-
-    /** Quando true, il chunk deve rigenerare la mesh. */
     private boolean dirty = true;
+    private volatile boolean needsSaving = true;
+    private volatile boolean meshPending  = false;
+    private volatile boolean lightPending = false;
+    private volatile boolean lightStable  = false;
+    private int meshBatchId = 0;
+    private int pendingMeshSections = 0;
+    private boolean userModified = false;
+
+    // ---- block entities ----
+    private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
+
+    // ==========================================================
+    // CONSTRUCTOR
+    // ==========================================================
 
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
-
-        this.blocks = new short[SIZE * HEIGHT * SIZE];
-        this.heightMap = new int[SIZE * SIZE];
-        this.light = new short[SIZE * HEIGHT * SIZE];
-        this.fluidData = new byte[SIZE * HEIGHT * SIZE];
-
-        // Initialize with air
-        int airId = Blocks.AIR().getNumericId();
-        Arrays.fill(blocks, (short) airId);
         Arrays.fill(heightMap, -1);
-        Arrays.fill(light, (short) 0);
-        Arrays.fill(fluidData, (byte) 0);
 
-        // Initialize empty meshes for all LODs
         for (int i = 0; i < MAX_LOD_LEVELS; i++) {
-            solidLOD[i] = new Mesh();
+            solidLOD[i]       = new Mesh();
             transparentLOD[i] = new Mesh();
-            waterLOD[i] = new Mesh();
+            waterLOD[i]       = new Mesh();
         }
+        // blocks / light / fluidData intentionally NOT allocated here.
+        // They are allocated lazily via getBlockData() / getLightData() / getFluidData()
+        // and freed after compactToSections().
     }
 
-    // ==================== INTERNAL INDEXING ====================
+    // ==========================================================
+    // FLAT-ARRAY LAZY ACCESSORS (pre-compaction)
+    // ==========================================================
+
+    /**
+     * Returns the backing flat blocks array (lazily allocated).
+     * Valid only before compaction (TERRAIN/FEATURES phases).
+     * After compaction, builds a temporary flat copy from sections
+     * (use sparingly – only for legacy read paths like FeatureGenerator).
+     */
+    public short[] getBlockData() {
+        if (compacted) {
+            return buildFlatBlocks();
+        }
+        if (blocks == null) {
+            blocks = new short[SIZE * HEIGHT * SIZE];
+            Arrays.fill(blocks, (short) Blocks.AIR().getNumericId());
+        }
+        return blocks;
+    }
+
+    /** Same as above for light data. */
+    public short[] getLightData() {
+        if (compacted) {
+            return buildFlatLight();
+        }
+        if (light == null) {
+            light = new short[SIZE * HEIGHT * SIZE];
+        }
+        return light;
+    }
+
+    /** Same as above for fluid data. */
+    public byte[] getFluidData() {
+        if (compacted) {
+            return buildFlatFluid();
+        }
+        if (fluidData == null) {
+            fluidData = new byte[SIZE * HEIGHT * SIZE];
+        }
+        return fluidData;
+    }
+
+    public void setFluidData(byte[] data) {
+        if (compacted) {
+            int N = ChunkSection.TOTAL;
+            for (int sy = 0; sy < SECTION_COUNT; sy++) {
+                int base = sy * N;
+                boolean hasFluid = false;
+                for (int i = 0; i < N; i++) {
+                    if (data[base + i] != 0) { hasFluid = true; break; }
+                }
+                if (hasFluid || sections[sy] != null) {
+                    ChunkSection sec = getOrCreateSection(sy);
+                    System.arraycopy(data, base, sec.fluidData, 0, N);
+                    if (hasFluid && sy > topFilledSection) {
+                        topFilledSection = sy;
+                    }
+                }
+            }
+        } else {
+            if (fluidData == null) fluidData = new byte[SIZE * HEIGHT * SIZE];
+            int len = Math.min(data.length, fluidData.length);
+            System.arraycopy(data, 0, fluidData, 0, len);
+        }
+        markDirty();
+    }
+
+    // ==========================================================
+    // SECTION COMPACTION
+    // ==========================================================
+
+    /**
+     * Converts flat arrays to section-based storage.
+     * Skips sections that are entirely air (null sections = 0 bytes).
+     * Frees flat arrays so they can be GC'd.
+     *
+     * Call after ensureFeatures() / ChunkSerializer.loadInto().
+     */
+    public void compactToSections() {
+        if (compacted) return;
+
+        int airId = Blocks.AIR().getNumericId();
+        int N = ChunkSection.TOTAL;
+
+        boolean[] hasMaterial = new boolean[SECTION_COUNT];
+        int computedTopFilledSection = -1;
+
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            int base = sy * N;
+
+            boolean hasBlocks = false;
+            if (blocks != null) {
+                for (int i = 0; i < N; i++) {
+                    if ((blocks[base + i] & 0xFFFF) != airId) { hasBlocks = true; break; }
+                }
+            }
+
+            boolean hasFluid = false;
+            if (fluidData != null) {
+                for (int i = 0; i < N; i++) {
+                    if (fluidData[base + i] != 0) { hasFluid = true; break; }
+                }
+            }
+
+            hasMaterial[sy] = hasBlocks || hasFluid;
+            if (hasMaterial[sy]) {
+                computedTopFilledSection = sy;
+            }
+        }
+
+        topFilledSection = computedTopFilledSection;
+
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            int base = sy * N;
+            int defaultSky = defaultSkyForSection(sy);
+
+            boolean hasLight = false;
+            if (light != null) {
+                if (!(sy > computedTopFilledSection && isZeroFilledLightSection(light, base))) {
+                    for (int i = 0; i < N; i++) {
+                        if ((light[base + i] & 0xFFFF) != defaultSky) { hasLight = true; break; }
+                    }
+                }
+            }
+
+            if (hasMaterial[sy] || hasLight) {
+                ChunkSection sec = new ChunkSection(airId);
+                if (blocks    != null) System.arraycopy(blocks,    base, sec.blocks,    0, N);
+                if (fluidData != null) System.arraycopy(fluidData, base, sec.fluidData, 0, N);
+                if (hasLight) {
+                    sec.light = new short[N];
+                    System.arraycopy(light, base, sec.light, 0, N);
+                }
+                sections[sy] = sec;
+            }
+        }
+
+        // Free flat arrays.
+        blocks    = null;
+        light     = null;
+        fluidData = null;
+        compacted = true;
+    }
+
+    public boolean isCompacted() { return compacted; }
+
+    /** Exposed so ChunkSnapshot can hold zero-copy references. */
+    public ChunkSection[] getSections() { return sections; }
+
+    public int getTopFilledSection() { return topFilledSection; }
+
+    // ==========================================================
+    // INTERNAL HELPERS
+    // ==========================================================
 
     private int index(int x, int y, int z) {
         return (y * SIZE + z) * SIZE + x;
     }
 
-    public boolean isMeshPending() {
-        return meshPending;
+    private ChunkSection getOrCreateSection(int sy) {
+        if (sections[sy] == null) {
+            sections[sy] = new ChunkSection(Blocks.AIR().getNumericId());
+        }
+        return sections[sy];
     }
 
-    public boolean isLightPending() {
-        return lightPending;
+    private int defaultSkyForSection(int sy) {
+        return sy > topFilledSection ? 15 : 0;
     }
 
-    public void setLightPending(boolean p) {
-        this.lightPending = p;
+    private boolean sectionHasNonDefaultLight(short[] lightBuffer, int base, int defaultSky) {
+        for (int i = 0; i < ChunkSection.TOTAL; i++) {
+            if ((lightBuffer[base + i] & 0xFFFF) != defaultSky) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    public void setMeshPending(boolean p) {
-        this.meshPending = p;
+    private boolean isZeroFilledLightSection(short[] lightBuffer, int base) {
+        for (int i = 0; i < ChunkSection.TOTAL; i++) {
+            if (lightBuffer[base + i] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
-    // ==================== BLOCK ACCESS ====================
+    private void refreshTopFilledSection() {
+        int airId = Blocks.AIR().getNumericId();
+        topFilledSection = -1;
+        for (int sy = SECTION_COUNT - 1; sy >= 0; sy--) {
+            ChunkSection sec = sections[sy];
+            if (sec != null && sec.hasMaterial(airId)) {
+                topFilledSection = sy;
+                return;
+            }
+        }
+    }
+
+    private short[] buildFlatBlocks() {
+        int airId = Blocks.AIR().getNumericId();
+        short[] flat = new short[SIZE * HEIGHT * SIZE];
+        Arrays.fill(flat, (short) airId);
+        int N = ChunkSection.TOTAL;
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            if (sections[sy] != null) {
+                System.arraycopy(sections[sy].blocks, 0, flat, sy * N, N);
+            }
+        }
+        return flat;
+    }
+
+    private short[] buildFlatLight() {
+        short[] flat = new short[SIZE * HEIGHT * SIZE];
+        int N = ChunkSection.TOTAL;
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            if (sections[sy] != null && sections[sy].light != null) {
+                System.arraycopy(sections[sy].light, 0, flat, sy * N, N);
+            } else if (defaultSkyForSection(sy) != 0) {
+                Arrays.fill(flat, sy * N, (sy + 1) * N, (short) defaultSkyForSection(sy));
+            }
+        }
+        return flat;
+    }
+
+    private byte[] buildFlatFluid() {
+        byte[] flat = new byte[SIZE * HEIGHT * SIZE];
+        int N = ChunkSection.TOTAL;
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            if (sections[sy] != null) {
+                System.arraycopy(sections[sy].fluidData, 0, flat, sy * N, N);
+            }
+        }
+        return flat;
+    }
+
+    // ==========================================================
+    // BLOCK ACCESS
+    // ==========================================================
 
     public int getBlock(int x, int y, int z) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
             return Blocks.AIR().getNumericId();
+        if (compacted) {
+            ChunkSection sec = sections[y >> 4];
+            return sec == null ? Blocks.AIR().getNumericId() : sec.getBlock(x, y & 15, z);
         }
-        return blocks[index(x, y, z)];
+        if (blocks == null) return Blocks.AIR().getNumericId();
+        return blocks[index(x, y, z)] & 0xFFFF;
     }
 
     public void setBlock(int x, int y, int z, int blockId) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
-            return;
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return;
+        if (compacted) {
+            int sy = y >> 4;
+            int ly = y & 15;
+            if (blockId == Blocks.AIR().getNumericId()) {
+                ChunkSection sec = sections[sy];
+                if (sec != null) {
+                    sec.setBlock(x, ly, z, blockId);
+                    if (sy == topFilledSection && !sec.hasMaterial(Blocks.AIR().getNumericId())) {
+                        refreshTopFilledSection();
+                    }
+                }
+            } else {
+                getOrCreateSection(sy).setBlock(x, ly, z, blockId);
+                if (sy > topFilledSection) topFilledSection = sy;
+            }
+        } else {
+            getBlockData()[index(x, y, z)] = (short) blockId;
         }
-        blocks[index(x, y, z)] = (short) blockId;
         markDirty();
     }
 
@@ -135,298 +380,499 @@ public class Chunk {
         return Blocks.get(getBlock(x, y, z));
     }
 
-    // ==================== LIGHT (PACKED FORMAT) ====================
-    // Bit layout: [15:4] = RGB blocklight (0xRGB), [3:0] = skylight (0-15)
+    // ==========================================================
+    // LIGHT
+    // ==========================================================
 
     public int getBlockLight(int x, int y, int z) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
-            return 0;
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return 0;
+        if (compacted) {
+            ChunkSection sec = sections[y >> 4];
+            return sec == null ? 0 : sec.getBlockLight(x, y & 15, z);
         }
+        if (light == null) return 0;
         return (light[index(x, y, z)] >> 4) & 0xFFF;
     }
 
     public void setBlockLight(int x, int y, int z, int level) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) {
-            return;
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return;
+        if (compacted) {
+            int sy = y >> 4;
+            ChunkSection sec = sections[sy];
+            if (sec == null && (level & 0xFFF) == 0) return;
+            getOrCreateSection(sy).setBlockLight(x, y & 15, z, level);
+        } else {
+            int idx = index(x, y, z);
+            int sky = getLightData()[idx] & 0xF;
+            getLightData()[idx] = (short) (((level & 0xFFF) << 4) | sky);
         }
-        int idx = index(x, y, z);
-        int sky = light[idx] & 0xF;
-        light[idx] = (short) (((level & 0xFFF) << 4) | sky);
         markDirty();
     }
 
     public int getSkyLight(int x, int y, int z) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
-            return 0;
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return 0;
+        if (compacted) {
+            int sy = y >> 4;
+            ChunkSection sec = sections[sy];
+            if (sec == null) return (sy > topFilledSection) ? 15 : 0;
+            if (sec.getLightArray() == null) return defaultSkyForSection(sy);
+            return sec.getSkyLight(x, y & 15, z);
+        }
+        if (light == null) return 0;
         return light[index(x, y, z)] & 0xF;
     }
 
     public void setSkyLight(int x, int y, int z, int level) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
-            return;
-        int idx = index(x, y, z);
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return;
         int clamped = Math.max(0, Math.min(15, level));
-        int rgb = (light[idx] >> 4) & 0xFFF;
-        light[idx] = (short) ((rgb << 4) | clamped);
+        if (compacted) {
+            int sy = y >> 4;
+            ChunkSection sec = sections[sy];
+            if (sec == null && clamped == defaultSkyForSection(sy)) return;
+            getOrCreateSection(sy).setSkyLight(x, y & 15, z, clamped);
+        } else {
+            int idx = index(x, y, z);
+            int rgb = (getLightData()[idx] >> 4) & 0xFFF;
+            getLightData()[idx] = (short) ((rgb << 4) | clamped);
+        }
         markDirty();
     }
 
-    /** Returns the packed light array. Format: [15:4] = RGB, [3:0] = sky */
-    public short[] getLightData() {
-        return light;
+    /**
+     * Bulk-apply the packed light buffer computed by the light worker.
+     * Distributes into sections (lazy-creating them for non-zero light).
+     */
+    public void applyLightData(short[] lightBuffer) {
+        if (lightBuffer.length != SIZE * HEIGHT * SIZE) {
+            System.out.println("[ERROR] applyLightData size mismatch: got " + lightBuffer.length);
+            return;
+        }
+        invalidateSectionMeshReadiness();
+        if (compacted) {
+            int N = ChunkSection.TOTAL;
+            for (int sy = 0; sy < SECTION_COUNT; sy++) {
+                int base = sy * N;
+                int defaultSky = defaultSkyForSection(sy);
+                boolean hasNonDefaultLight = sectionHasNonDefaultLight(lightBuffer, base, defaultSky);
+                if (sections[sy] != null) {
+                    if (hasNonDefaultLight) {
+                        sections[sy].applyLightData(lightBuffer, base);
+                    } else if (sections[sy].hasMaterial(Blocks.AIR().getNumericId())) {
+                        sections[sy].clearLight();
+                    } else {
+                        cleanupSectionMeshes(sy);
+                        sections[sy] = null;
+                    }
+                } else {
+                    // Create a section only for light that differs from the implicit section default.
+                    if (hasNonDefaultLight) {
+                        ChunkSection sec = getOrCreateSection(sy);
+                        sec.applyLightData(lightBuffer, base);
+                    }
+                }
+            }
+        } else {
+            if (light == null) light = new short[SIZE * HEIGHT * SIZE];
+            System.arraycopy(lightBuffer, 0, light, 0, lightBuffer.length);
+        }
     }
 
-    // ==================== SERIALIZATION STATE ====================
-    private volatile boolean needsSaving = true; // Default to true (newly generated chunks need save)
+    // ==========================================================
+    // FLUID
+    // ==========================================================
 
-    public boolean needsSaving() {
-        return needsSaving;
-    }
-
-    public void markSaved() {
-        this.needsSaving = false;
-    }
-
-    public void markDirty() {
-        this.needsSaving = true;
-        this.dirty = true; // Also trigger mesh rebuild if needed
-    }
-
-    // ==================== FLUID DATA ====================
     public int getFluidLevel(int x, int y, int z) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
-            return 0;
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return 0;
+        if (compacted) {
+            ChunkSection sec = sections[y >> 4];
+            return sec == null ? 0 : sec.getFluidLevel(x, y & 15, z);
+        }
+        if (fluidData == null) return 0;
         return fluidData[index(x, y, z)] & 0xFF;
     }
 
     public void setFluidLevel(int x, int y, int z, int level) {
-        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE)
-            return;
-        byte newLevel = (byte) Math.max(0, Math.min(15, level));
-        if (fluidData[index(x, y, z)] != newLevel) {
-            fluidData[index(x, y, z)] = newLevel;
-            markDirty();
+        if (x < 0 || x >= SIZE || y < 0 || y >= HEIGHT || z < 0 || z >= SIZE) return;
+        if (compacted) {
+            byte newLevel = (byte) Math.max(0, Math.min(15, level));
+            int sy = y >> 4;
+            if (newLevel == 0 && sections[sy] == null) return;
+            ChunkSection sec = (newLevel != 0) ? getOrCreateSection(sy) : sections[sy];
+            if (sec != null && sec.fluidData[ChunkSection.index(x, y & 15, z)] != newLevel) {
+                sec.fluidData[ChunkSection.index(x, y & 15, z)] = newLevel;
+                if (newLevel != 0 && sy > topFilledSection) {
+                    topFilledSection = sy;
+                } else if (newLevel == 0 && sy == topFilledSection && !sec.hasMaterial(Blocks.AIR().getNumericId())) {
+                    refreshTopFilledSection();
+                }
+                markDirty();
+            }
+        } else {
+            byte newLevel = (byte) Math.max(0, Math.min(15, level));
+            if (fluidData == null) fluidData = new byte[SIZE * HEIGHT * SIZE];
+            if (fluidData[index(x, y, z)] != newLevel) {
+                fluidData[index(x, y, z)] = newLevel;
+                markDirty();
+            }
         }
     }
 
-    public byte[] getFluidData() {
-        return fluidData;
-    }
-
-    public void setFluidData(byte[] data) {
-        if (data.length == fluidData.length) {
-            System.arraycopy(data, 0, fluidData, 0, fluidData.length);
-            markDirty();
-        }
-    }
-
-    // ==================== HEIGHT MAP ====================
+    // ==========================================================
+    // HEIGHT MAP
+    // ==========================================================
 
     public int getHeight(int x, int z) {
-        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE)
-            return -1;
+        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE) return -1;
         return heightMap[z * SIZE + x];
     }
 
     public void setHeight(int x, int z, int height) {
-        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE)
-            return;
+        if (x < 0 || x >= SIZE || z < 0 || z >= SIZE) return;
         heightMap[z * SIZE + x] = height;
     }
 
-    // ==================== RAW DATA ACCESS ====================
+    public int[] getHeightMapData() { return heightMap; }
 
-    public short[] getBlockData() {
-        return blocks;
+    // ==========================================================
+    // SERIALIZATION STATE
+    // ==========================================================
+
+    public boolean needsSaving()  { return needsSaving; }
+    public void    markSaved()    { this.needsSaving = false; }
+
+    public void markDirty() {
+        this.needsSaving = true;
+        this.dirty = true;
     }
 
-    public int[] getHeightMapData() {
-        return heightMap;
-    }
+    // ==========================================================
+    // MESH (LOD)
+    // ==========================================================
 
-    // ==================== MESH (LOD) ====================
-
-    /**
-     * Upload mesh data for a specific LOD level.
-     *
-     * @param lod                      LOD level (0..MAX_LOD_LEVELS-1)
-     * @param solidData          vertex data for solid geometry
-     * @param transparentData vertex data for transparent blocks
-     * @param waterData          vertex data for water
-     */
-    public void uploadMeshLOD(int lod,
-            float[] solidData,
-            float[] transparentData,
-            float[] waterData) {
+    public void uploadMeshLOD(int lod, float[] solidData, float[] transparentData, float[] waterData) {
         int level = clampLod(lod);
-
-        solidLOD[level].upload(solidData, false);
-        transparentLOD[level].upload(transparentData, true);
-        waterLOD[level].upload(waterData, true);
+        uploadColumnMeshSlot(solidLOD, level, solidData, false);
+        uploadColumnMeshSlot(transparentLOD, level, transparentData, true);
+        uploadColumnMeshSlot(waterLOD, level, waterData, true);
     }
 
-    /**
-     * Compatibilità con il vecchio codice:
-     * questo metodo carica la mesh solo per LOD 0.
-     */
     public void uploadMesh(float[] solidData, float[] transparentData, float[] waterData) {
         uploadMeshLOD(0, solidData, transparentData, waterData);
-        // Do NOT reset dirty flag here if it implies save-dirty!
-        // But 'dirty' was used for mesh rebuild.
-        // We now have distinct 'needsSaving' for disk IO.
-        // 'dirty' can still mean "Mesh needs rebuild".
         this.dirty = false;
     }
 
-    /**
-     * Chiamato dopo che tutti i LOD sono stati aggiornati.
-     */
-    public void clearDirty() {
-        this.dirty = false;
+    public int beginSectionMeshBatch(int sectionCount) {
+        meshBatchId++;
+        pendingMeshSections = sectionCount;
+        meshPending = sectionCount > 0;
+        dirty = sectionCount > 0;
+        clearColumnMeshes();
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            if (!hasRenderableSection(sy)) {
+                cleanupSectionMeshes(sy);
+            }
+        }
+        return meshBatchId;
     }
 
-    public Mesh getSolidMesh() {
-        return solidLOD[0];
+    public boolean isCurrentMeshBatch(int batchId) {
+        return batchId == meshBatchId;
     }
 
-    public Mesh getTransparentMesh() {
-        return transparentLOD[0];
+    public boolean finishSectionMesh(int batchId) {
+        if (batchId != meshBatchId) {
+            return false;
+        }
+        pendingMeshSections = Math.max(0, pendingMeshSections - 1);
+        if (pendingMeshSections == 0) {
+            meshPending = false;
+            dirty = false;
+            return true;
+        }
+        return false;
     }
 
-    public Mesh getWaterMesh() {
-        return waterLOD[0];
+    public boolean hasRenderableSection(int sectionY) {
+        if (sectionY < 0 || sectionY >= SECTION_COUNT) return false;
+        ChunkSection sec = sections[sectionY];
+        return sec != null && sec.hasMaterial(Blocks.AIR().getNumericId());
     }
 
-    public Mesh getSolidMesh(int lod) {
-        return solidLOD[clampLod(lod)];
+    public void uploadSectionMesh(int sectionY, int lod, float[] solidData, float[] transparentData, float[] waterData) {
+        int level = clampLod(lod);
+        uploadSectionMeshSlot(solidSectionLOD, sectionY, level, solidData, false);
+        uploadSectionMeshSlot(transparentSectionLOD, sectionY, level, transparentData, true);
+        uploadSectionMeshSlot(waterSectionLOD, sectionY, level, waterData, true);
+        sectionMeshReady[sectionY] = true;
     }
 
-    public Mesh getTransparentMesh(int lod) {
-        return transparentLOD[clampLod(lod)];
+    public void uploadSectionCustomMeshes(int sectionY, Map<String, float[]> customData) {
+        Map<String, Mesh> meshes = customSectionMeshes[sectionY];
+        if ((customData == null || customData.isEmpty()) && meshes == null) {
+            return;
+        }
+        if (customData == null) {
+            customData = java.util.Collections.emptyMap();
+        }
+        if (meshes == null) {
+            meshes = new HashMap<>();
+            customSectionMeshes[sectionY] = meshes;
+        }
+        final Map<String, float[]> newCustomData = customData;
+        for (Map.Entry<String, float[]> entry : newCustomData.entrySet()) {
+            if (isEmptyMeshData(entry.getValue())) {
+                continue;
+            }
+            Mesh mesh = meshes.computeIfAbsent(entry.getKey(), k -> new Mesh());
+            mesh.upload(entry.getValue(), true);
+        }
+        meshes.entrySet().removeIf(e -> {
+            if (!newCustomData.containsKey(e.getKey()) || isEmptyMeshData(newCustomData.get(e.getKey()))) {
+                e.getValue().cleanup();
+                return true;
+            }
+            return false;
+        });
     }
 
-    public Mesh getWaterMesh(int lod) {
-        return waterLOD[clampLod(lod)];
+    private Mesh getOrCreateMesh(Mesh[][] meshes, int sectionY, int lod) {
+        Mesh mesh = meshes[sectionY][lod];
+        if (mesh == null) {
+            mesh = new Mesh();
+            meshes[sectionY][lod] = mesh;
+        }
+        return mesh;
+    }
+
+    private void uploadColumnMeshSlot(Mesh[] meshes, int lod, float[] data, boolean transparent) {
+        if (isEmptyMeshData(data)) {
+            if (meshes[lod] != null) {
+                meshes[lod].cleanup();
+                meshes[lod] = null;
+            }
+            return;
+        }
+        if (meshes[lod] == null) {
+            meshes[lod] = new Mesh();
+        }
+        meshes[lod].upload(data, transparent);
+    }
+
+    private void uploadSectionMeshSlot(Mesh[][] meshes, int sectionY, int lod, float[] data, boolean transparent) {
+        if (isEmptyMeshData(data)) {
+            if (meshes[sectionY][lod] != null) {
+                meshes[sectionY][lod].cleanup();
+                meshes[sectionY][lod] = null;
+            }
+            return;
+        }
+        getOrCreateMesh(meshes, sectionY, lod).upload(data, transparent);
+    }
+
+    private boolean isEmptyMeshData(float[] data) {
+        return data == null || data.length == 0;
+    }
+
+    private void clearColumnMeshes() {
+        for (int i = 0; i < MAX_LOD_LEVELS; i++) {
+            if (solidLOD[i] != null) solidLOD[i].cleanup();
+            if (transparentLOD[i] != null) transparentLOD[i].cleanup();
+            if (waterLOD[i] != null) waterLOD[i].cleanup();
+            solidLOD[i] = null;
+            transparentLOD[i] = null;
+            waterLOD[i] = null;
+        }
+        for (Mesh mesh : customMeshes.values()) mesh.cleanup();
+        customMeshes.clear();
+    }
+
+    public void clearDirty() { this.dirty = false; }
+
+    public Mesh getSolidMesh()        { return solidLOD[0]; }
+    public Mesh getTransparentMesh()  { return transparentLOD[0]; }
+    public Mesh getWaterMesh()        { return waterLOD[0]; }
+    public Mesh getSolidMesh(int lod)       { return solidLOD[clampLod(lod)]; }
+    public Mesh getTransparentMesh(int lod) { return transparentLOD[clampLod(lod)]; }
+    public Mesh getWaterMesh(int lod)       { return waterLOD[clampLod(lod)]; }
+    public Mesh getSolidSectionMesh(int sectionY, int lod)       { return solidSectionLOD[sectionY][clampLod(lod)]; }
+    public Mesh getTransparentSectionMesh(int sectionY, int lod) { return transparentSectionLOD[sectionY][clampLod(lod)]; }
+    public Mesh getWaterSectionMesh(int sectionY, int lod)       { return waterSectionLOD[sectionY][clampLod(lod)]; }
+
+    public Map<String, Mesh> getCustomSectionMeshes(int sectionY) {
+        Map<String, Mesh> meshes = customSectionMeshes[sectionY];
+        return meshes != null ? meshes : java.util.Collections.emptyMap();
+    }
+
+    public boolean hasSectionMeshes() {
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            for (int lod = 0; lod < MAX_LOD_LEVELS; lod++) {
+                if ((solidSectionLOD[sy][lod] != null && !solidSectionLOD[sy][lod].isEmpty())
+                        || (transparentSectionLOD[sy][lod] != null && !transparentSectionLOD[sy][lod].isEmpty())
+                        || (waterSectionLOD[sy][lod] != null && !waterSectionLOD[sy][lod].isEmpty())) {
+                    return true;
+                }
+            }
+            Map<String, Mesh> custom = customSectionMeshes[sy];
+            if (custom != null) {
+                for (Mesh mesh : custom.values()) {
+                    if (mesh != null && !mesh.isEmpty()) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public boolean hasRenderableMesh() {
+        return hasSectionMeshes();
+    }
+
+    public int getAllocatedSectionCount() {
+        int count = 0;
+        for (ChunkSection section : sections) {
+            if (section != null) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public int getMeshedSectionCount() {
+        int count = 0;
+        for (boolean ready : sectionMeshReady) {
+            if (ready) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public long getEstimatedSectionBytes() {
+        long bytes = 0;
+        for (ChunkSection section : sections) {
+            if (section != null) {
+                bytes += ChunkSection.TOTAL * Short.BYTES;
+                bytes += ChunkSection.TOTAL;
+                if (section.getLightArray() != null) {
+                    bytes += ChunkSection.TOTAL * Short.BYTES;
+                }
+            }
+        }
+        return bytes;
+    }
+
+    public long getEstimatedVboBytes() {
+        long bytes = 0;
+        for (int lod = 0; lod < MAX_LOD_LEVELS; lod++) {
+            bytes += estimatedMeshBytes(solidLOD[lod]);
+            bytes += estimatedMeshBytes(transparentLOD[lod]);
+            bytes += estimatedMeshBytes(waterLOD[lod]);
+        }
+        for (Mesh mesh : customMeshes.values()) {
+            bytes += estimatedMeshBytes(mesh);
+        }
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            for (int lod = 0; lod < MAX_LOD_LEVELS; lod++) {
+                bytes += estimatedMeshBytes(solidSectionLOD[sy][lod]);
+                bytes += estimatedMeshBytes(transparentSectionLOD[sy][lod]);
+                bytes += estimatedMeshBytes(waterSectionLOD[sy][lod]);
+            }
+            Map<String, Mesh> custom = customSectionMeshes[sy];
+            if (custom != null) {
+                for (Mesh mesh : custom.values()) {
+                    bytes += estimatedMeshBytes(mesh);
+                }
+            }
+        }
+        return bytes;
+    }
+
+    private long estimatedMeshBytes(Mesh mesh) {
+        return mesh == null ? 0 : mesh.getEstimatedVboBytes();
+    }
+
+    public boolean isSectionMeshReady(int sectionY) {
+        return sectionY >= 0 && sectionY < SECTION_COUNT && sectionMeshReady[sectionY];
+    }
+
+    public boolean hasAllRenderableSectionMeshes() {
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            if (hasRenderableSection(sy) && !sectionMeshReady[sy]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void invalidateSectionMeshReadiness() {
+        Arrays.fill(sectionMeshReady, false);
+    }
+
+    public boolean evictSectionMesh(int sectionY) {
+        if (!isSectionMeshReady(sectionY)) {
+            return false;
+        }
+        cleanupSectionMeshes(sectionY);
+        return true;
     }
 
     private int clampLod(int lod) {
-        if (lod < 0)
-            return 0;
-        if (lod >= MAX_LOD_LEVELS)
-            return MAX_LOD_LEVELS - 1;
-        return lod;
+        return Math.max(0, Math.min(MAX_LOD_LEVELS - 1, lod));
     }
 
-    // ==================== METODI PER APPLICARE LA LUCE ====================
+    // ==========================================================
+    // STATE
+    // ==========================================================
 
-    /**
-     * Applica i dati di luce packed dal buffer calcolato nel worker thread.
-     * Format: [15:4] = RGB blocklight, [3:0] = skylight
-     */
-    public void applyLightData(short[] lightBuffer) {
-        if (lightBuffer.length != this.light.length) {
-            System.out.println(
-                    "[ERROR] applyLightData FAILED: buffer=" + lightBuffer.length + " light=" + this.light.length);
-            return;
-        }
-        System.arraycopy(lightBuffer, 0, this.light, 0, this.light.length);
-        // Verify copy worked (DEBUG removed)
+    public Phase getPhase()             { return phase; }
+    public void  setPhase(Phase phase)  { this.phase = phase; }
+
+    public boolean isMeshPending()           { return meshPending; }
+    public boolean isLightPending()          { return lightPending; }
+    public void    setMeshPending(boolean p) {
+        this.meshPending = p;
+        if (!p) pendingMeshSections = 0;
     }
+    public void    setLightPending(boolean p){ this.lightPending = p; }
 
-    // ==================== COORDINATES ====================
+    // ==========================================================
+    // COORDINATES
+    // ==========================================================
 
-    public int getX() {
-        return chunkX;
-    }
+    public int getX()       { return chunkX; }
+    public int getZ()       { return chunkZ; }
+    public int getWorldX()  { return chunkX * SIZE; }
+    public int getWorldZ()  { return chunkZ * SIZE; }
 
-    public int getZ() {
-        return chunkZ;
-    }
+    // ==========================================================
+    // BLOCK ENTITIES
+    // ==========================================================
 
-    public int getWorldX() {
-        return chunkX * SIZE;
-    }
-
-    public int getWorldZ() {
-        return chunkZ * SIZE;
-    }
-
-    // ==================== STATE ====================
-
-    public Phase getPhase() {
-        return phase;
-    }
-
-    public void setPhase(Phase phase) {
-        this.phase = phase;
-    }
-
-    // ==================== BLOCK ENTITIES ====================
-
-    /**
-     * Get block entity at local position.
-     */
     public BlockEntity getBlockEntity(int localX, int y, int localZ) {
-        long key = packLocalPos(localX, y, localZ);
-        return blockEntities.get(key);
+        return blockEntities.get(packLocalPos(localX, y, localZ));
     }
 
-    /**
-     * Set block entity at local position.
-     */
     public void setBlockEntity(int localX, int y, int localZ, BlockEntity blockEntity) {
         long key = packLocalPos(localX, y, localZ);
-
-        // Remove old block entity
         BlockEntity old = blockEntities.remove(key);
-        if (old != null) {
-            old.onRemoved();
-        }
-
-        // Add new one
-        if (blockEntity != null) {
-            blockEntities.put(key, blockEntity);
-        }
+        if (old != null) old.onRemoved();
+        if (blockEntity != null) blockEntities.put(key, blockEntity);
         markDirty();
     }
 
-    /**
-     * Remove block entity at local position.
-     */
     public BlockEntity removeBlockEntity(int localX, int y, int localZ) {
-        long key = packLocalPos(localX, y, localZ);
-        BlockEntity removed = blockEntities.remove(key);
-        if (removed != null) {
-            removed.onRemoved();
-        }
+        BlockEntity removed = blockEntities.remove(packLocalPos(localX, y, localZ));
+        if (removed != null) removed.onRemoved();
         markDirty();
         return removed;
     }
 
-    /**
-     * Get all block entities in this chunk.
-     */
-    public Collection<BlockEntity> getBlockEntities() {
-        return blockEntities.values();
-    }
+    public Collection<BlockEntity> getBlockEntities()  { return blockEntities.values(); }
+    public boolean                 hasBlockEntities()   { return !blockEntities.isEmpty(); }
 
-    /**
-     * Check if chunk has any block entities.
-     */
-    public boolean hasBlockEntities() {
-        return !blockEntities.isEmpty();
-    }
-
-    /**
-     * Pack local coordinates into a single long key.
-     */
     private long packLocalPos(int x, int y, int z) {
         return ((long) (y & 0xFFFF) << 8) | ((z & 0xF) << 4) | (x & 0xF);
     }
 
-    /**
-     * Tick all tickable block entities.
-     */
     public void tickBlockEntities() {
         for (BlockEntity be : blockEntities.values()) {
             if (be instanceof ITickableBlockEntity && !be.isRemoved()) {
@@ -435,69 +881,75 @@ public class Chunk {
         }
     }
 
-    // ==================== CUSTOM MESHES ====================
-    private final Map<String, Mesh> customMeshes = new HashMap<>();
+    // ==========================================================
+    // CUSTOM MESHES
+    // ==========================================================
 
     public void uploadCustomMeshes(Map<String, float[]> customData) {
-        // Clear existing custom meshes that are not in the new data
-        // For simplicity, we might just recreate them or update them.
-        // But Meshes are heavy OpenGL objects.
-
-        // Strategy:
-        // 1. For each key in customData:
-        // - If exists in customMeshes, update it.
-        // - If not, create new Mesh and update it.
-        // 2. Remove keys from customMeshes that are NOT in customData.
-
-        // 1. Update/Create
+        if (customData == null) {
+            customData = java.util.Collections.emptyMap();
+        }
+        final Map<String, float[]> newCustomData = customData;
         for (Map.Entry<String, float[]> entry : customData.entrySet()) {
+            if (isEmptyMeshData(entry.getValue())) {
+                continue;
+            }
             String texture = entry.getKey();
-            float[] data = entry.getValue();
-
-            Mesh mesh = customMeshes.get(texture);
-            if (mesh == null) {
-                mesh = new Mesh();
-                customMeshes.put(texture, mesh);
-            }
-            mesh.upload(data, true); // Assuming custom meshes might need transparency/alpha check? Or just standard.
-            // Using true (dynamic/transparent) to be safe or false?
-            // Most custom models (e.g. torch) might use transparency (cutout).
+            Mesh mesh = customMeshes.computeIfAbsent(texture, k -> new Mesh());
+            mesh.upload(entry.getValue(), true);
         }
-
-        // 2. Remove unused
-        java.util.Iterator<Map.Entry<String, Mesh>> it = customMeshes.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<String, Mesh> entry = it.next();
-            if (!customData.containsKey(entry.getKey())) {
-                entry.getValue().cleanup();
-                it.remove();
+        customMeshes.entrySet().removeIf(e -> {
+            if (!newCustomData.containsKey(e.getKey()) || isEmptyMeshData(newCustomData.get(e.getKey()))) {
+                e.getValue().cleanup();
+                return true;
             }
-        }
+            return false;
+        });
     }
 
-    public Map<String, Mesh> getCustomMeshes() {
-        return customMeshes;
-    }
+    public Map<String, Mesh> getCustomMeshes() { return customMeshes; }
 
-    // ==================== CLEANUP ====================
+    // ==========================================================
+    // CLEANUP
+    // ==========================================================
 
     public void cleanup() {
         for (int i = 0; i < MAX_LOD_LEVELS; i++) {
-            if (solidLOD[i] != null)
-                solidLOD[i].cleanup();
-            if (transparentLOD[i] != null)
-                transparentLOD[i].cleanup();
-            if (waterLOD[i] != null)
-                waterLOD[i].cleanup();
+            if (solidLOD[i]       != null) solidLOD[i].cleanup();
+            if (transparentLOD[i] != null) transparentLOD[i].cleanup();
+            if (waterLOD[i]       != null) waterLOD[i].cleanup();
         }
-        for (Mesh mesh : customMeshes.values()) {
-            mesh.cleanup();
-        }
+        for (Mesh mesh : customMeshes.values()) mesh.cleanup();
         customMeshes.clear();
 
-        for (BlockEntity be : blockEntities.values()) {
-            be.onRemoved();
+        for (int sy = 0; sy < SECTION_COUNT; sy++) {
+            cleanupSectionMeshes(sy);
         }
+
+        for (BlockEntity be : blockEntities.values()) be.onRemoved();
         blockEntities.clear();
+
+        // Free flat arrays if still present.
+        blocks    = null;
+        light     = null;
+        fluidData = null;
+    }
+
+    private void cleanupSectionMeshes(int sectionY) {
+        for (int i = 0; i < MAX_LOD_LEVELS; i++) {
+            if (solidSectionLOD[sectionY][i] != null) solidSectionLOD[sectionY][i].cleanup();
+            if (transparentSectionLOD[sectionY][i] != null) transparentSectionLOD[sectionY][i].cleanup();
+            if (waterSectionLOD[sectionY][i] != null) waterSectionLOD[sectionY][i].cleanup();
+            solidSectionLOD[sectionY][i] = null;
+            transparentSectionLOD[sectionY][i] = null;
+            waterSectionLOD[sectionY][i] = null;
+        }
+        Map<String, Mesh> custom = customSectionMeshes[sectionY];
+        if (custom != null) {
+            for (Mesh mesh : custom.values()) mesh.cleanup();
+            custom.clear();
+            customSectionMeshes[sectionY] = null;
+        }
+        sectionMeshReady[sectionY] = false;
     }
 }

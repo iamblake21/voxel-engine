@@ -19,6 +19,10 @@ public class Mesh {
 
     public void upload(float[] data, boolean transparent) {
         this.transparent = transparent;
+        if (data == null || data.length == 0) {
+            cleanup();
+            return;
+        }
 
         if (vao == 0) {
             vao = glGenVertexArrays();
@@ -104,6 +108,10 @@ public class Mesh {
 
     public int getVertexCount() {
         return vertexCount;
+    }
+
+    public long getEstimatedVboBytes() {
+        return (long) vertexCount * 15L * Float.BYTES;
     }
 
     public boolean isTransparent() {

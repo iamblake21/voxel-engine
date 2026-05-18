@@ -128,6 +128,10 @@ public class MeshBuilder {
     }
 
     public MeshData buildMeshLOD(ChunkData chunk, WorldAccess world, int lod) {
+        return buildMeshRange(chunk, world, lod, 0, chunkHeight);
+    }
+
+    public MeshData buildMeshRange(ChunkData chunk, WorldAccess world, int lod, int minY, int maxYExclusive) {
         MeshBuffers buffers = THREAD_BUFFERS.get();
         FloatArrayList solidV = buffers.solid;
         FloatArrayList transpV = buffers.transp;
@@ -143,9 +147,11 @@ public class MeshBuilder {
         boolean skipTransparent = lod >= 2;
         boolean simplifiedLighting = lod >= 1;
         boolean aggressiveCull = lod >= 3;
+        int yStart = Math.max(0, minY);
+        int yEnd = Math.min(chunkHeight, Math.max(yStart, maxYExclusive));
 
         for (int x = 0; x < chunkSize; x++) {
-            for (int y = 0; y < chunkHeight; y++) {
+            for (int y = yStart; y < yEnd; y++) {
                 for (int z = 0; z < chunkSize; z++) {
                     int blockId = chunk.getBlock(x, y, z);
                     Block block = Blocks.get(blockId);

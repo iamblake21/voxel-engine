@@ -5,6 +5,7 @@ import engine.utils.Math3D.Mat4;
 import engine.utils.Math3D.Vec3;
 import engine.world.World;
 import engine.world.Chunk;
+import engine.world.ChunkSection;
 import engine.world.block.Blocks;
 import engine.world.gen.MeshBuilder;
 
@@ -477,11 +478,21 @@ public class Renderer {
         for (Chunk chunk : currentVisibleChunks) {
             int lod = calculateChunkLOD(chunk);
             lodCounts[lod]++;
-            Mesh solidMesh = chunk.getSolidMesh(lod);
-            if (solidMesh != null && !solidMesh.isEmpty()) {
-                modelMatrix.setTranslation(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
-                voxelShader.setUniform(uModel, modelMatrix);
-                solidMesh.draw();
+            modelMatrix.setTranslation(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
+            voxelShader.setUniform(uModel, modelMatrix);
+
+            if (!chunk.hasSectionMeshes()) {
+                continue;
+            }
+
+            for (int sy = 0; sy < Chunk.SECTION_COUNT; sy++) {
+                if (!isSectionInFrustum(chunk, sy)) {
+                    continue;
+                }
+                Mesh solidMesh = chunk.getSolidSectionMesh(sy, lod);
+                if (solidMesh != null && !solidMesh.isEmpty()) {
+                    solidMesh.draw();
+                }
             }
         }
 
@@ -531,55 +542,65 @@ public class Renderer {
             Chunk chunk = currentVisibleChunks.get(i);
             int lod = calculateChunkLOD(chunk);
             modelMatrix.setTranslation(chunk.getX() * config.chunkSize, 0, chunk.getZ() * config.chunkSize);
+            voxelShader.setUniform(uModel, modelMatrix);
 
-            // 1. Transparent Mesh
-            Mesh transpMesh = chunk.getTransparentMesh(lod);
-            if (transpMesh != null && !transpMesh.isEmpty()) {
-                voxelShader.setUniform(uWaterPass, 0);
-                voxelShader.setUniform(uUseTextureArray, 1);
-                voxelShader.setUniform(uModel, modelMatrix);
-                atlasTexture.bind(0);
-                transpMesh.draw();
+            if (!chunk.hasSectionMeshes()) {
+                continue;
             }
 
-            // 2. Custom Meshes
-            for (java.util.Map.Entry<String, engine.rendering.Mesh> entry : chunk.getCustomMeshes().entrySet()) {
-                String texturePath = entry.getKey();
-                engine.rendering.Mesh customMesh = entry.getValue();
-                if (customMesh != null && !customMesh.isEmpty()) {
-                    Texture tex = getCustomTexture(texturePath);
-                    if (tex != null) {
-                        voxelShader.setUniform(uWaterPass, 0);
-                        voxelShader.setUniform(uUseTextureArray, 0);
-                        tex.bind(1);
-                        voxelShader.setUniform(uModel, modelMatrix);
-
-                        boolean isOverlay = texturePath.contains("grass_block_side_overlay");
-                        if (isOverlay) {
-                            glEnable(GL_POLYGON_OFFSET_FILL);
-                            glPolygonOffset(-1.0f, -1.0f);
-                        }
-                        customMesh.draw();
-                        if (isOverlay)
-                            glDisable(GL_POLYGON_OFFSET_FILL);
-                        voxelShader.setUniform(uUseTextureArray, 1);
-                    }
+            for (int sy = Chunk.SECTION_COUNT - 1; sy >= 0; sy--) {
+                if (!isSectionInFrustum(chunk, sy)) {
+                    continue;
                 }
-            }
 
-            // 3. Water Mesh
-            Mesh waterMesh = chunk.getWaterMesh(lod);
-            if (waterMesh != null && !waterMesh.isEmpty()) {
-                voxelShader.setUniform(uWaterPass, 1);
-                voxelShader.setUniform(uUseTextureArray, 1);
-                voxelShader.setUniform(uModel, modelMatrix);
-                atlasTexture.bind(0);
-                waterMesh.draw();
+                Mesh transpMesh = chunk.getTransparentSectionMesh(sy, lod);
+                if (transpMesh != null && !transpMesh.isEmpty()) {
+                    voxelShader.setUniform(uWaterPass, 0);
+                    voxelShader.setUniform(uUseTextureArray, 1);
+                    atlasTexture.bind(0);
+                    transpMesh.draw();
+                }
+
+                renderCustomMeshes(chunk.getCustomSectionMeshes(sy));
+
+                Mesh waterMesh = chunk.getWaterSectionMesh(sy, lod);
+                if (waterMesh != null && !waterMesh.isEmpty()) {
+                    voxelShader.setUniform(uWaterPass, 1);
+                    voxelShader.setUniform(uUseTextureArray, 1);
+                    atlasTexture.bind(0);
+                    waterMesh.draw();
+                }
             }
         }
 
         glDepthMask(true);
         voxelShader.unbind();
+    }
+
+    private void renderCustomMeshes(java.util.Map<String, engine.rendering.Mesh> meshes) {
+        for (java.util.Map.Entry<String, engine.rendering.Mesh> entry : meshes.entrySet()) {
+            String texturePath = entry.getKey();
+            engine.rendering.Mesh customMesh = entry.getValue();
+            if (customMesh != null && !customMesh.isEmpty()) {
+                Texture tex = getCustomTexture(texturePath);
+                if (tex != null) {
+                    voxelShader.setUniform(uWaterPass, 0);
+                    voxelShader.setUniform(uUseTextureArray, 0);
+                    tex.bind(1);
+                    voxelShader.setUniform(uModel, modelMatrix);
+
+                    boolean isOverlay = texturePath.contains("grass_block_side_overlay");
+                    if (isOverlay) {
+                        glEnable(GL_POLYGON_OFFSET_FILL);
+                        glPolygonOffset(-1.0f, -1.0f);
+                    }
+                    customMesh.draw();
+                    if (isOverlay)
+                        glDisable(GL_POLYGON_OFFSET_FILL);
+                    voxelShader.setUniform(uUseTextureArray, 1);
+                }
+            }
+        }
     }
 
     // ==================== CUSTOM TEXTURE MANAGEMENT ====================
@@ -664,6 +685,21 @@ public class Renderer {
         }
 
         return visible;
+    }
+
+    private boolean isSectionInFrustum(Chunk chunk, int sectionY) {
+        if (!frustumCullingEnabled) {
+            return true;
+        }
+
+        float minX = chunk.getX() * config.chunkSize;
+        float minY = sectionY * ChunkSection.SIZE;
+        float minZ = chunk.getZ() * config.chunkSize;
+        float maxX = minX + config.chunkSize;
+        float maxY = Math.min(config.worldHeight, minY + ChunkSection.SIZE);
+        float maxZ = minZ + config.chunkSize;
+
+        return frustum.testAABB(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     // ==================== HAND RENDERING ====================

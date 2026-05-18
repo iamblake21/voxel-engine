@@ -4,6 +4,7 @@ import engine.world.gen.ChunkSnapshot;
 import engine.world.gen.MeshBuilder;
 import engine.world.gen.WorldGenerator;
 import engine.world.light.LightPropagator;
+import engine.world.ChunkSection;
 
 import java.util.Comparator;
 import java.util.Map;
@@ -139,7 +140,13 @@ public class WorldGenerationExecutor {
 
         // ChunkSnapshot implementa ENTRAMBE le interfacce ChunkData e WorldAccess
         // quindi lo puoi passare direttamente a entrambi i parametri!
-        task.meshData = builder.buildMesh(task.snapshot, task.snapshot);
+        if (task.sectionY >= 0) {
+            int yStart = task.sectionY * ChunkSection.SIZE;
+            int yEnd = Math.min(chunkHeight, yStart + ChunkSection.SIZE);
+            task.meshData = builder.buildMeshRange(task.snapshot, task.snapshot, 0, yStart, yEnd);
+        } else {
+            task.meshData = builder.buildMesh(task.snapshot, task.snapshot);
+        }
 
         task.complete = true;
         completedMesh.offer(task);
@@ -170,6 +177,11 @@ public class WorldGenerationExecutor {
 
     public void submitMeshTask(int cx, int cz, ChunkSnapshot snapshot) {
         ChunkMeshTask t = new ChunkMeshTask(cx, cz, snapshot);
+        meshQueue.offer(t);
+    }
+
+    public void submitMeshTask(int cx, int cz, ChunkSnapshot snapshot, int sectionY, int batchId) {
+        ChunkMeshTask t = new ChunkMeshTask(cx, cz, snapshot, sectionY, batchId);
         meshQueue.offer(t);
     }
 

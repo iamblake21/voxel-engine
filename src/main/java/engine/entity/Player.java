@@ -102,9 +102,6 @@ public class Player extends LivingEntity implements CommandSender {
 
         updateAnimation(deltaTime);
 
-        if (world != null) {
-            world.maintainChunks(x, z);
-        }
     }
 
     private void handleInput(InputManager input, float deltaTime) {

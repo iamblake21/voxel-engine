@@ -20,6 +20,7 @@ import engine.ui.HotbarGui;
 import game.ui.PlayerInventoryGui;
 import engine.ui.editor.GuiEditorIntegration;
 import engine.world.World;
+import engine.world.WorldMemoryStats;
 import engine.world.Chunk;
 import engine.world.block.Block;
 import engine.world.biome.Biome;
@@ -1163,6 +1164,39 @@ public class ExampleGame implements IGame {
         int percent = (int) ((usedMB * 100) / maxMB);
         String memStr = String.format("Memory: %d MB / %d MB (%d%%)", usedMB, maxMB, percent);
         guiRenderer.renderText(memStr, 10, y, textSize, 1, 1, 1, 1);
+        y += lineHeight;
+
+        if (world != null) {
+            WorldMemoryStats stats = world.getMemoryStats();
+            String chunkMemStr = String.format(
+                    "Chunks: %d/%d pending %d | Sections: %d alloc / %d mesh",
+                    stats.loadedChunks,
+                    stats.maxResidentChunks,
+                    stats.pendingChunks,
+                    stats.allocatedSections,
+                    stats.meshedSections);
+            guiRenderer.renderText(chunkMemStr, 10, y, textSize, 1, 1, 1, 1);
+            y += lineHeight;
+
+            String budgetStr = String.format(
+                    "Budgets: safe %d unload %d sectionMesh %d/%d",
+                    stats.safeRadius,
+                    stats.unloadRadius,
+                    stats.meshedSections,
+                    stats.maxResidentSectionMeshes);
+            guiRenderer.renderText(budgetStr, 10, y, textSize, 1, 1, 1, 1);
+            y += lineHeight;
+
+            String estimateStr = String.format(
+                    "Est: sections %d MB | VBO %d MB | queues T/L/M %d/%d/%d W%d",
+                    stats.estimatedSectionMB(),
+                    stats.estimatedVboMB(),
+                    stats.terrainQueueSize,
+                    stats.lightQueueSize,
+                    stats.meshQueueSize,
+                    stats.workerCount);
+            guiRenderer.renderText(estimateStr, 10, y, textSize, 1, 1, 1, 1);
+        }
     }
 
     private void updateFPS() {
